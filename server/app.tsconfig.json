@@ -1,5 +1,5 @@
 {
-    "extends": "../../node_modules/5htp-core/tsconfig.common.json",
+    "extends": "../../node_modules/proteum/tsconfig.common.json",
     "compilerOptions": {
         "rootDir": "..",
         "baseUrl": "..",
@@ -7,9 +7,9 @@
 
             "@/server/models": ["./server/.generated/models.ts"],
 
-            "@client/*": ["../node_modules/5htp-core/client/*"],
-            "@common/*": ["../node_modules/5htp-core/common/*"],
-            "@server/*": ["../node_modules/5htp-core/server/*"],
+            "@client/*": ["../node_modules/proteum/client/*"],
+            "@common/*": ["../node_modules/proteum/common/*"],
+            "@server/*": ["../node_modules/proteum/server/*"],
 
             "@/*": ["./*"],
 
@@ -23,6 +23,6 @@
     
     "include": [
         ".",
-        "../../node_modules/5htp-core/types/global"
+        "../../node_modules/proteum/types/global"
     ]
 }

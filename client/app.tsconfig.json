@@ -1,16 +1,16 @@
 {
-    "extends": "../../node_modules/5htp-core/tsconfig.common.json",
+    "extends": "../../node_modules/proteum/tsconfig.common.json",
     "compilerOptions": {
         "rootDir": "..",
         "baseUrl": "..",
         "paths": {
             
-            "@client/*": ["../node_modules/5htp-core/client/*"],
-            "@common/*": ["../node_modules/5htp-core/common/*"],
+            "@client/*": ["../node_modules/proteum/client/*"],
+            "@common/*": ["../node_modules/proteum/common/*"],
 
             // Only used for typings (ex: ServerResponse)
             // Removed before webpack compilation
-            "@server/*": ["../node_modules/5htp-core/server/*"],
+            "@server/*": ["../node_modules/proteum/server/*"],
             "@/*": ["./*"],
 
             // ATTENTION: Les références à preact doivent toujours pointer vers la même instance
@@ -23,6 +23,6 @@
     },
     "include": [
         ".",
-        "../../node_modules/5htp-core/types/global"
+        "../../node_modules/proteum/types/global"
     ]
 }

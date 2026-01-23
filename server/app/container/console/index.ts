@@ -534,7 +534,7 @@ Logs: ${this.config.enable ? `<br/>` + this.logsToHTML(report.logs) : 'Logs coll
                 const appPrefix = '/webpack:/' + this.app.pkg.name + '/';
                 const appPrefixIndex = log.filePath.indexOf(appPrefix);
     
-                const corePrefix = '/webpack:/' + this.app.pkg.name + '/node_modules/5htp-core/';
+                const corePrefix = '/webpack:/' + this.app.pkg.name + '/node_modules/proteum/';
                 const corePrefixIndex = log.filePath.indexOf(corePrefix);
     
                 if (appPrefixIndex !== -1)
