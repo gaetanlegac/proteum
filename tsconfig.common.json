@@ -1,0 +1,44 @@
+/*
+    Condiguration de base pour l'app ET le framework
+*/
+{
+    "compilerOptions": {
+
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "allowJs": true,
+        "strict": false,
+        "downlevelIteration": true,
+        // Force case sensitive import filenames on Window and Mac
+        // https://briandesousa.net/?p=870 
+        "forceConsistentCasingInFileNames": true,
+
+        // Equivalent webpack: resolve.symblinks = false
+        "preserveSymlinks": true,
+        // Décorateurs
+        "experimentalDecorators": true,
+
+        "inlineSourceMap": true,
+
+        // React
+        "jsx": "react-jsx",
+        "jsxImportSource": "preact",
+
+        "strictPropertyInitialization": true,
+        "strictNullChecks": true,
+        
+        "rootDir": "./",
+        "baseUrl": "./",
+        "paths": {
+            
+            "@client/*": ["./client/*"],
+            "@common/*": ["./common/*"],
+            "@server/*": ["./server/*"],
+
+            "react": ["preact/compat"],
+            "react-dom": ["preact/compat"],
+            "react/jsx-runtime": ["preact/jsx-runtime"]
+        },
+    },
+    "include": ["."]
+}

@@ -1,0 +1,6 @@
+{
+    "id": "Core/Socket",
+    "name": "Socket",
+    "parent": "app",
+    "dependences": []
+}

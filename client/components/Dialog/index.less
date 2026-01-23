@@ -1,0 +1,149 @@
+@import (reference) "@/client/assets/vars.less";
+
+@toast-zindex: 200;
+
+#modals, 
+#toasts {
+
+    z-index: @toast-zindex;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: @spacing;
+    padding: @spacing;
+    
+    &,
+    > .modal {
+        position: fixed;
+        left: 0px; 
+        right: 0px; 
+        bottom: 0px;
+        max-height: 100vh;
+    }
+
+    // Toast
+    > .card,
+    // Modal (pas forcément une card quand bcp de contenu. Ex: inventory)
+    > .modal > div {
+
+        .btn.close {
+            position: absolute;
+            top: @spacing;
+            right: @spacing;
+
+            // Vire le margin-top créé par .col > *
+            margin-top: 0;
+        }        
+    }
+}
+
+#modals {
+
+    &,
+    > .modal {
+        top: 0px; 
+    }
+
+    > .modal {
+
+        @modal-zindex: 9;
+
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: @spacing;
+        z-index: @modal-zindex;
+
+        background: fade(#000, 20%);
+        border-radius: @radius;
+
+        // Pour les animations (ex: conffetis
+        > canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }  
+
+        > .card {
+
+            position: relative;
+            min-width: 300px;
+            max-height: 99vh;
+            max-width: 99vw;
+            width: 400px; // Default width
+            box-shadow: none;
+            overflow-y: auto;
+
+            // Pas d'anim quand pas card, 
+            // Car peut contenir bcp d'elemnts => performance
+            animation: aff-modale 0.1s ease;
+            @keyframes aff-modale {
+                0% {
+                    opacity: 0;
+                    transform: scale(0.8);
+                }
+                100% {
+                    opacity: 1;
+                    transform: scale(1);
+                }
+            }
+
+            > header {
+                > i {
+                    color: @c1;
+                    font-size: 3em;
+                }
+            }
+
+            z-index: 1; // Au dessus de l'animation canvas
+        }
+    }
+}
+
+#toasts {
+    // Toast
+    > .card {
+
+        text-align: left;
+        max-width: 450px;
+        z-index: 999;
+        cursor: pointer;
+        padding-right: @spacing * 1.5;
+
+        animation: aff-toast 0.1s ease;
+        @keyframes aff-toast {
+            0% {
+                opacity: 0.5;
+                transform: scale(0.5);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }    
+        
+        > i {
+            color: @c1;
+            flex: 0 0 1em;
+        }
+
+        h2 {
+            font-size: 1em;
+        }
+
+        p {
+            text-align: left;
+        }
+    }
+}
+
+// Selecteur moins profond pour que les clases utilitaires (w-a-x) soient prioritaires
+.modal > .card {
+    // Modal content should always be whiteys adapt from content width
+    //max-width: 500px;
+}

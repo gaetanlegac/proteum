@@ -1,0 +1,6 @@
+{
+    "id": "Core/Disks/S3",
+    "name": "S3DiskDriver",
+    "parent": "disks",
+    "dependences": []
+}

@@ -1,0 +1,6 @@
+{
+    "id": "Core/Models",
+    "name": "Models",
+    "parent": "app",
+    "dependences": []
+}

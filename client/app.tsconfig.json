@@ -1,0 +1,28 @@
+{
+    "extends": "../../node_modules/5htp-core/tsconfig.common.json",
+    "compilerOptions": {
+        "rootDir": "..",
+        "baseUrl": "..",
+        "paths": {
+            
+            "@client/*": ["../node_modules/5htp-core/client/*"],
+            "@common/*": ["../node_modules/5htp-core/common/*"],
+
+            // Only used for typings (ex: ServerResponse)
+            // Removed before webpack compilation
+            "@server/*": ["../node_modules/5htp-core/server/*"],
+            "@/*": ["./*"],
+
+            // ATTENTION: Les références à preact doivent toujours pointer vers la même instance
+            "react": ["preact/compat"],
+            "react-dom/test-utils": ["preact/test-utils"],
+            "react-dom": ["preact/compat"], // Must be below test-utils
+            "react/jsx-runtime": ["preact/jsx-runtime"],
+            "preact/jsx-runtime": ["preact/jsx-runtime"]
+        }
+    },
+    "include": [
+        ".",
+        "../../node_modules/5htp-core/types/global"
+    ]
+}

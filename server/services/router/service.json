@@ -1,0 +1,6 @@
+{
+    "id": "Core/Router",
+    "name": "Router",
+    "parent": "app",
+    "dependences": []
+}

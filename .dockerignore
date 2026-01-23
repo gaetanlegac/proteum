@@ -1,0 +1,10 @@
+# NodeJS
+node_modules
+package-lock.json
+
+# Config files
+.git
+.vscode
+Dockerfile
+.dockerignore
+.gitignore

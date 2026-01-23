@@ -1,0 +1,6 @@
+{
+    "id": "Core/Cron",
+    "name": "Cron",
+    "parent": "app",
+    "dependences": []
+}

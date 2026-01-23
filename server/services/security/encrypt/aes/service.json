@@ -1,0 +1,6 @@
+{
+    "id": "Core/Encryption/AES",
+    "name": "AES",
+    "parent": "app",
+    "dependences": []
+}

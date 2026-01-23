@@ -1,0 +1,6 @@
+{
+    "id": "Core/Users/Router",
+    "name": "RouteUser",
+    "parent": "router",
+    "dependences": []
+}

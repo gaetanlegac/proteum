@@ -1,0 +1,6 @@
+{
+    "id": "Core/Disks",
+    "name": "Disks",
+    "parent": "app",
+    "dependences": []
+}

@@ -1,0 +1,40 @@
+// Npm
+import session from 'express-session';
+import { v4 as uuidv4 } from 'uuid';
+import redisConnector from 'connect-redis';
+const RedisStore = redisConnector(session);
+
+// Services
+import type { THttpConfig } from '@server/services/http';
+import Redis from '@server/services/redis';
+
+// Middleware
+export const createSessionMiddleware = (httpConfig: THttpConfig) => {
+    return session({
+
+        genid: (req) => {
+            return /*req.id;*/uuidv4(); // ID session via UUID
+        },
+
+        name: httpConfig.session.name,
+        store: new RedisStore({
+            client: Redis.instance,
+            ttl: httpConfig.session.duration // secondes
+        }),
+        secret: httpConfig.session.secret,
+
+        // Ces deux valeurs sont recommandes avec session filestore
+        // https://github.com/valery-barysok/session-file-store/blob/master/examples/express-example/app.js
+        resave: true, // Quand false, /admin/console réinitialise la session
+        saveUninitialized: true,
+
+        cookie: {
+            maxAge: httpConfig.session.duration * 1000, // millisecondes
+            //sameSite: true,
+            httpOnly: true,
+            // Les variables d'environnement sont des chaines
+            secure: httpConfig.ssl,
+            path: '/',
+        }
+    })
+}

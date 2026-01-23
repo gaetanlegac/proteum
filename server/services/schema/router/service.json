@@ -1,0 +1,6 @@
+{
+    "id": "Core/Schema/Router",
+    "name": "RouteSchema",
+    "parent": "router",
+    "dependences": []
+}

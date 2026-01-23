@@ -1,0 +1,6 @@
+{
+    "id": "Core/Schema",
+    "name": "Schema",
+    "parent": "app",
+    "dependences": []
+}
