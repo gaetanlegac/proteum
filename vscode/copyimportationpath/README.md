@@ -1,3 +1,0 @@
-# copyimportationpath README
-
-Hello
