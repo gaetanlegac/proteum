@@ -21,7 +21,7 @@ const path = require('path');
 if (!process.env.TS_NODE_IGNORE) {
     process.env.TS_NODE_IGNORE = [
         // Default ts-node ignore rule (works when deps are nested under `../node_modules/...`)
-        '(?:^|/)node_modules/',
+        '(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)',
         // Extra rule for deps hoisted next to Proteum (ex: `../../tailwindcss/...`)
         '^\\.\\./\\.\\./(?!\\./|\\.\\./)[^/]+/'
     ].join(',');

@@ -20,8 +20,6 @@ import type { AnyService } from './service';
 
 export { default as Service } from './service';
 
-import 'tailwindcss';
-
 /*----------------------------------
 - TYPES
 ----------------------------------*/
