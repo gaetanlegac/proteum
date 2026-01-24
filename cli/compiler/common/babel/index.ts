@@ -64,7 +64,7 @@ module.exports = (app: App, side: TAppSide, dev: boolean): webpack.RuleSetRule[]
             // https://github.com/babel/babel-loader#options
 
             // ATTENTION: Ne prend pas toujours compte des màj des plugins babel
-            cacheDirectory: cli.args.cache === true,
+            cacheDirectory: dev || cli.args.cache === true,
             // Désactive car ralenti compilation
             cacheCompression: false,
 

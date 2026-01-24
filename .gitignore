@@ -4,6 +4,7 @@ env.*
 
 # Temp files
 .temp
+.cache
 bin
 public
 

@@ -45,13 +45,13 @@ export const run = () => new Promise<void>(async () => {
         // https://webpack.js.org/configuration/watch/#watchoptions
         // Watching may not work with NFS and machines in VirtualBox
         // Uncomment next line if it is your case (use true or interval in milliseconds)
-        poll: 1000,
+        //poll: 1000,
 
         // Decrease CPU or memory usage in some file systems
         // Ignore updated from:
         // - Node modules except 5HTP core (framework dev mode)
         // - Generated files during runtime (cause infinite loop. Ex: models.d.ts)
-        ignored: /(node_modules\/(?!proteum\/))|(\.generated\/)/
+        ignored: /(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)/
 
         //aggregateTimeout: 1000,
     }, async (error, stats) => {

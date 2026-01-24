@@ -15,7 +15,8 @@ module.exports = (app: App, dev: boolean, client: boolean): webpack.RuleSetRule[
             }
         }
 
-    }, {
+    }, 
+    ...(dev ? [] : [{
         test: /\.(jpg|jpeg|png)$/i,
         type: "javascript/auto",
         use: [{
@@ -25,10 +26,15 @@ module.exports = (app: App, dev: boolean, client: boolean): webpack.RuleSetRule[
                 placeholder: true,
                 placeholderSize: 20,
                 quality: 100,
-                publicPath: '/public'
+                publicPath: '/public',
+
+                // Triggers error
+               // cacheDirectory: true,
             }
         }]
-      }, {
+      }]), 
+      
+      {
         test: /\.(webm|mp4|avi|mpk|mov|mkv)$/,
         type: 'asset/resource',
     },]

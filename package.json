@@ -1,7 +1,7 @@
 {
 	"name": "proteum",
 	"description": "Convenient TypeScript framework designed for Performance and Productivity.",
-	"version": "1.0.0-1",
+	"version": "1.0.0-2",
 	"author": "Gaetan Le Gac (https://github.com/gaetanlegac)",
 	"repository": "git://github.com/gaetanlegac/proteum.git",
 	"license": "MIT",

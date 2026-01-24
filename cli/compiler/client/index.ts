@@ -153,9 +153,9 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
 
             ...(commonConfig.plugins || []),
 
-            new MiniCssExtractPlugin({
-
-            }),
+            ...((dev && false) ? [] : [
+                new MiniCssExtractPlugin({})
+            ]),
             
             // Emit a file with assets cli.paths
             // https://github.com/webdeveric/webpack-assets-manifest#options
@@ -229,7 +229,7 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
         ],
 
         // https://webpack.js.org/configuration/devtool/#devtool
-        devtool: 'source-map',
+        devtool: dev ? 'eval-cheap-module-source-map' : 'source-map',
         /*devServer: {
             hot: true,
         },*/

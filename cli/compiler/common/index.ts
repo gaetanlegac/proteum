@@ -5,6 +5,7 @@
 // npm
 import webpack from 'webpack';
 import dayjs from 'dayjs';
+import path from 'path';
 
 // Plugins
 const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
@@ -123,13 +124,18 @@ export default function createCommonConfig(
         // Don't attempt to continue if there are any errors.
         bail: !dev,
 
-        // When true, Can cause troubles on re-compiling the client side
-        // "webpack" The "path" argument must be of type string. Received undefined
-        // https://github.com/webpack/webpack/issues/12616
-        // Update: Hum it's fixed, just had to update webpack deps
-        cache: dev,
+        // Persistent cache speeds up cold starts and incremental rebuilds.
+        cache: (dev || cli.args.cache === true) ? {
+            type: 'filesystem',
+            cacheDirectory: path.join(app.paths.cache, 'webpack', side),
+            compression: false,
+            buildDependencies: {
+                config: [__filename],
+            },
+        } : false,
 
-        profile: true,
+        // Increase compilation performance
+        profile: false,
 
         // Pour bundle-stats
         // https://github.com/relative-ci/bundle-stats/tree/master/packages/cli#webpack-configuration
