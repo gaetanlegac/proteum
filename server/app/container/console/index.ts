@@ -258,7 +258,7 @@ export default class Console {
         if (filepath.startsWith( projectRoot ))
             filepath = filepath.substring( projectRoot.length )
 
-        const frameworkRoot = '/node_modules/5htp-core/';
+        const frameworkRoot = '/node_modules/proteum/';
         if (filepath.startsWith( frameworkRoot ))
             filepath = '@' + filepath.substring( frameworkRoot.length )
 

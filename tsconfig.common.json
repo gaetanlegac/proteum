@@ -40,5 +40,6 @@
             "react/jsx-runtime": ["preact/jsx-runtime"]
         },
     },
-    "include": ["."]
+    "include": ["."],
+    "exclude": ["cli"]
 }

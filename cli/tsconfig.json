@@ -1,0 +1,38 @@
+{
+    "compilerOptions": {
+        
+
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "allowJs": true,
+        "strict": false,
+        "downlevelIteration": true,
+
+        // Equivalent webpack: resolve.symblinks = false
+        "preserveSymlinks": true,
+        // Décorateurs
+        "experimentalDecorators": true,
+
+        // React
+        "jsx": "react-jsx",
+        "jsxImportSource": "preact",
+
+        "strictPropertyInitialization": true,
+        "strictNullChecks": true,
+        
+        "baseUrl": "./",
+        "outDir": "./bin",
+
+        "paths": {
+            "@cli/*": [ "./*" ],
+            "@cli/app": [ "./app" ],
+            "@cli": [ "./" ]
+        },
+    },
+
+    "ts-node": {
+        "transpileOnly": true,
+    },
+
+    "include": ["./"]
+}
