@@ -4,7 +4,7 @@ import type webpack from 'webpack';
 module.exports = (app: App, dev: boolean, client: boolean): webpack.RuleSetRule[] => {
 
     return [{
-        test: /\.(bmp|gif|png|jpg|jpegico|svg|webp)$/,
+        test: /\.(bmp|gif|png|jpe?g|ico|svg|webp)$/i,
         type: 'asset',
         parser: {
             dataUrlCondition: {
@@ -15,7 +15,8 @@ module.exports = (app: App, dev: boolean, client: boolean): webpack.RuleSetRule[
             }
         }
 
-    }, 
+    },
+
     ...(dev ? [] : [{
         test: /\.(jpg|jpeg|png)$/i,
         type: "javascript/auto",
@@ -29,12 +30,12 @@ module.exports = (app: App, dev: boolean, client: boolean): webpack.RuleSetRule[
                 publicPath: '/public',
 
                 // Triggers error
-               // cacheDirectory: true,
+            // cacheDirectory: true,
             }
-        }]
-      }]), 
-      
-      {
+        }],
+    }]),
+
+    {
         test: /\.(webm|mp4|avi|mpk|mov|mkv)$/,
         type: 'asset/resource',
     },]
