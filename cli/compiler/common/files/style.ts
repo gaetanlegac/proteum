@@ -5,6 +5,8 @@ import type { App } from '../../../app';
 
 module.exports = (app: App, dev: Boolean, client: boolean) => {
 
+    console.log('app.paths.root', app.paths.root)
+
     return [
 
         // Apply PostCSS plugins including autoprefixer

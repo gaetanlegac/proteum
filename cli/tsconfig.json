@@ -1,6 +1,10 @@
 {
     "compilerOptions": {
         
+        // We run the CLI through ts-node in production, so we must use a modern target.
+        // In particular, downleveling built-in subclasses (ex: `class extends Map`) to ES5 breaks at runtime.
+        "target": "ES2021",
+        "module": "CommonJS",
 
         "esModuleInterop": true,
         "skipLibCheck": true,
