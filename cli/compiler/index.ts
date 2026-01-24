@@ -8,7 +8,7 @@ import webpack from 'webpack';
 import fs from 'fs-extra';
 import serialize from 'serialize-javascript';
 
-import SpeedMeasurePlugin from "speed-measure-webpack-plugin";
+import SpeedMeasurePlugin from "speed-measure-webpack-v5-plugin";
 const smp = new SpeedMeasurePlugin({ disable: true });
 
 // Core
