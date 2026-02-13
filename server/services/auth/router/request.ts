@@ -8,7 +8,6 @@ import jwt from 'jsonwebtoken';
 // Core
 import type { default as Router, Request as ServerRequest, TAnyRouter } from '@server/services/router';
 import RequestService from '@server/services/router/request/service';
-import { InputError, AuthRequired, Forbidden } from '@common/errors';
 
 // Specific
 import type AuthenticationRouterService from '.';
@@ -45,10 +44,22 @@ export default class UsersRequestService<
         return this.users.logout( this.request );
     }
 
+    public check(): TUser;
+
     // TODO: return user type according to entity
-    public check(role: TUserRole, motivation?: string, dataForDebug?: {}): TUser;
-    public check(role: false, motivation?: string, dataForDebug?: {}): null;
-    public check(role: TUserRole | boolean = 'USER', motivation?: string, dataForDebug?: {}): TUser | null {
-        return this.users.check( this.request, role, motivation, dataForDebug );
+    public check(role: TUserRole, feature: null): TUser;
+
+    public check(role: false): null;
+
+    public check(role: TUserRole, feature: FeatureKeys, action?: string): TUser;
+
+    public check(role: false, feature: FeatureKeys, action?: string): null;
+
+    public check(
+        role: TUserRole | false = 'USER',
+        feature?: FeatureKeys | null,
+        action?: string
+    ) {
+        return this.users.check( this.request, role, feature, action ) as any;
     }
 }

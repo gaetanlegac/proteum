@@ -36,27 +36,6 @@ type TErrorDetails = {
 }
 
 /*----------------------------------
-- TYPES: AUTH REQUIRED FEATURE
-----------------------------------*/
-
-/**
- * Global, augmentable feature catalog used to constrain the `feature` argument
- * of `AuthRequired`.
- *
- * Default behavior (no augmentation): `feature` stays a free-form string.
- * App behavior (augmentation provided by the host app): `feature` becomes a
- * curated union of feature keys.
- */
-declare global {
-    interface TAuthRequiredFeatureCatalog {}
-}
-
-type TAuthRequiredFeatureKey = Extract<keyof TAuthRequiredFeatureCatalog, string>;
-type TAuthRequiredFeature = [TAuthRequiredFeatureKey] extends [never]
-    ? string
-    : TAuthRequiredFeatureKey;
-
-/*----------------------------------
 - TYPES: BUG REPORT
 ----------------------------------*/
 
@@ -179,46 +158,48 @@ export class InputErrorSchema extends CoreError {
     }
 }
 
-export class AuthRequired extends CoreError {
+export class AuthRequired<FeatureKeys extends string> extends CoreError {
     public http = 401;
     public title = "Authentication Required";
     public static msgDefaut = "Please Login to Continue.";
 
-    public constructor(message: string, feature?: TAuthRequiredFeature);
-    public constructor(message: string, motivation: string | undefined, details: TErrorDetails | undefined);
     public constructor( 
         message: string, 
-        public feature?: string,
+        public feature: FeatureKeys,
+        public action: string,
         details?: TErrorDetails
     ) {
         super(message, details);
     }
 
-    public json(): TJsonError & { feature?: string } {
+    public json(): TJsonError & { feature: string, action: string } {
         return {
             ...super.json(),
             feature: this.feature,
+            action: this.action,
         }
     }
 }
 
-export class UpgradeRequired extends CoreError {
+export class UpgradeRequired<FeatureKeys extends string> extends CoreError {
     public http = 402;
     public title = "Upgrade Required";
     public static msgDefaut = "Please Upgrade to Continue.";
 
     public constructor( 
         message: string, 
-        public feature: string,
+        public feature: FeatureKeys,
+        public action: string,
         details?: TErrorDetails
     ) {
         super(message, details);
     }
 
-    public json(): TJsonError & { feature: string } {
+    public json(): TJsonError & { feature: string, action: string } {
         return {
             ...super.json(),
             feature: this.feature,
+            action: this.action,
         }
     }
 }
@@ -308,9 +289,9 @@ export const fromJson = ({ code, message, ...details }: TJsonError) => {
             else
                 return new InputError( message, details );
 
-        case 401: return new AuthRequired( message, (details as any).feature, details );
+        case 401: return new AuthRequired( message, details["feature"], details["action"], details );
 
-        case 402: return new UpgradeRequired( message, details.feature, details );
+        case 402: return new UpgradeRequired( message, details["feature"], details["action"], details );
 
         case 403: return new Forbidden( message, details );
 

@@ -20,9 +20,46 @@ import { InputError, AuthRequired, Forbidden } from '@common/errors';
 - TYPES
 ----------------------------------*/
 
-export type TUserRole = typeof UserRoles[number]
+declare global {
+    /**
+     * Optional app-level role registry.
+     *
+     * Apps can add their own roles (keys are role ids):
+     * `interface ProteumAuthRoleCatalog { GOD: true }`
+     */
+    interface ProteumAuthRoleCatalog {}
+
+    /**
+     * App-level feature catalog consumed by auth permission checks.
+     *
+     * Apps can augment this interface with their own feature map:
+     * `interface ProteumAuthFeatureCatalog extends MyFeatures {}`
+     */
+    interface ProteumAuthFeatureCatalog {}
+
+    /**
+     * Canonical feature keys union used across app + framework.
+     *
+     * Notes:
+     * - If the app does not define a feature catalog, this defaults to `string`.
+     * - Otherwise it becomes the string keys of `ProteumAuthFeatureCatalog`.
+     */
+    type FeatureKeys = (
+        keyof ProteumAuthFeatureCatalog extends never
+            ? string
+            : Extract<keyof ProteumAuthFeatureCatalog, string>
+    );
+}
+
+export type TUserRole = (
+    typeof UserRoles[number]
+    |
+    Extract<keyof ProteumAuthRoleCatalog, string>
+);
 
 export type THttpRequest = express.Request | http.IncomingMessage;
+
+export type TFeatureKey = FeatureKeys;
 
 /*----------------------------------
 - CONFIG
@@ -167,7 +204,7 @@ export default abstract class AuthService<
         return session;
     }
 
-    public createSession( session: TJwtSession, request: TRequest ): string {
+    public createSession( session: TJwtSession, request2: TRequest ): string {
 
         this.config.debug && console.info(LogPrefix, `Creating new session:`, session);
 
@@ -175,7 +212,7 @@ export default abstract class AuthService<
 
         this.config.debug && console.info(LogPrefix, `Generated JWT token for session:` + token);
 
-        request.res.cookie('authorization', token, {
+        request2.res.cookie('authorization', token, {
             maxAge: this.config.jwt.expiration,
         });
 
@@ -191,30 +228,28 @@ export default abstract class AuthService<
         request.res.clearCookie('authorization');
     }
 
-    public check( 
-        request: TRequest, 
-        role: TUserRole, 
-        motivation?: string, 
-        dataForDebug?: { [key: string]: any }
-    ): TUser;
+    public check(
+        request: TRequest,
+        role?: TUserRole | false,
+    ): TUser | null;
 
-    public check( 
-        request: TRequest, 
-        role: false, 
-        motivation?: string, 
-        dataForDebug?: { [key: string]: any }
-    ): null;
+    public check(
+        request: TRequest,
+        role: TUserRole | false,
+        feature: FeatureKeys,
+        action?: string,
+    ): TUser | null;
 
-    public check( 
-        request: TRequest, 
-        role: TUserRole | false = 'USER', 
-        motivation?: string, 
-        dataForDebug?: { [key: string]: any }
+    public check(
+        request: TRequest,
+        role: TUserRole | false = 'USER',
+        feature?: FeatureKeys,
+        action?: string,
     ): TUser | null {
 
         const user = request.user;
 
-        this.config.debug && console.warn(LogPrefix, `Check auth, role = ${role}. Current user =`, user?.name, motivation);
+        this.config.debug && console.warn(LogPrefix, `Check auth, role = ${role}. Current user =`, user?.name, feature);
 
         if (user === undefined) {
 
@@ -223,13 +258,13 @@ export default abstract class AuthService<
         // Shoudln't be logged
         } else if (role === false) {
 
-            return user;
+            return user as TUser;
 
         // Not connected
         } else if (user === null) {
 
             console.warn(LogPrefix, "Refusé pour anonyme (" + request.ip + ")");
-            throw new AuthRequired('Please login to continue', motivation, dataForDebug);
+            throw new AuthRequired('Please login to continue', feature as any, action as any);
             
         // Insufficient permissions
         } else if (!user.roles.includes(role)) {
@@ -244,7 +279,7 @@ export default abstract class AuthService<
 
         }
 
-        return user;
+        return user as TUser;
     }
 
 }
