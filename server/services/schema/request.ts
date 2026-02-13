@@ -4,7 +4,6 @@
 
 // Npm
 import zod from 'zod';
-import { SomeType } from 'zod/v4/core';
  
 // Core
 import { 
@@ -24,6 +23,18 @@ export type TConfig = {
     debug?: boolean
 }
 
+type TValidationSchema = zod.ZodTypeAny;
+type TValidationShape = zod.ZodRawShape;
+
+const isZodSchema = (fields: unknown): fields is TValidationSchema => {
+    return (
+        typeof fields === 'object'
+        && fields !== null
+        && 'safeParse' in fields
+        && typeof (fields as TValidationSchema).safeParse === 'function'
+    );
+}
+
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
@@ -32,18 +43,25 @@ export default(
     config: TConfig,
     router = request.router,
     app = router.app
-) => ({
+) => {
 
-    ...schema,
-
-    validate( fields: zod.ZodSchema | { [key: string]: zod.ZodSchema } ) {
+    function validate<TSchema extends TValidationSchema>( fields: TSchema ): zod.output<TSchema>;
+    function validate<TShape extends TValidationShape>( fields: TShape ): zod.output<zod.ZodObject<TShape>>;
+    function validate( fields: TValidationSchema | TValidationShape ) {
 
         config.debug && console.log(LogPrefix, "Validate request data:", request.data);
 
-        const schema = typeof fields === 'object' ? zod.object(fields) : fields;
+        const validationSchema = isZodSchema(fields) ? fields : zod.object(fields);
 
-        const preprocessedSchema = preprocessSchema(schema);
+        //const preprocessedSchema = preprocessSchema(validationSchema);
 
-        return preprocessedSchema.parse(request.data);
-    },
-})
+        return validationSchema.parse(request.data);
+    }
+
+    return {
+
+        ...schema,
+
+        validate,
+    }
+}
