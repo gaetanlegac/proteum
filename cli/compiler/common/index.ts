@@ -125,14 +125,14 @@ export default function createCommonConfig(
         bail: !dev,
 
         // Persistent cache speeds up cold starts and incremental rebuilds.
-        cache: (dev || cli.args.cache === true) ? {
+        cache: /*(dev || cli.args.cache === true) ? {
             type: 'filesystem',
             cacheDirectory: path.join(app.paths.cache, 'webpack', side),
             compression: false,
             buildDependencies: {
                 config: [__filename],
             },
-        } : false,
+        } : */false,
 
         // Increase compilation performance
         profile: false,
