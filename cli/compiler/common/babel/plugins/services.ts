@@ -242,10 +242,10 @@ function Plugin(babel, { app, side, debug }: TOptions) {
 
         // Count how many total imports we transform
         importedCount: number,
-        routeMethods: string[],
         routePaths: Set<string>,
         routesIndex: TRoutesIndex,
         contextGuardedClassMethods: WeakSet<types.ClassMethod>,
+        routeDecoratedClassMethods: WeakSet<types.ClassMethod>,
 
         // For every local identifier, store info about how it should be rewritten
         imported: {
@@ -262,11 +262,11 @@ function Plugin(babel, { app, side, debug }: TOptions) {
             this.importedCount = 0;
             this.debug = debug || false;
 
-            this.routeMethods = [];
             this.routePaths = new Set();
 
             this.routesIndex = getRoutesIndex(app.paths.root);
             this.contextGuardedClassMethods = new WeakSet();
+            this.routeDecoratedClassMethods = new WeakSet();
         },
 
         visitor: {
@@ -288,8 +288,7 @@ function Plugin(babel, { app, side, debug }: TOptions) {
 
                             if (!isRoute) continue;
 
-                            const methodName = node.key.name;
-                            this.routeMethods.push( methodName );
+                            this.routeDecoratedClassMethods.add(node);
 
                             const routePath = getRoutePathFromDecoratorExpression(decorator.expression);
                             if (routePath)
@@ -462,8 +461,9 @@ function Plugin(babel, { app, side, debug }: TOptions) {
                 // Must have a method name
                 if (path.node.key.type !== 'Identifier') return;
 
-                // Init context
+                // Track whether this exact method is decorated with @Route.
                 const methodName = path.node.key.name;
+                const isRouteMethod = this.routeDecoratedClassMethods.has(path.node);
                 let params = path.node.params;
 
                 // Prefix references
@@ -531,6 +531,13 @@ function Plugin(babel, { app, side, debug }: TOptions) {
                         );
                     }
                     else if (ref.source === 'request') {
+                        // Only route handlers receive the `context` parameter.
+                        if (!isRouteMethod) {
+                            throw subPath.buildCodeFrameError(
+                                `@request import "${ref.local}" can only be used inside @Route methods (found in "${methodName}").`
+                            );
+                        }
+
                         // this.app.Models.client.[identifier]
                         // e.g. this.app.Models.client.MyModel
                         subPath.replaceWith(
@@ -544,7 +551,7 @@ function Plugin(babel, { app, side, debug }: TOptions) {
                 } });
 
                 if (
-                    this.routeMethods.includes(methodName) 
+                    isRouteMethod
                     && 
                     path.node.params.length < 2
                 ) {
