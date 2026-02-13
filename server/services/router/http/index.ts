@@ -193,7 +193,7 @@ export default class HttpServer {
 
         routes.use( csp.expressCspHeader({
             directives: {
-                'script-src': [csp.INLINE, csp.SELF, 
+                'script-src': [csp.INLINE, csp.SELF, csp.UNSAFE_EVAL,
                    ...this.config.csp.scripts
                 ]
             }
