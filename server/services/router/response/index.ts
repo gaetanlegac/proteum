@@ -52,7 +52,7 @@ export type TRouterContext<TRouter extends TServerRouter> = (
         Router: TRouter,
     }
     & TRouterContextServices<TRouter>
-    //& TRouterRequestContext<TRouter>
+    & TRouterRequestContext<TRouter>
 )
 
 export type TRouterContextServices< 

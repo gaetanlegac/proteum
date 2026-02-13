@@ -287,6 +287,18 @@ declare module '@models/types' {
     export * from '@/var/prisma/index';
 }
 
+declare module '@common/errors' {
+            
+    export * from '@common/errors/index';
+    export { default } from '@common/errors/index';
+
+    export const AuthRequired: typeof import('@common/errors/index').AuthRequired<FeatureKeys>;
+    export type AuthRequired = import('@common/errors/index').AuthRequired<FeatureKeys>;
+
+    export const UpgradeRequired: typeof import('@common/errors/index').UpgradeRequired<FeatureKeys>;
+    export type UpgradeRequired = import('@common/errors/index').UpgradeRequired<FeatureKeys>;
+}
+
 declare module '@request' {
     
 }
@@ -377,6 +389,14 @@ declare type ${appClassIdentifier} = import("@/server/.generated/app").default;
 
 declare module '@cli/app' {
 
+    type TSetupConfig<TConfig> =
+        TConfig extends (...args: any[]) => any ? TConfig
+        : TConfig extends Array<infer TItem> ? Array<TSetupConfig<TItem>>
+        : TConfig extends object ? {
+            [K in keyof TConfig]: TSetupConfig<TConfig[K]> | TServiceSetup | TServiceRef
+        }
+        : TConfig;
+
     type App = {
 
         env: TEnvConfig;
@@ -391,7 +411,7 @@ declare module '@cli/app' {
             // app.setup('User', 'Core/User')
             serviceName: TServiceName, 
             servicePath: string,
-            serviceConfig?: ${appClassIdentifier}[TServiceName]["config"]
+            serviceConfig?: TSetupConfig<${appClassIdentifier}[TServiceName]["config"]>
         ]) => TServiceSetup;
     }
     const app: App;
@@ -436,7 +456,7 @@ declare module '@server/app' {
 
 declare module '@request' {
     import type { TRouterContext } from '@server/services/router/response';
-    const routerContext: TRouterContext<CrossPath["Router"]>;
+    const routerContext: TRouterContext<${appClassIdentifier}["Router"]>;
     export = routerContext;
 }
     
@@ -452,6 +472,18 @@ declare module '@models' {
     const models: ModelDelegates;
   
     export = models;
+}
+
+declare module '@common/errors' {
+        
+    export * from '@common/errors/index';
+    export { default } from '@common/errors/index';
+
+    export const AuthRequired: typeof import('@common/errors/index').AuthRequired<FeatureKeys>;
+    export type AuthRequired = import('@common/errors/index').AuthRequired<FeatureKeys>;
+
+    export const UpgradeRequired: typeof import('@common/errors/index').UpgradeRequired<FeatureKeys>;
+    export type UpgradeRequired = import('@common/errors/index').UpgradeRequired<FeatureKeys>;
 }
     
 declare module '@models/types' {

@@ -10,7 +10,8 @@ import ReactDOM from 'react-dom';
 import type {
     default as ServerRouter,
     Request as ServerRequest,
-    Response as ServerResponse
+    Response as ServerResponse,
+    TAnyRouter
 } from '@server/services/router';
 import type { TBasicSSrData } from '@server/services/router/response';
 
@@ -56,11 +57,11 @@ const LogPrefix = '[router]'
 // Client router can handle Client requests AND Server requests (for pages only)
 export type { default as ClientResponse, TRouterContext } from "./response";
 
-export type Router = ClientRouter | ServerRouter;
+export type Router = ClientRouter | TAnyRouter;
 
-export type Request = ClientRequest<ClientRouter> | ServerRequest<ServerRouter>;
+export type Request = ClientRequest<ClientRouter> | ServerRequest<TAnyRouter>;
 
-export type Response = ClientResponse<ClientRouter> | ServerResponse<ServerRouter>;
+export type Response = ClientResponse<ClientRouter> | ServerResponse<TAnyRouter>;
 
 /*----------------------------------
 - TYPES: ROUTES LOADING
