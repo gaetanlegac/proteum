@@ -54,11 +54,11 @@ export default function createCommonConfig(
         mode: dev ? 'development' : 'production',
 
         resolveLoader: {
-            // Recherche des loaders dans framework/node_modules (psinon, webpack cherche dans le projet)
+            // Support both install modes:
+            // - npm i: loaders are often hoisted in app/node_modules
+            // - npm link: loaders often live in framework/node_modules
             modules: [
-                // The line below is not necessary
-                // By default, webpack is supposed to search in the project directory at first
-                //cli.paths.appRoot + '/node_modules',
+                app.paths.root + '/node_modules',
                 cli.paths.core.root + '/node_modules',
                 cli.paths.core.cli + '/node_modules',
             ],
