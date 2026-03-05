@@ -228,8 +228,9 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
             ]),
         ],
 
+        // CSP-safe in development: avoid any `eval`-based source map mode.
         // https://webpack.js.org/configuration/devtool/#devtool
-        devtool: dev ? 'eval-cheap-module-source-map' : 'source-map',
+        devtool: dev ? 'cheap-module-source-map' : 'source-map',
         /*devServer: {
             hot: true,
         },*/
