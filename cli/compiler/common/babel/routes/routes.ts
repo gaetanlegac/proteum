@@ -650,51 +650,91 @@ function Plugin(babel, { app, side, debug }: TOptions) {
 
     function isProgramBodyLevelFunction(path: NodePath): boolean {
 
-        const parent = path.parentPath;
-        if (!parent)
-            return false;
+        let currentPath: NodePath | null = path;
+        while (currentPath) {
 
-        // function Foo() {}
-        if (parent.isProgram())
-            return true;
-
-        // export default function Foo() {} / export default () => {}
-        if (
-            parent.isExportDefaultDeclaration()
-            &&
-            parent.parentPath?.isProgram()
-        )
-            return true;
-
-        // export const Foo = () => {}
-        if (
-            parent.isExportNamedDeclaration()
-            &&
-            parent.parentPath?.isProgram()
-        )
-            return true;
-
-        // const Foo = () => {} (top-level) / export const Foo = () => {}
-        if (parent.isVariableDeclarator()) {
-
-            const declaration = parent.parentPath;
-            if (!declaration?.isVariableDeclaration())
+            const parent = currentPath.parentPath;
+            if (!parent)
                 return false;
 
-            const declarationParent = declaration.parentPath;
-            if (!declarationParent)
-                return false;
-
-            if (declarationParent.isProgram())
+            // function Foo() {}
+            if (parent.isProgram())
                 return true;
 
+            // export default function Foo() {} / export default () => {}
             if (
-                declarationParent.isExportNamedDeclaration()
+                parent.isExportDefaultDeclaration()
                 &&
-                declarationParent.parentPath?.isProgram()
+                parent.parentPath?.isProgram()
             )
                 return true;
+
+            // export const Foo = () => {}
+            if (
+                parent.isExportNamedDeclaration()
+                &&
+                parent.parentPath?.isProgram()
+            )
+                return true;
+
+            // const Foo = () => {} (top-level) / export const Foo = () => {}
+            if (parent.isVariableDeclarator()) {
+
+                const declaration = parent.parentPath;
+                if (!declaration?.isVariableDeclaration())
+                    return false;
+
+                const declarationParent = declaration.parentPath;
+                if (!declarationParent)
+                    return false;
+
+                if (declarationParent.isProgram())
+                    return true;
+
+                if (
+                    declarationParent.isExportNamedDeclaration()
+                    &&
+                    declarationParent.parentPath?.isProgram()
+                )
+                    return true;
+            }
+
+            // Support top-level component wrappers such as React.forwardRef(...) and React.memo(...)
+            if (
+                parent.isCallExpression()
+                &&
+                isSupportedComponentWrapperCall(parent, currentPath)
+            ) {
+                currentPath = parent;
+                continue;
+            }
+
+            return false;
         }
+
+        return false;
+    }
+
+    function isSupportedComponentWrapperCall(
+        callPath: NodePath<types.CallExpression>,
+        wrappedPath: NodePath
+    ): boolean {
+
+        if (callPath.node.arguments[0] !== wrappedPath.node)
+            return false;
+
+        const callee = callPath.node.callee;
+        if (callee.type === 'Identifier')
+            return ['forwardRef', 'memo'].includes(callee.name);
+
+        if (
+            callee.type === 'MemberExpression'
+            &&
+            !callee.computed
+            &&
+            callee.property.type === 'Identifier'
+        )
+            return ['forwardRef', 'memo'].includes(callee.property.name);
 
         return false;
     }
