@@ -24,7 +24,6 @@ import { getLayout } from '@common/router/layouts';
 import { getRegisterPageArgs, buildRegex } from '@common/router/register';
 import { TFetcherList } from '@common/router/request/api';
 import type { TFrontRenderer } from '@common/router/response/page';
-import Button from '../../components/Button';
 
 import App from '@client/app/component';
 import type ClientApplication from '@client/app';
@@ -361,17 +360,7 @@ export default class ClientRouter<
             } catch (e) {
                 console.error(`Failed to fetch the route ${route.chunk}`, e);
                 try {
-                    this.context.modal.show(() => (
-                        <div class="card col bg white w-3">
-                            <h2>New Update Available!</h2>
-                            <p>
-                                A new version of the website is available. Please refresh the page to continue.
-                            </p>
-                            <Button type="primary" onClick={() => window.location.reload()}>
-                                Reload
-                            </Button>
-                        </div>
-                    ));
+                    this.app.handleUpdate();
                 } catch (error) {}
                 throw new Error("A new version of the website is available. Please refresh the page.");
             }

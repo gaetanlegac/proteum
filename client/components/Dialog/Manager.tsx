@@ -12,8 +12,6 @@ import { blurable, deepContains, focusContent } from '@client/utils/dom';
 
 // Specific
 import type Application from '../../app';
-import Card, { Props as CardInfos } from './card';
-import Button from '../Button';
 
 /*----------------------------------
 - TYPES: IMPORTATIONS
@@ -66,8 +64,6 @@ type DialogActions = {
     setModals: ( setter: (old: ComponentChild[]) => ComponentChild[]) => void,
 
     show: (...args: TDialogShowArgs ) => TDialogControls,
-
-    confirm: (title: string, content: string | ComponentChild, defaultBtn: 'Yes'|'No') => TDialogControls,
 
     loading: (title: string) => TDialogControls,
 
@@ -137,34 +133,11 @@ export const createDialog = (app: Application, isToast: boolean): DialogActions 
                     content: Content
                 }
             }
-
-            // modal.show({ title: 'supprimer', content: <>...</> })
-            if (Content.constructor === Object) {
-
-                const { content: CardContent, data = {}, ...propsToast } = Content as TOptsToast;
-                
-                let cardContent: ComponentChild;
-                if (typeof CardContent === 'function') {
-                    cardContent = <CardContent {...propsRendu} {...data} />
-                    propsToast.boutons = null; // Component content = advanced content = should include buttons
-                } else {
-                    cardContent = CardContent;
-                }
-                
-                render = (
-                    <Card {...propsRendu} {...propsToast} isToast={isToast}>
-                        {cardContent}
-                    </Card>
-                )
-
             // modal.show( ToastSupprimer )
             //  -> Content is a component rendering a Card
-            } else {
-
-                render = (
-                    <Content {...propsRendu} isToast={isToast} />
-                )
-            }
+            render = (
+                <Content {...propsRendu} isToast={isToast} />
+            )
 
             // Chargeur de données
             /*if (('data' in ComposantCharge) && typeof ComposantCharge.data === 'function') {
@@ -201,25 +174,6 @@ export const createDialog = (app: Application, isToast: boolean): DialogActions 
 
         setToasts: undefined as unknown as DialogActions["setToasts"],
         setModals: undefined as unknown as DialogActions["setModals"],
-
-        confirm: (title: string, content: string | ComponentChild, defaultBtn: 'Yes'|'No' = 'No') => show<boolean>(({ close }) => (
-            <div class="card col">
-                <header>
-                    <h2>{title}</h2>
-                </header>
-                {typeof content === 'string' ? <p>{content}</p> : content}
-                <footer class="row fill">
-                    <Button type={defaultBtn === 'Yes' ? 'primary' : undefined}
-                        onClick={() => close(true)}>
-                        Yes
-                    </Button>
-                    <Button type={defaultBtn === 'No' ? 'primary' : undefined}
-                        onClick={() => close(false)}>
-                        No
-                    </Button>
-                </footer>
-            </div>
-        )),
 
         loading: (title: string) => show({
             title: title,
