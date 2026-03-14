@@ -120,6 +120,8 @@ export default abstract class Application {
     }
 
     public abstract handleError( error: CoreError | Error );
+    
+    public abstract handleUpdate(): void;
 
     // TODO: move on app side
     public reportBug = (infos: TBugReportInfos) => fetch('/feedback/bug/ui', {
