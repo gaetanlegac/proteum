@@ -7,9 +7,6 @@ import escapeStringRegexp from 'escape-regexp';
 import slugify from 'slugify';
 import { removeStopwords, eng } from 'stopword';
 
-// Core
-import type SQL from "@server/services/database";
-
 /*----------------------------------
 - TYPES
 ----------------------------------*/
