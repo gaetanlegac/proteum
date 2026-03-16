@@ -43,6 +43,7 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
 
     debug && console.info(`Creating compiler for server (${mode}).`);
     const dev = mode === 'dev';
+    const outputPath = app.outputPath(mode);
 
     const commonConfig = createCommonConfig(app, 'server', mode);
     const { aliases } = app.aliases.server.forWebpack({
@@ -73,7 +74,7 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
 
             libraryTarget: 'commonjs2',
 
-            path: app.paths.bin,
+            path: outputPath,
             filename: '[name].js',
             publicPath: '/',
             assetModuleFilename: 'public/[hash][ext]',

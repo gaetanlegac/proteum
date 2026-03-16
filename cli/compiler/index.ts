@@ -56,22 +56,23 @@ export default class Compiler {
     }
 
     public cleanup() {
+        const outputPath = app.outputPath(this.mode);
 
-        fs.emptyDirSync( app.paths.bin );
-        fs.ensureDirSync( path.join(app.paths.bin, 'public') )
+        fs.emptyDirSync( outputPath );
+        fs.ensureDirSync( path.join(outputPath, 'public') )
         const publicFiles = fs.readdirSync(app.paths.public);
         for (const publicFile of publicFiles) {
             // Dev: faster to use symlink
             if (this.mode === 'dev')
                 fs.symlinkSync( 
                     path.join(app.paths.public, publicFile), 
-                    path.join(app.paths.bin, 'public', publicFile) 
+                    path.join(outputPath, 'public', publicFile) 
                 );
             // Prod: Symlink not always supported by CI / Containers solutions
             else
                 fs.copySync( 
                     path.join(app.paths.public, publicFile), 
-                    path.join(app.paths.bin, 'public', publicFile) 
+                    path.join(outputPath, 'public', publicFile) 
                 );
         }
     }
@@ -87,6 +88,7 @@ export default class Compiler {
             return console.info("Not fixing npm issue because proteum wasn't installed with npm link.");
 
         this.debug && console.info(`Fix NPM link issues ...`);
+        const outputPath = app.outputPath(this.mode);
 
         const appModules = path.join(app.paths.root, 'node_modules');
         const coreModules = path.join(corePath, 'node_modules');
@@ -95,7 +97,7 @@ export default class Compiler {
         // Modules are installed locally and not glbally as with with the 5htp package from NPM.
         // So we need to symbilnk the http-core node_modules in one of the parents of server.js.
         // It avoids errors like: "Error: Cannot find module 'intl'"
-        fs.symlinkSync( coreModules, path.join(app.paths.bin, 'node_modules') );
+        fs.symlinkSync( coreModules, path.join(outputPath, 'node_modules') );
 
         // Same problem: when 5htp-core is installed via npm link, 
         // Typescript doesn't detect React and shows mission JSX errors

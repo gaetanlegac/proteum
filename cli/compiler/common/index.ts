@@ -83,6 +83,7 @@ export default function createCommonConfig(
                 BUILD_ID: JSON.stringify(app.buildId),
                 APP_PATH: JSON.stringify(app.paths.root),
                 APP_NAME: JSON.stringify(app.identity.web.title),
+                APP_OUTPUT_DIR: JSON.stringify(path.basename(app.outputPath(mode))),
 
             }),
 

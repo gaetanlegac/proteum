@@ -115,7 +115,7 @@ export default class HttpServer {
         routes.use('/public', cors());
         routes.use(
             '/public',
-            express.static( Container.path.root + '/bin/public', {
+            express.static( path.join(Container.path.root, APP_OUTPUT_DIR, 'public'), {
                 dotfiles: 'deny',
                 setHeaders: function setCustomCacheControl(res, path) {
 

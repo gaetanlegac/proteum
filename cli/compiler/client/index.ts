@@ -38,6 +38,7 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
 
     console.info(`Creating compiler for client (${mode}).`);
     const dev = mode === 'dev';
+    const outputPath = app.outputPath(mode);
 
     const commonConfig = createCommonConfig(app, 'client', mode);
 
@@ -82,7 +83,7 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
         output: {
 
             pathinfo: dev,
-            path: app.paths.bin + '/public',
+            path: outputPath + '/public',
             filename: '[name].js', // Output client.js
             assetModuleFilename: '[hash][ext]',
 
@@ -160,7 +161,7 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
             // Emit a file with assets cli.paths
             // https://github.com/webdeveric/webpack-assets-manifest#options
             new WebpackAssetsManifest({
-                output: app.paths.root + `/bin/asset-manifest.json`,
+                output: outputPath + `/asset-manifest.json`,
                 publicPath: true,
                 writeToDisk: true, // Force la copie du fichier sur e disque, au lieu d'en mémoire en mode dev
                 customize: ({ key, value }) => {
@@ -170,7 +171,7 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
                 },
                 done: (manifest, stats) => {
                     // Write chunk-manifest.json.json
-                    const chunkFileName = app.paths.root + `/bin/chunk-manifest.json`;
+                    const chunkFileName = outputPath + `/chunk-manifest.json`;
                     try {
                         const fileFilter = file => !file.endsWith('.map');
                         const addPath = file => manifest.getPublicPath(file);

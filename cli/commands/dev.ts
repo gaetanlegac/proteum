@@ -3,7 +3,7 @@
 ----------------------------------*/
 
 // Npm
-import fs from 'fs-extra';
+import path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 
 // Cor elibs
@@ -15,6 +15,8 @@ import Compiler from '../compiler';
 
 // Core
 import { app, App } from '../app';
+
+const ignoredWatchPathPatterns = /(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)/;
 
 /*----------------------------------
 - COMMANDE
@@ -39,6 +41,7 @@ export const run = () => new Promise<void>(async () => {
     });
 
     const multiCompiler = await compiler.create();
+    const ignoredOutputPaths = [app.paths.bin, app.paths.dev].map(normalizeWatchPath);
 
     multiCompiler.watch({
 
@@ -51,7 +54,15 @@ export const run = () => new Promise<void>(async () => {
         // Ignore updated from:
         // - Node modules except 5HTP core (framework dev mode)
         // - Generated files during runtime (cause infinite loop. Ex: models.d.ts)
-        ignored: /(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)/
+        // - Webpack output folders (`./dev`, legacy `./bin`)
+        ignored: (watchPath: string) => {
+            const normalizedPath = normalizeWatchPath(watchPath);
+            return ignoredWatchPathPatterns.test(normalizedPath)
+                || ignoredOutputPaths.some(outputPath =>
+                    normalizedPath === outputPath
+                    || normalizedPath.startsWith(outputPath + '/')
+                );
+        }
 
         //aggregateTimeout: 1000,
     }, async (error, stats) => {
@@ -92,7 +103,7 @@ async function startApp( app: App ) {
     stopApp('Restart asked');
 
     console.info(`Launching new server ...`);
-    cp = spawn('node', ['' + app.paths.bin + '/server.js', '--preserve-symlinks'], {
+    cp = spawn('node', ['' + app.outputPath('dev') + '/server.js', '--preserve-symlinks'], {
 
         // sdin, sdout, sderr
         stdio: ['inherit', 'inherit', 'inherit']
@@ -106,4 +117,8 @@ function stopApp( reason: string ) {
         cp.kill();
     }
 
+}
+
+function normalizeWatchPath(watchPath: string) {
+    return path.resolve(watchPath).replace(/\\/g, '/').replace(/\/$/, '');
 }

@@ -57,6 +57,7 @@ export class App {
 
         root: cli.paths.appRoot,
         bin: path.join( cli.paths.appRoot, 'bin'),
+        dev: path.join( cli.paths.appRoot, 'dev'),
         data: path.join( cli.paths.appRoot, 'var', 'data'),
         public: path.join( cli.paths.appRoot, 'public'),
         pages: path.join( cli.paths.appRoot, 'client', 'pages'),
@@ -97,6 +98,12 @@ export class App {
         this.env = configParser.env();
         this.packageJson = this.loadPkg();
         
+    }
+
+    public outputPath(mode: 'dev' | 'prod') {
+        return mode === 'dev'
+            ? this.paths.dev
+            : this.paths.bin;
     }
 
     /*----------------------------------
