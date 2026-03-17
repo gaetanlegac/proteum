@@ -61,6 +61,7 @@ export class CLI {
     public commands: { [name: string]: TCliCommand } = {
         "init": () => import('./commands/init'),
         "dev": () => import('./commands/dev'),
+        "refresh": () => import('./commands/refresh'),
         "build": () => import('./commands/build'),
     }
 

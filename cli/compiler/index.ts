@@ -494,9 +494,23 @@ declare module '@models/types' {
         );
     }
 
-    public async create() {
+    private async warmupApp() {
 
         await app.warmup();
+
+    }
+
+    public async refreshGeneratedTypings() {
+
+        await this.warmupApp();
+
+        this.indexServices();
+
+    }
+
+    public async create() {
+
+        await this.warmupApp();
 
         this.cleanup();
 
