@@ -24,7 +24,8 @@ export default class ConfigParser {
 
     public constructor(
         public appDir: string,
-        public envName?: string
+        public envName?: string,
+        public routerPortOverride?: number
     ) {
 
     }
@@ -43,6 +44,12 @@ export default class ConfigParser {
         const envFile = this.loadYaml( envFileName );
         return {
             ...envFile,
+            router: this.routerPortOverride === undefined
+                ? envFile.router
+                : {
+                    ...envFile.router,
+                    port: this.routerPortOverride
+                },
             version: 'CLI'
         }
     }

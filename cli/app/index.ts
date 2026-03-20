@@ -37,6 +37,23 @@ type TServiceSubservices = {
     [key: string]: TServiceSetup | TServiceRef
 }
 
+const parseRouterPortOverride = (
+    rawPort: string | boolean | string[] | undefined
+): number | undefined => {
+
+    if (rawPort === undefined || rawPort === '')
+        return undefined;
+
+    if (typeof rawPort !== 'string')
+        throw new Error(`Invalid value for -port: expected a numeric value.`);
+
+    const port = Number(rawPort);
+    if (!Number.isInteger(port) || port < 1 || port > 65535)
+        throw new Error(`Invalid value for -port: "${rawPort}". Expected an integer between 1 and 65535.`);
+
+    return port;
+}
+
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
@@ -48,6 +65,8 @@ export class App {
     public identity: Config.Identity;
 
     public env: TEnvConfig;
+
+    public routerPortOverride?: number;
 
     public packageJson: {[key: string]: any};
 
@@ -93,7 +112,13 @@ export class App {
     public constructor() {
         
         cli.debug && console.log(`[cli] Loading app config ...`);
-        const configParser = new ConfigParser( cli.paths.appRoot );
+        this.routerPortOverride = parseRouterPortOverride( cli.args.port );
+
+        const configParser = new ConfigParser(
+            cli.paths.appRoot,
+            undefined,
+            this.routerPortOverride
+        );
         this.identity = configParser.identity();
         this.env = configParser.env();
         this.packageJson = this.loadPkg();

@@ -35,6 +35,19 @@ export class CLI {
 
     // Context
     public args: TArgsObject = {};
+
+    public commandOptionDefaults: { [command: string]: TArgsObject } = {
+        dev: {
+            port: '',
+        },
+        build: {
+            port: '',
+            dev: false,
+            prod: false,
+            analyze: false,
+            cache: false,
+        },
+    };
     
     public debug: boolean = false;
 
@@ -76,20 +89,27 @@ export class CLI {
         if (this.commands[commandName] === undefined)
             throw new Error(`Command ${commandName} does not exists.`);
 
+        this.args = {
+            ...(this.commandOptionDefaults[commandName] || {})
+        };
         this.args.workdir = process.cwd();
 
         let opt: string | null = null;
         for (const a of argv) {
 
-            if (a[0] === '-') {
+            if (a.startsWith('-')) {
 
-                opt = a.substring(1);
+                opt = a.replace(/^-+/, '');
+                if (opt.length === 0)
+                    throw new Error(`Unknown option: ${a}`);
                 if (!(opt in this.args)) 
                     throw new Error(`Unknown option: ${opt}`);
 
                 // Init with default value
-                if (typeof this.args[opt] === "boolean")
+                if (typeof this.args[opt] === "boolean") {
                     this.args[opt] = true;
+                    opt = null;
+                }
 
             } else if (opt !== null) {
 
@@ -108,6 +128,9 @@ export class CLI {
 
             }
         }
+
+        if (opt !== null && typeof this.args[opt] !== 'boolean')
+            throw new Error(`Missing value for option: ${opt}`);
 
         this.runCommand(commandName);
     }

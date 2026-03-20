@@ -15,6 +15,8 @@ import yaml from 'yaml';
 import type { TDomainsList } from '@common/router';
 import type { TLogProfile } from './console';
 
+declare const PROTEUM_ROUTER_PORT_OVERRIDE: number | null;
+
 /*----------------------------------
 - TYPES
 ----------------------------------*/
@@ -114,6 +116,16 @@ export type AppConfig = {
 
 const debug = false;
 
+const getRouterPortOverride = () => {
+    if (
+        typeof PROTEUM_ROUTER_PORT_OVERRIDE !== 'undefined'
+        && PROTEUM_ROUTER_PORT_OVERRIDE !== null
+    )
+        return PROTEUM_ROUTER_PORT_OVERRIDE;
+
+    return undefined;
+}
+
 /*----------------------------------
 - LOADE
 ----------------------------------*/
@@ -138,8 +150,15 @@ export default class ConfigParser {
         console.log("[app] Using environment:", process.env.NODE_ENV);
         const envFileName = this.appDir + '/env.yaml';
         const envFile = this.loadYaml( envFileName );
+        const routerPortOverride = getRouterPortOverride();
         return {
             ...envFile,
+            router: routerPortOverride === undefined
+                ? envFile.router
+                : {
+                    ...envFile.router,
+                    port: routerPortOverride
+                },
             version: BUILD_DATE
         }
     }
