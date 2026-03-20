@@ -39,6 +39,7 @@ export class CLI {
     public commandOptionDefaults: { [command: string]: TArgsObject } = {
         dev: {
             port: '',
+            cache: true,
         },
         build: {
             port: '',
@@ -102,7 +103,20 @@ export class CLI {
                 opt = a.replace(/^-+/, '');
                 if (opt.length === 0)
                     throw new Error(`Unknown option: ${a}`);
-                if (!(opt in this.args)) 
+
+                if (opt.startsWith('no-')) {
+                    const booleanOpt = opt.substring(3);
+                    if (!(booleanOpt in this.args))
+                        throw new Error(`Unknown option: ${opt}`);
+                    if (typeof this.args[booleanOpt] !== 'boolean')
+                        throw new Error(`Option ${booleanOpt} does not support --no-${booleanOpt}.`);
+
+                    this.args[booleanOpt] = false;
+                    opt = null;
+                    continue;
+                }
+
+                if (!(opt in this.args))
                     throw new Error(`Unknown option: ${opt}`);
 
                 // Init with default value
