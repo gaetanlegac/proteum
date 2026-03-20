@@ -236,9 +236,9 @@ export default function createCompiler(
             ]),
         ],
 
-        // CSP-safe in development: avoid any `eval`-based source map mode.
+        // Use the cheapest practical client source maps in dev for faster rebuilds.
         // https://webpack.js.org/configuration/devtool/#devtool
-        devtool: buildDev ? false : (dev ? 'cheap-module-source-map' : 'source-map'),
+        devtool: buildDev ? false : (dev ? 'eval-cheap-module-source-map' : 'source-map'),
         /*devServer: {
             hot: true,
         },*/
