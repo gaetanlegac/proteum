@@ -59,27 +59,14 @@ export default class Compiler {
     public cleanup() {
         const outputPath = app.outputPath(this.outputTarget);
         const generatedPublicEntries = new Set(['app']);
+        const outputPublicPath = path.join(outputPath, 'public');
+        const preserveDevOutput = this.mode === 'dev' && this.outputTarget === 'dev';
 
-        fs.emptyDirSync( outputPath );
-        fs.ensureDirSync( path.join(outputPath, 'public') )
-        const publicFiles = fs.readdirSync(app.paths.public);
-        for (const publicFile of publicFiles) {
-            if (generatedPublicEntries.has(publicFile))
-                continue;
+        if (!preserveDevOutput)
+            fs.emptyDirSync(outputPath);
 
-            // Dev: faster to use symlink
-            if (this.mode === 'dev')
-                fs.symlinkSync( 
-                    path.join(app.paths.public, publicFile), 
-                    path.join(outputPath, 'public', publicFile) 
-                );
-            // Prod: Symlink not always supported by CI / Containers solutions
-            else
-                fs.copySync( 
-                    path.join(app.paths.public, publicFile), 
-                    path.join(outputPath, 'public', publicFile) 
-                );
-        }
+        fs.ensureDirSync(outputPublicPath);
+        this.syncPublicEntries(outputPublicPath, generatedPublicEntries, this.mode === 'dev');
     }
     /* FIX issue with npm link
         When we install a module with npm link, this module's deps are not installed in the parent project scope
@@ -102,7 +89,7 @@ export default class Compiler {
         // Modules are installed locally and not glbally as with with the 5htp package from NPM.
         // So we need to symbilnk the http-core node_modules in one of the parents of server.js.
         // It avoids errors like: "Error: Cannot find module 'intl'"
-        fs.symlinkSync( coreModules, path.join(outputPath, 'node_modules') );
+        this.ensureSymlinkSync(coreModules, path.join(outputPath, 'node_modules'));
 
         // Same problem: when 5htp-core is installed via npm link, 
         // Typescript doesn't detect React and shows mission JSX errors
@@ -114,6 +101,59 @@ export default class Compiler {
             fs.symlinkSync( preactCoreModule, preactAppModule );
         if (!fs.existsSync( reactAppModule ))
             fs.symlinkSync( path.join(preactCoreModule, 'compat'), reactAppModule );
+    }
+
+    private syncPublicEntries(
+        outputPublicPath: string,
+        generatedPublicEntries: Set<string>,
+        useSymlinks: boolean
+    ) {
+        const publicFiles = new Set(
+            fs.readdirSync(app.paths.public).filter((publicFile) => !generatedPublicEntries.has(publicFile))
+        );
+
+        for (const existingPublicFile of fs.readdirSync(outputPublicPath)) {
+            if (generatedPublicEntries.has(existingPublicFile) || publicFiles.has(existingPublicFile))
+                continue;
+
+            fs.removeSync(path.join(outputPublicPath, existingPublicFile));
+        }
+
+        for (const publicFile of publicFiles) {
+            const sourcePath = path.join(app.paths.public, publicFile);
+            const outputFilePath = path.join(outputPublicPath, publicFile);
+
+            if (useSymlinks) {
+                this.ensureSymlinkSync(sourcePath, outputFilePath);
+                continue;
+            }
+
+            if (fs.existsSync(outputFilePath))
+                fs.removeSync(outputFilePath);
+
+            fs.copySync(sourcePath, outputFilePath);
+        }
+    }
+
+    private ensureSymlinkSync(targetPath: string, linkPath: string) {
+        fs.ensureDirSync(path.dirname(linkPath));
+
+        try {
+            const linkStats = fs.lstatSync(linkPath);
+
+            if (linkStats.isSymbolicLink()) {
+                const currentTarget = path.resolve(path.dirname(linkPath), fs.readlinkSync(linkPath));
+                if (currentTarget === path.resolve(targetPath))
+                    return;
+            }
+
+            fs.removeSync(linkPath);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+                throw error;
+        }
+
+        fs.symlinkSync(targetPath, linkPath);
     }
 
     private findServices( dir: string ) {
