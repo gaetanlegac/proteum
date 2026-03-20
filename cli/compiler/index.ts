@@ -43,6 +43,7 @@ type TRegisteredService = {
 export default class Compiler {
 
     public compiling: { [compiler: string]: Promise<void> } = {};     
+    private recentCompilationResults: { [compiler: string]: boolean } = {};
 
     public constructor(
         private mode: TCompileMode,
@@ -553,6 +554,12 @@ declare module '@models/types' {
 
     }
 
+    public consumeRecentCompilationResults() {
+        const recentCompilationResults = { ...this.recentCompilationResults };
+        this.recentCompilationResults = {};
+        return recentCompilationResults;
+    }
+
     public async create() {
 
         await this.warmupApp();
@@ -593,11 +600,13 @@ declare module '@models/types' {
             /* TODO: Ne pas résoudre la promise tant que la recompilation des données indexées (icones, identité, ...) 
                 n'a pas été achevée */
             compiler.hooks.done.tap(name, stats => {
+                const compilationSucceeded = !stats.hasErrors();
+                this.recentCompilationResults[name] = compilationSucceeded;
 
                 // Shiow status
                 const timeEnd = new Date();
                 const time = timeEnd.getTime() - timeStart.getTime();
-                if (stats.hasErrors()) {
+                if (!compilationSucceeded) {
 
                     console.info(stats.toString(compiler.options.stats));
                     console.error(`[${name}] Failed to compile after ${time} ms`);

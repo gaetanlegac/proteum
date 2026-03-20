@@ -25,13 +25,15 @@ export const run = () => new Promise<void>(async () => {
 
     const compiler = new Compiler('dev', {
         before: (compiler) => {
+            if (compiler.name !== 'server')
+                return;
 
             const changedFilesList = compiler.modifiedFiles ? [...compiler.modifiedFiles] : [];
 
             if (changedFilesList.length === 0)
-                stopApp("Starting a new compilation");
+                console.info("Server compilation started. App restart will wait for a successful server build.");
             else
-                stopApp("Need to recompile because files changed:\n" + changedFilesList.join('\n'));
+                console.info("Need to recompile server because files changed:\n" + changedFilesList.join('\n'));
 
         }, 
         after: () => {
@@ -68,12 +70,35 @@ export const run = () => new Promise<void>(async () => {
     }, async (error, stats) => {
 
         if (error) {
+            compiler.consumeRecentCompilationResults();
             console.error(`Error in milticompiler.watch`, error, stats?.toString());
             return;
         }
 
-        console.log("Watch callback. Reloading app ...");
-        startApp(app);
+        const recentCompilationResults = compiler.consumeRecentCompilationResults();
+
+        if (recentCompilationResults.server === true) {
+            console.log("Watch callback. Reloading app because server bundle changed ...");
+            startApp(app);
+            return;
+        }
+
+        if (recentCompilationResults.server === false) {
+            console.log("Watch callback. Server compilation failed; keeping current app instance.");
+            return;
+        }
+
+        if (recentCompilationResults.client === true) {
+            console.log("Watch callback. Client assets updated; server restart skipped.");
+            return;
+        }
+
+        if (recentCompilationResults.client === false) {
+            console.log("Watch callback. Client compilation failed; server restart skipped.");
+            return;
+        }
+
+        console.log("Watch callback. No compiler changes were tracked.");
 
     });
 
