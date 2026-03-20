@@ -100,8 +100,8 @@ export class App {
         
     }
 
-    public outputPath(mode: 'dev' | 'prod') {
-        return mode === 'dev'
+    public outputPath(target: 'dev' | 'bin') {
+        return target === 'dev'
             ? this.paths.dev
             : this.paths.bin;
     }

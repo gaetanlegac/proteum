@@ -16,7 +16,7 @@ import app from '../app';
 import cli from '..';
 import createServerConfig from './server';
 import createClientConfig from './client';
-import { TCompileMode } from './common';
+import { TCompileMode, TCompileOutputTarget } from './common';
 
 type TCompilerCallback = (compiler: webpack.Compiler) => void
 
@@ -50,18 +50,23 @@ export default class Compiler {
             before?: TCompilerCallback,
             after?: TCompilerCallback,
         } = {},
-        private debug: boolean = false
+        private debug: boolean = false,
+        private outputTarget: TCompileOutputTarget = mode === 'dev' ? 'dev' : 'bin'
     ) {
 
     }
 
     public cleanup() {
-        const outputPath = app.outputPath(this.mode);
+        const outputPath = app.outputPath(this.outputTarget);
+        const generatedPublicEntries = new Set(['app']);
 
         fs.emptyDirSync( outputPath );
         fs.ensureDirSync( path.join(outputPath, 'public') )
         const publicFiles = fs.readdirSync(app.paths.public);
         for (const publicFile of publicFiles) {
+            if (generatedPublicEntries.has(publicFile))
+                continue;
+
             // Dev: faster to use symlink
             if (this.mode === 'dev')
                 fs.symlinkSync( 
@@ -88,7 +93,7 @@ export default class Compiler {
             return console.info("Not fixing npm issue because proteum wasn't installed with npm link.");
 
         this.debug && console.info(`Fix NPM link issues ...`);
-        const outputPath = app.outputPath(this.mode);
+        const outputPath = app.outputPath(this.outputTarget);
 
         const appModules = path.join(app.paths.root, 'node_modules');
         const coreModules = path.join(corePath, 'node_modules');
@@ -520,8 +525,8 @@ declare module '@models/types' {
 
         // Create compilers
         const multiCompiler = webpack([
-            smp.wrap( createServerConfig(app, this.mode) ),
-            smp.wrap( createClientConfig(app, this.mode) )
+            smp.wrap( createServerConfig(app, this.mode, this.outputTarget) ),
+            smp.wrap( createClientConfig(app, this.mode, this.outputTarget) )
         ]);
 
         for (const compiler of multiCompiler.compilers) {

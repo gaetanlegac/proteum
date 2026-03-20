@@ -34,6 +34,7 @@ export const regex = {
 ----------------------------------*/
 
 export type TCompileMode = 'dev' | 'prod'
+export type TCompileOutputTarget = 'dev' | 'bin'
 
 /*----------------------------------
 - BASE CONFIG
@@ -43,9 +44,11 @@ export default function createCommonConfig(
     app: App, 
     side: TAppSide, 
     mode: TCompileMode,
+    outputTarget: TCompileOutputTarget = mode === 'dev' ? 'dev' : 'bin',
 ): webpack.Configuration {
 
     const dev = mode === 'dev';
+    const buildDev = dev && outputTarget === 'bin';
     const config: webpack.Configuration = {
 
         // Project root
@@ -83,7 +86,7 @@ export default function createCommonConfig(
                 BUILD_ID: JSON.stringify(app.buildId),
                 APP_PATH: JSON.stringify(app.paths.root),
                 APP_NAME: JSON.stringify(app.identity.web.title),
-                APP_OUTPUT_DIR: JSON.stringify(path.basename(app.outputPath(mode))),
+                APP_OUTPUT_DIR: JSON.stringify(path.basename(app.outputPath(outputTarget))),
 
             }),
 
@@ -122,18 +125,18 @@ export default function createCommonConfig(
         // our own hints via the FileSizeReporter
         performance: false,
 
-        // Don't attempt to continue if there are any errors.
-        bail: !dev,
+        // Smoke builds should fail immediately on the first compilation error.
+        bail: buildDev || !dev,
 
-        // Persistent cache speeds up cold starts and incremental rebuilds.
-        cache: /*(dev || cli.args.cache === true) ? {
+        // Persistent cache speeds up repeated local build-dev invocations.
+        cache: (buildDev || cli.args.cache === true) ? {
             type: 'filesystem',
-            cacheDirectory: path.join(app.paths.cache, 'webpack', side),
+            cacheDirectory: path.join(app.paths.cache, 'webpack', side, buildDev ? 'build-dev' : mode),
             compression: false,
             buildDependencies: {
                 config: [__filename],
             },
-        } : */false,
+        } : false,
 
         // Increase compilation performance
         profile: false,

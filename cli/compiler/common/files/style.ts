@@ -3,9 +3,9 @@ import MiniCssExtractPlugin from "mini-css-extract-plugin";
 
 import type { App } from '../../../app';
 
-module.exports = (app: App, dev: Boolean, client: boolean) => {
+module.exports = (app: App, dev: boolean, client: boolean, buildDev: boolean = false) => {
 
-    console.log('app.paths.root', app.paths.root)
+    const enableSourceMaps = dev && !buildDev;
 
     return [
 
@@ -19,7 +19,7 @@ module.exports = (app: App, dev: Boolean, client: boolean) => {
             exclude: [app.paths.root],
             loader: 'css-loader',
             options: {
-                sourceMap: dev
+                sourceMap: enableSourceMaps
             },
         },
 
@@ -30,7 +30,7 @@ module.exports = (app: App, dev: Boolean, client: boolean) => {
             options: {
                 // CSS Loader https://github.com/webpack/css-loader
                 importLoaders: 1, // let postcss run on @imports
-                sourceMap: dev
+                sourceMap: enableSourceMaps
             },
         },
 
@@ -49,7 +49,9 @@ module.exports = (app: App, dev: Boolean, client: boolean) => {
                             optimize: false,
                         }),
                         ///* Tailwind V3 */require('tailwindcss'),
-                        require('autoprefixer'),
+                        ...(buildDev ? [] : [
+                            require('autoprefixer'),
+                        ]),
                     ],
                 },
             },

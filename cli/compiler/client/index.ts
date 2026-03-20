@@ -5,6 +5,7 @@
 // Npm
 import webpack from 'webpack';
 import fs from 'fs-extra';
+import path from 'path';
 
 // Plugins
 const TerserPlugin = require('terser-webpack-plugin');
@@ -22,7 +23,7 @@ import WebpackAssetsManifest from 'webpack-assets-manifest';
 import PreactRefreshPlugin from '@prefresh/webpack';
 
 // Core
-import createCommonConfig, { TCompileMode, regex } from '../common';
+import createCommonConfig, { TCompileMode, TCompileOutputTarget, regex } from '../common';
 import identityAssets from './identite';
 import cli from '../..';
 
@@ -34,16 +35,21 @@ const debug = false;
 /*----------------------------------
 - CONFIG
 ----------------------------------*/
-export default function createCompiler( app: App, mode: TCompileMode ): webpack.Configuration {
+export default function createCompiler(
+    app: App,
+    mode: TCompileMode,
+    outputTarget: TCompileOutputTarget = mode === 'dev' ? 'dev' : 'bin'
+): webpack.Configuration {
 
     console.info(`Creating compiler for client (${mode}).`);
     const dev = mode === 'dev';
-    const outputPath = app.outputPath(mode);
+    const buildDev = dev && outputTarget === 'bin';
+    const outputPath = app.outputPath(outputTarget);
 
-    const commonConfig = createCommonConfig(app, 'client', mode);
+    const commonConfig = createCommonConfig(app, 'client', mode, outputTarget);
 
-    // Pas besoin d'attendre que les assets soient générés pour lancer la compilation
-    identityAssets(app);
+    // Smoke builds only validate compilation, so skip expensive static generation.
+    identityAssets(app, path.join(outputPath, 'public', 'app'), !buildDev);
 
     // Symlinks to public
     /*const publicDirs = fs.readdirSync(app.paths.root + '/public');
@@ -120,14 +126,14 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
                         app.paths.root + '/server/.generated/models.ts',
 
                     ],
-                    rules: require('../common/babel')(app, 'client', dev)
+                    rules: require('../common/babel')(app, 'client', dev, buildDev)
                 },
 
                 // Les pages étan tà la fois compilées dans le bundle client et serveur
                 // On ne compile les ressources (css) qu'une seule fois
                 {
                     test: regex.style,
-                    rules: require('../common/files/style')(app, dev, true),
+                    rules: require('../common/files/style')(app, dev, true, buildDev),
 
                     // Don't consider CSS imports dead code even if the
                     // containing package claims to have no side effects.
@@ -158,43 +164,44 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
                 new MiniCssExtractPlugin({})
             ]),
             
-            // Emit a file with assets cli.paths
-            // https://github.com/webdeveric/webpack-assets-manifest#options
-            new WebpackAssetsManifest({
-                output: outputPath + `/asset-manifest.json`,
-                publicPath: true,
-                writeToDisk: true, // Force la copie du fichier sur e disque, au lieu d'en mémoire en mode dev
-                customize: ({ key, value }) => {
-                    // You can prevent adding items to the manifest by returning false.
-                    if (key.toLowerCase().endsWith('.map')) return false;
-                    return { key, value };
-                },
-                done: (manifest, stats) => {
-                    // Write chunk-manifest.json.json
-                    const chunkFileName = outputPath + `/chunk-manifest.json`;
-                    try {
-                        const fileFilter = file => !file.endsWith('.map');
-                        const addPath = file => manifest.getPublicPath(file);
-                        const chunkFiles = stats.compilation.chunkGroups.reduce((acc, c) => {
-                            acc[c.name] = [
-                                ...(acc[c.name] || []),
-                                ...c.chunks.reduce(
-                                    (files, cc) => [
-                                        ...files,
-                                        ...[...cc.files].filter(fileFilter).map(addPath),
-                                    ],
-                                    [],
-                                ),
-                            ];
-                            return acc;
-                        }, Object.create(null));
-                        fs.writeFileSync(chunkFileName, JSON.stringify(chunkFiles, null, 4));
-                    } catch (err) {
-                        console.error(`ERROR: Cannot write ${chunkFileName}: `, err);
-                        if (!dev) process.exit(1);
-                    }
-                },
-            }),
+            ...(buildDev ? [] : [
+                // Emit runtime asset manifests only for runnable builds.
+                new WebpackAssetsManifest({
+                    output: outputPath + `/asset-manifest.json`,
+                    publicPath: true,
+                    writeToDisk: true, // Force la copie du fichier sur e disque, au lieu d'en mémoire en mode dev
+                    customize: ({ key, value }) => {
+                        // You can prevent adding items to the manifest by returning false.
+                        if (key.toLowerCase().endsWith('.map')) return false;
+                        return { key, value };
+                    },
+                    done: (manifest, stats) => {
+                        // Write chunk-manifest.json.json
+                        const chunkFileName = outputPath + `/chunk-manifest.json`;
+                        try {
+                            const fileFilter = file => !file.endsWith('.map');
+                            const addPath = file => manifest.getPublicPath(file);
+                            const chunkFiles = stats.compilation.chunkGroups.reduce((acc, c) => {
+                                acc[c.name] = [
+                                    ...(acc[c.name] || []),
+                                    ...c.chunks.reduce(
+                                        (files, cc) => [
+                                            ...files,
+                                            ...[...cc.files].filter(fileFilter).map(addPath),
+                                        ],
+                                        [],
+                                    ),
+                                ];
+                                return acc;
+                            }, Object.create(null));
+                            fs.writeFileSync(chunkFileName, JSON.stringify(chunkFiles, null, 4));
+                        } catch (err) {
+                            console.error(`ERROR: Cannot write ${chunkFileName}: `, err);
+                            if (!dev) process.exit(1);
+                        }
+                    },
+                })
+            ]),
 
             ...(dev ? [
 
@@ -231,7 +238,7 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
 
         // CSP-safe in development: avoid any `eval`-based source map mode.
         // https://webpack.js.org/configuration/devtool/#devtool
-        devtool: dev ? 'cheap-module-source-map' : 'source-map',
+        devtool: buildDev ? false : (dev ? 'cheap-module-source-map' : 'source-map'),
         /*devServer: {
             hot: true,
         },*/

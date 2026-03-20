@@ -12,7 +12,7 @@ const TerserPlugin = require("terser-webpack-plugin");
 
 // Core
 import cli from '@cli';
-import createCommonConfig, { TCompileMode, regex } from '../common';
+import createCommonConfig, { TCompileMode, TCompileOutputTarget, regex } from '../common';
 
 // Type
 import type { App } from '../../app';
@@ -39,13 +39,18 @@ const debug = false;
 /*----------------------------------
 - CONFIG
 ----------------------------------*/
-export default function createCompiler( app: App, mode: TCompileMode ): webpack.Configuration {
+export default function createCompiler(
+    app: App,
+    mode: TCompileMode,
+    outputTarget: TCompileOutputTarget = mode === 'dev' ? 'dev' : 'bin'
+): webpack.Configuration {
 
     debug && console.info(`Creating compiler for server (${mode}).`);
     const dev = mode === 'dev';
-    const outputPath = app.outputPath(mode);
+    const buildDev = dev && outputTarget === 'bin';
+    const outputPath = app.outputPath(outputTarget);
 
-    const commonConfig = createCommonConfig(app, 'server', mode);
+    const commonConfig = createCommonConfig(app, 'server', mode, outputTarget);
     const { aliases } = app.aliases.server.forWebpack({
         modulesPath: app.paths.root + '/node_modules'
     });
@@ -107,6 +112,7 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
                     request.startsWith('proteum')
                     ||
                     // Compile 5HTP modules
+                    request.startsWith('@mantine/') ||
                     request.startsWith('react-number-format') ||
                     request.startsWith('@floating-ui')
                 )
@@ -156,7 +162,7 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
                         // Temp disabled because compile issue on vercel
                         //...getCorePluginsList(app)
                     ],
-                    rules: require('../common/babel')(app, 'server', dev)
+                    rules: require('../common/babel')(app, 'server', dev, buildDev)
                 }, 
 
                 // Les pages étan tà la fois compilées dans le bundle client et serveur
@@ -198,7 +204,9 @@ export default function createCompiler( app: App, mode: TCompileMode ): webpack.
         },
 
         // https://webpack.js.org/configuration/devtool/#devtool
-        devtool: dev 
+        devtool: buildDev
+            ? false
+            : dev
             ? 'eval-source-map' // Recommended choice for development builds with high quality SourceMaps.
             : 'source-map', // Recommended choice for production builds with high quality SourceMaps.
 

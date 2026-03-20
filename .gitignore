@@ -6,6 +6,7 @@ env.*
 .temp
 .cache
 bin
+bin-dev
 public
 
 # Configs

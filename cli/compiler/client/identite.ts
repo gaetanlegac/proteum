@@ -2,20 +2,18 @@
 import favicons from 'favicons';
 import fs from 'fs-extra';
 
-// Libs
-import cli from '../..';
-
 // Type
 import type App from '../../app';
 
-export default async ( app: App ) => {
+export default async ( app: App, outputDir: string, enabled: boolean = true ) => {
 
-    const dossierCache = app.paths.root + '/public/app';
+    if (!enabled)
+        return;
 
-    if (!fs.existsSync(dossierCache)) {
+    if (!fs.existsSync(outputDir)) {
 
         console.info(`Generating identity assets ...`);
-        fs.emptyDirSync(dossierCache);
+        fs.emptyDirSync(outputDir);
 
         const identity = app.identity;
 
@@ -45,7 +43,6 @@ export default async ( app: App ) => {
                 appleStartup: false,
                 coast: false,
                 favicons: true,
-                firefox: true,
                 windows: true,
                 yandex: false
             }
@@ -56,13 +53,13 @@ export default async ( app: App ) => {
 
             // Enregistrement images
             ...response.images.map((image) => {
-                let destimg = dossierCache + '/' + image.name;
+                let destimg = outputDir + '/' + image.name;
                 return fs.writeFile(destimg, image.contents);
             }),
 
             // Enregistrement fichiers
             ...response.files.map((fichier) => {
-                let destfichier = dossierCache + '/' + fichier.name;
+                let destfichier = outputDir + '/' + fichier.name;
                 return fs.writeFile(destfichier, fichier.contents);
             })
 

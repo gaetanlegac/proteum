@@ -5,6 +5,7 @@
 // Npm
 import type webpack from 'webpack';
 import PresetBabel, { Options } from '@babel/preset-env';
+import path from 'path';
 
 import cli from '@cli';
 import type { TAppSide, App } from '@cli/app';
@@ -12,7 +13,7 @@ import type { TAppSide, App } from '@cli/app';
 /*----------------------------------
 - REGLES
 ----------------------------------*/
-module.exports = (app: App, side: TAppSide, dev: boolean): webpack.RuleSetRule[] => {
+module.exports = (app: App, side: TAppSide, dev: boolean, buildDev: boolean = false): webpack.RuleSetRule[] => {
 
     const babelPresetEnvConfig: Options = side === 'client'  ? {
 
@@ -64,7 +65,9 @@ module.exports = (app: App, side: TAppSide, dev: boolean): webpack.RuleSetRule[]
             // https://github.com/babel/babel-loader#options
 
             // ATTENTION: Ne prend pas toujours compte des màj des plugins babel
-            cacheDirectory: dev || cli.args.cache === true,
+            cacheDirectory: (dev || cli.args.cache === true)
+                ? path.join(app.paths.cache, 'babel', side, buildDev ? 'build-dev' : (dev ? 'dev' : 'prod'))
+                : false,
             // Désactive car ralenti compilation
             cacheCompression: false,
 
