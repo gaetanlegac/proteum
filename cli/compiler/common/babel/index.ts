@@ -15,12 +15,15 @@ import type { TAppSide, App } from '@cli/app';
 ----------------------------------*/
 module.exports = (app: App, side: TAppSide, dev: boolean, buildDev: boolean = false): webpack.RuleSetRule[] => {
 
+    const useClientPolyfills = side === 'client' && (!dev || buildDev);
+
     const babelPresetEnvConfig: Options = side === 'client'  ? {
 
         // Ajoute automatiquement les polyfills babel
         // https://stackoverflow.com/a/61517521/12199605
-        "useBuiltIns": "usage", // alternative mode: "entry"
-        "corejs": 3, // default would be 2
+        // Skip per-file polyfill analysis in local dev to speed up client compiles.
+        "useBuiltIns": useClientPolyfills ? "usage" : false, // alternative mode: "entry"
+        "corejs": useClientPolyfills ? 3 : undefined, // default would be 2
 
         targets: {
             browsers: dev
