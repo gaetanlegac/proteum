@@ -7,7 +7,6 @@ import fs from 'fs';
 import path from 'path';
 import TsAlias from 'ts-alias';
 import moduleAlias from 'module-alias';
-import { filenameToImportName } from 'babel-plugin-glob-import';
 
 // Core
 
@@ -56,6 +55,13 @@ const resolveCoreRoot = (appRoot: string) => {
     // Fall back to the installed package root (this file lives in `<root>/cli`).
     return path.resolve(__dirname, '..');
 }
+
+const normalizeImportPath = (value: string) => value.replace(/\\/g, '/');
+
+const filenameToImportName = (value: string) =>
+    normalizeImportPath(value)
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^A-Za-z0-9_]+/g, '_');
 
 /*----------------------------------
 - LIB
@@ -149,6 +155,21 @@ export default class Paths {
             chunkId = "main";
 
         return { filepath, chunkId }
+
+    }
+
+    public getLayoutChunk( app: App, file: string ) {
+
+        const layoutDir = path.dirname( path.dirname(file) );
+        const relativeLayoutDir = path.relative( app.paths.pages, layoutDir );
+        const filepath = relativeLayoutDir === ''
+            ? ''
+            : normalizeImportPath(relativeLayoutDir);
+
+        return {
+            filepath,
+            chunkId: filenameToImportName(filepath)
+        }
 
     }
 

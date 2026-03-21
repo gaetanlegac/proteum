@@ -12,14 +12,13 @@ import type { TDataProvider } from "./response/page";
 
 // App
 import internalLayout from "@client/pages/_layout";
-
-import * as layouts from "@/client/pages/**/_layout/index.tsx";
+import generatedLayouts, { layoutOrder } from "@/client/.generated/layouts";
 
 /*----------------------------------
 - CONST
 ----------------------------------*/
 
-export const layoutsList = layouts as ImportedLayouts;
+export const layoutsList = generatedLayouts as ImportedLayouts;
 
 /*----------------------------------
 - TYPES
@@ -35,7 +34,10 @@ export type Layout = {
 };
 
 export type ImportedLayouts = {
-  [chunkId: string]: Layout["Component"];
+  [chunkId: string]: {
+    default: Layout["Component"];
+    data?: TDataProvider;
+  };
 };
 
 /*----------------------------------
@@ -64,21 +66,22 @@ export const getLayout = (
 
   // Layout via name
   if (routeOptions.layout !== undefined) {
-    const { default: LayoutComponent, data } = layouts[routeOptions.layout];
+    const layoutModule = layoutsList[routeOptions.layout];
+    const { default: LayoutComponent, data } = layoutModule || {};
     if (LayoutComponent === undefined)
       throw new Error(
-        `No layout found with ID: ${routeOptions.layout}. registered layouts: ${Object.keys(layouts)}`,
+        `No layout found with ID: ${routeOptions.layout}. registered layouts: ${Object.keys(layoutsList)}`,
       );
 
     return {
       path: routeOptions.layout,
-      Component: layouts[routeOptions.layout].default,
+      Component: layoutModule.default,
       data,
     };
   }
 
   // Automatic layout via the nearest _layout folder
-  for (const layoutPath in layouts)
+  for (const layoutPath of layoutOrder as string[])
     if (
       // The layout is nammed '' when it's at the root (@/client/pages/_layout)
       layoutPath === "" || // Root layout
@@ -89,8 +92,8 @@ export const getLayout = (
     )
       return {
         path: layoutPath,
-        Component: layouts[layoutPath].default,
-        data: layouts[layoutPath].data,
+        Component: layoutsList[layoutPath].default,
+        data: layoutsList[layoutPath].data,
       };
 
   // Internal layout

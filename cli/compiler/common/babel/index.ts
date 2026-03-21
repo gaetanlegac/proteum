@@ -121,16 +121,6 @@ module.exports = (
               ]),
 
           require("./routes/routes")({ side, app, debug: false }),
-
-          // Allow to import multiple fiels with one import statement thanks to glob patterns
-          require("babel-plugin-glob-import")(
-            {
-              debug: false,
-              removeAliases: (source: string) =>
-                app.paths.withoutAlias(source, side),
-            },
-            [],
-          ),
         ],
 
         overrides: [...(side === "client" ? [] : [])],

@@ -30,7 +30,6 @@
 		"autoprefixer": "^10.4.21",
 		"aws-sdk": "^2.1415.0",
 		"babel-loader": "^10.0.0",
-		"babel-plugin-glob-import": "^0.0.9-1",
 		"babel-plugin-transform-remove-console": "^6.9.4",
 		"bowser": "^2.11.0",
 		"cli-highlight": "^2.1.11",

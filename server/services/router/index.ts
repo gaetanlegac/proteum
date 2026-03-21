@@ -17,7 +17,6 @@ import type { Request, Response, NextFunction } from "express";
 import { v4 as uuid } from "uuid";
 import zod, { ZodError } from "zod";
 export { default as schema } from "zod";
-import type { GlobImportedWithMetas } from "babel-plugin-glob-import";
 
 // Core
 import type { Application } from "@server/app";
@@ -77,6 +76,11 @@ export type TApiRegisterArgs<TRouter extends TServerRouter> =
       options: Partial<TRouteOptions>,
       controller: TServerController<TRouter>,
     ];
+
+type TGeneratedRouteModule = {
+  filepath: string;
+  register?: TRouteModule["__register"];
+};
 
 export type TServerController<TRouter extends TServerRouter> = (
   context: TRouterContext<TRouter>,
@@ -205,11 +209,7 @@ export default class ServerRouter<
     );
 
     // Use require to avoid circular references
-    this.registerRoutes([
-      ...require("metas:@/server/routes/**/*.ts"),
-      ...require("metas:@/client/pages/**/([a-z0-9]*).tsx"),
-      //...require("metas:@/client/pages/**/([a-z0-9]*).tsx")
-    ]);
+    this.registerRoutes(require("@/server/.generated/routes").default || []);
 
     // Start HTTP server
     await this.http.start();
@@ -326,13 +326,13 @@ export default class ServerRouter<
     }
   }
 
-  private registerRoutes(defModules: GlobImportedWithMetas<TRouteModule>) {
+  private registerRoutes(defModules: TGeneratedRouteModule[]) {
     for (const routeModule of defModules) {
-      const register = routeModule.exports.__register;
+      const register = routeModule.register;
       if (!register) continue;
 
       this.config.debug &&
-        console.log(LogPrefix, `Register file:`, routeModule.matches.join("/"));
+        console.log(LogPrefix, `Register file:`, routeModule.filepath);
       try {
         register(this.app);
       } catch (error) {
