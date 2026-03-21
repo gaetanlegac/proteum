@@ -15,7 +15,12 @@ import cli from '..';
 import createServerConfig from './server';
 import createClientConfig from './client';
 import { TCompileMode, TCompileOutputTarget } from './common';
-import { indexControllers, generateControllerClientTree, printControllerTree } from './common/controllers';
+import {
+    indexControllers,
+    generateControllerClientTree,
+    printControllerTree,
+    type TControllerServiceRoot,
+} from './common/controllers';
 import { writeClientManifest } from './common/clientManifest';
 import { getGeneratedRouteModuleFilepath, writeGeneratedRouteModule } from './common/generatedRouteModules';
 import writeIfChanged from './writeIfChanged';
@@ -510,9 +515,32 @@ export default routeModules;
     }
 
     private indexControllers() {
+        const registeredServiceNamesById = new Map<string, string>(
+            Object.values(app.registered).flatMap((service: { id?: string; name?: string }) =>
+                service.id && service.name ? [[service.id, service.name]] : [],
+            ),
+        );
+
+        const appControllerServiceRoots = this.findServices(path.join(app.paths.root, 'server', 'services'))
+            .map<TControllerServiceRoot | null>((serviceDir) => {
+                const metasFile = path.join(serviceDir, 'service.json');
+                const serviceMetas = fs.readJsonSync(metasFile) as { id?: string };
+                const alias = serviceMetas.id ? registeredServiceNamesById.get(serviceMetas.id) : undefined;
+
+                if (!alias) return null;
+
+                return { alias, dir: serviceDir };
+            })
+            .filter((serviceRoot): serviceRoot is TControllerServiceRoot => !!serviceRoot)
+            .sort((a, b) => b.dir.length - a.dir.length);
+
         return indexControllers([
             { importPrefix: '@server/services/', root: path.join(cli.paths.core.root, 'server', 'services') },
-            { importPrefix: '@/server/services/', root: path.join(app.paths.root, 'server', 'services') },
+            {
+                importPrefix: '@/server/services/',
+                root: path.join(app.paths.root, 'server', 'services'),
+                serviceRoots: appControllerServiceRoots,
+            },
         ]);
     }
 

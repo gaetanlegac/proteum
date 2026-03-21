@@ -21,14 +21,15 @@ export type TControllerFileMeta = {
     methods: TControllerMethodMeta[];
 };
 
-type TControllerSearchDir = { importPrefix: string; root: string };
+export type TControllerServiceRoot = { alias: string; dir: string };
+
+type TControllerSearchDir = { importPrefix: string; root: string; serviceRoots?: TControllerServiceRoot[] };
 
 /*----------------------------------
 - HELPERS
 ----------------------------------*/
 
-const getControllerBasePathFromFilepath = (filepath: string, root: string) => {
-    const relativePath = path.relative(root, filepath).replace(/\\/g, '/');
+const getControllerSegments = (relativePath: string) => {
     const segments = relativePath
         .replace(/\.controller\.ts$/, '')
         .split('/')
@@ -38,7 +39,26 @@ const getControllerBasePathFromFilepath = (filepath: string, root: string) => {
         segments.pop();
     }
 
-    return segments.join('/');
+    return segments;
+};
+
+const getControllerBasePathFromFilepath = (filepath: string, root: string, serviceRoots: TControllerServiceRoot[] = []) => {
+    const normalizedFilepath = filepath.replace(/\\/g, '/');
+    const serviceRoot = serviceRoots
+        .filter((candidate) => normalizedFilepath.startsWith(candidate.dir.replace(/\\/g, '/') + '/'))
+        .sort((a, b) => b.dir.length - a.dir.length)[0];
+
+    if (!serviceRoot) {
+        return getControllerSegments(path.relative(root, filepath).replace(/\\/g, '/')).join('/');
+    }
+
+    const segments = getControllerSegments(path.relative(serviceRoot.dir, filepath).replace(/\\/g, '/'));
+
+    if (segments[0]?.toLowerCase() === serviceRoot.alias.toLowerCase()) {
+        segments.shift();
+    }
+
+    return [serviceRoot.alias, ...segments].filter(Boolean).join('/');
 };
 
 const getGeneratedClassName = (filepath: string) => {
@@ -126,31 +146,6 @@ const getExportedString = (sourceFile: ts.SourceFile, exportName: string) => {
     return undefined;
 };
 
-const getExportedStringMap = (sourceFile: ts.SourceFile, exportName: string) => {
-    const values: Record<string, string> = {};
-
-    for (const statement of sourceFile.statements) {
-        if (!ts.isVariableStatement(statement)) continue;
-        if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
-
-        for (const declaration of statement.declarationList.declarations) {
-            if (!ts.isIdentifier(declaration.name)) continue;
-            if (declaration.name.text !== exportName) continue;
-            if (!declaration.initializer || !ts.isObjectLiteralExpression(declaration.initializer)) continue;
-
-            for (const property of declaration.initializer.properties) {
-                if (!ts.isPropertyAssignment(property)) continue;
-                if (!ts.isIdentifier(property.name)) continue;
-                if (!ts.isStringLiteral(property.initializer)) continue;
-
-                values[property.name.text] = property.initializer.text;
-            }
-        }
-    }
-
-    return values;
-};
-
 const countInputCalls = (method: ts.MethodDeclaration) => {
     let inputCallsCount = 0;
 
@@ -187,13 +182,14 @@ export const indexControllers = (searchDirs: TControllerSearchDir[]) => {
             const sourceFile = parseSourceFile(filepath, code);
 
             const controllerPathOverride = getExportedString(sourceFile, 'controllerPath');
-            const controllerMethodsOverride = getExportedStringMap(sourceFile, 'controllerMethods');
             const defaultClass = getDefaultExportClass(sourceFile);
 
             if (!defaultClass) continue;
 
             const className = defaultClass.name?.text || getGeneratedClassName(filepath);
-            const routeBasePath = controllerPathOverride || getControllerBasePathFromFilepath(filepath, searchDir.root);
+            const routeBasePath =
+                controllerPathOverride ||
+                getControllerBasePathFromFilepath(filepath, searchDir.root, searchDir.serviceRoots || []);
             const methods: TControllerMethodMeta[] = [];
 
             for (const member of defaultClass.members) {
@@ -211,8 +207,7 @@ export const indexControllers = (searchDirs: TControllerSearchDir[]) => {
                 methods.push({
                     name: methodName,
                     inputCallsCount,
-                    routePath:
-                        controllerMethodsOverride[methodName] || [routeBasePath, methodName].filter(Boolean).join('/'),
+                    routePath: [routeBasePath, methodName].filter(Boolean).join('/'),
                 });
             }
 

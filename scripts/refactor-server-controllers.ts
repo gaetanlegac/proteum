@@ -64,6 +64,29 @@ const getRelativeServiceSegments = (serviceRootDir: string, filepath: string) =>
     return segments.filter(Boolean);
 };
 
+const getControllerSegments = (relativePath: string) => {
+    const segments = relativePath
+        .replace(/\.controller\.ts$/, '')
+        .split('/')
+        .filter(Boolean);
+
+    if (segments.length > 1 && segments[segments.length - 1] === segments[segments.length - 2]) {
+        segments.pop();
+    }
+
+    return segments;
+};
+
+const getControllerBasePath = (serviceRoot: TServiceRoot, controllerFilepath: string) => {
+    const segments = getControllerSegments(path.relative(serviceRoot.dir, controllerFilepath).replace(/\\/g, '/'));
+
+    if (segments[0]?.toLowerCase() === serviceRoot.alias.toLowerCase()) {
+        segments.shift();
+    }
+
+    return [serviceRoot.alias, ...segments].filter(Boolean).join('/');
+};
+
 const findServiceAliases = (repoRoot: string) => {
     const serviceAliasById = new Map<string, string>();
     const configFiles = findFiles(path.join(repoRoot, 'server', 'config'), (filepath) => filepath.endsWith('.ts'));
@@ -362,10 +385,35 @@ const migrateServiceFile = (filepath: string, serviceRoots: TServiceRoot[]) => {
     const schemaImports = [...new Set(routeMethods.flatMap((routeMethod) => routeMethod.schemaImports))];
     const controllerClassName = getControllerClassName(serviceClassName, filepath);
     const needsSchemaHelperImport = routeMethods.some((routeMethod) => routeMethod.schemaSource?.includes('schema.'));
+    const defaultControllerPath = getControllerBasePath(serviceRoot, controllerFilepath);
+    const routeBasePaths = new Set<string>();
 
-    const controllerMethods = routeMethods
-        .map((routeMethod) => `    ${routeMethod.methodName}: ${JSON.stringify(routeMethod.routePath)},`)
-        .join('\n');
+    for (const routeMethod of routeMethods) {
+        const routeSegments = routeMethod.routePath.split('/').filter(Boolean);
+        const routeMethodName = routeSegments.pop();
+
+        if (routeMethodName !== routeMethod.methodName) {
+            throw new Error(
+                `Unable to migrate ${filepath}#${routeMethod.methodName}: route path ${JSON.stringify(routeMethod.routePath)} renames the method. ` +
+                    'Rename the method or split the controller manually.',
+            );
+        }
+
+        routeBasePaths.add(routeSegments.join('/'));
+    }
+
+    if (routeBasePaths.size > 1) {
+        throw new Error(
+            `Unable to migrate ${filepath}: methods use multiple route bases (${[...routeBasePaths].join(', ')}). ` +
+                'Split the service into multiple controllers before migration.',
+        );
+    }
+
+    const controllerPath = [...routeBasePaths][0] || '';
+    const controllerPathExport =
+        controllerPath && controllerPath !== defaultControllerPath
+            ? `export const controllerPath = ${JSON.stringify(controllerPath)};\n\n`
+            : '';
 
     const methodBlocks = routeMethods
         .map((routeMethod) => {
@@ -386,10 +434,7 @@ ${inputLine}
         controllerFilepath,
         `import Controller${needsSchemaHelperImport ? ', { schema }' : ''} from '@server/app/controller';
 ${schemaImports.length ? `import { ${schemaImports.join(', ')} } from ${JSON.stringify(relativeServiceImportPath)};\n` : ''}
-export const controllerMethods = {
-${controllerMethods}
-};
-
+${controllerPathExport}
 export default class ${controllerClassName} extends Controller {
 
 ${methodBlocks}
