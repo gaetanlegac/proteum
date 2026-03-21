@@ -20,6 +20,7 @@ import BaseRouter, {
     TClientOrServerContextForPage, TRouteModule,
     matchRoute, buildUrl
 } from '@common/router'
+import type { TRegisterPageArgs, TSsrUnresolvedRoute } from '@common/router/contracts';
 import { getLayout } from '@common/router/layouts';
 import { getRegisterPageArgs, buildRegex } from '@common/router/register';
 import { TFetcherList } from '@common/router/request/api';
@@ -68,30 +69,6 @@ export type Response = ClientResponse<ClientRouter> | ServerResponse<TAnyRouter>
 
 // WARN: To be updated with the mplemenations list of Router.page AND the routes babel plugin
 //      (both server and client side)
-export type TRegisterPageArgs<
-    TProvidedData extends TFetcherList = TFetcherList, 
-    TRouter extends Router = Router
-> = ([
-    path: string,
-    renderer: TFrontRenderer<TProvidedData>
-] | [
-    path: string,
-    options: Partial<TRoute["options"]>,
-    renderer: TFrontRenderer<TProvidedData>
-])
-
-// Route definition passed by the server
-export type TSsrUnresolvedRoute = {
-    chunk: string,
-} & ({
-    // Normal route
-    regex: string,
-    keys: TRoute["keys"]
-} | {
-    // Error
-    code: number
-})
-
 // Route definition without having loaded the controller
 type TUnresolvedRoute = TUnresolvedErrorRoute | TUnresolvedNormalRoute;
 
@@ -261,7 +238,7 @@ export default class ClientRouter<
         renderer: TFrontRenderer<TProvidedData>
     ): TRoute;
 
-    public page(...args: TRegisterPageArgs): TRoute {
+    public page(...args: TRegisterPageArgs<any, TRoute["options"]>): TRoute {
 
         const { path, options, renderer, layout } = getRegisterPageArgs(...args);
 

@@ -8,19 +8,18 @@ import { FunctionalComponent } from "preact";
 // Core
 import { TAnyRoute } from "..";
 import type ClientRequest from '@client/services/router/request';
-import Page from '@client/services/router/response/page'
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
-export type TResponseData = Page
+export type TResponseData = unknown
 
 /*----------------------------------
 - CONTEXT
 ----------------------------------*/
 export default abstract class BaseResponse<
-    TData extends TResponseData = Page,
+    TData extends TResponseData = TResponseData,
     TRequest extends ClientRequest = ClientRequest
 > {
 

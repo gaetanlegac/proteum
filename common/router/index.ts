@@ -8,9 +8,9 @@ import type zod from 'zod';
 // types
 import type {
     default as ClientRouter,
-    TRouterContext as ClientRouterContext,
-    TRegisterPageArgs
+    TRouterContext as ClientRouterContext
 } from '@client/services/router';
+import type { TRegisterPageArgs } from './contracts';
 
 import type { 
     TAnyRouter,
@@ -206,7 +206,7 @@ export const matchRoute = (route: TRoute, request: RouterRequest) => {
 
 export default abstract class RouterInterface {
 
-    public abstract page<TControllerData extends TObjetDonnees = {}>(...args: TRegisterPageArgs<TControllerData>);
+    public abstract page<TControllerData extends TObjetDonnees = {}>(...args: TRegisterPageArgs<TControllerData, TRouteOptions>);
 
     public abstract error(code: number, options, renderer: TFrontRenderer<{}, { message: string }>);
 

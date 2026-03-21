@@ -31,11 +31,11 @@ import BaseRouter, {
     TRouteOptions, defaultOptions,
     matchRoute, buildUrl, TDomainsList
 } from '@common/router';
+import type { TSsrUnresolvedRoute, TRegisterPageArgs } from '@common/router/contracts';
 import { buildRegex, getRegisterPageArgs } from '@common/router/register';
 import { layoutsList, getLayout } from '@common/router/layouts';
 import { TFetcherList } from '@common/router/request/api';
 import type { TFrontRenderer } from '@common/router/response/page';
-import type { TSsrUnresolvedRoute, TRegisterPageArgs } from '@client/services/router';
 
 // Specific
 import { AnyRouterService } from './service';
@@ -331,7 +331,7 @@ export default class ServerRouter<
     - REGISTER
     ----------------------------------*/
 
-    public page(...args: TRegisterPageArgs) {
+    public page(...args: TRegisterPageArgs<any, TRouteOptions>) {
 
         const { path, options, renderer, layout } = getRegisterPageArgs(...args);
 

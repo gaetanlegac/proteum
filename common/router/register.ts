@@ -7,17 +7,17 @@ import { pathToRegexp, Key } from 'path-to-regexp';
 
 // Core
 import { getLayout } from './layouts';
+import type { TRegisterPageArgs } from './contracts';
 
 // types
 import type { TRouteOptions } from '.';
 import type { TFrontRenderer } from './response/page';
-import type { TRegisterPageArgs } from '@client/services/router';
 
 /*----------------------------------
 - UTILS
 ----------------------------------*/
 
-export const getRegisterPageArgs = (...args: TRegisterPageArgs) => {
+export const getRegisterPageArgs = (...args: TRegisterPageArgs<any, TRouteOptions>) => {
 
     let path: string;
     let options: Partial<TRouteOptions> = {};
