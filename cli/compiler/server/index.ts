@@ -52,7 +52,6 @@ export default function createCompiler(
 ): webpack.Configuration {
   debug && console.info(`Creating compiler for server (${mode}).`);
   const dev = mode === "dev";
-  const buildDev = dev && outputTarget === "bin";
   const outputPath = app.outputPath(outputTarget);
 
   const commonConfig = createCommonConfig(app, "server", mode, outputTarget);
@@ -168,7 +167,7 @@ export default function createCompiler(
             // Temp disabled because compile issue on vercel
             //...getCorePluginsList(app)
           ],
-          rules: require("../common/babel")(app, "server", dev, buildDev),
+          rules: require("../common/babel")(app, "server", dev),
         },
 
         // Les pages étan tà la fois compilées dans le bundle client et serveur
@@ -209,11 +208,9 @@ export default function createCompiler(
     },
 
     // https://webpack.js.org/configuration/devtool/#devtool
-    devtool: buildDev
-      ? false
-      : dev
-        ? "eval-cheap-module-source-map" // Cheaper than eval-source-map while keeping usable module-level stack traces.
-        : "source-map", // Recommended choice for production builds with high quality SourceMaps.
+    devtool: dev
+      ? "eval-cheap-module-source-map" // Cheaper than eval-source-map while keeping usable module-level stack traces.
+      : "source-map", // Recommended choice for production builds with high quality SourceMaps.
 
     // eval-source-map n'est pas précis
     /*devServer: {

@@ -7,10 +7,9 @@ module.exports = (
   app: App,
   dev: boolean,
   client: boolean,
-  buildDev: boolean = false,
 ) => {
-  const enableSourceMaps = dev && !buildDev;
-  const useStyleLoader = client && dev && !buildDev;
+  const enableSourceMaps = dev;
+  const useStyleLoader = client && dev;
 
   return [
     // Apply PostCSS plugins including autoprefixer
@@ -57,7 +56,7 @@ module.exports = (
               optimize: false,
             }),
             ///* Tailwind V3 */require('tailwindcss'),
-            ...(buildDev ? [] : [require("autoprefixer")]),
+            require("autoprefixer"),
           ],
         },
       },

@@ -115,6 +115,7 @@
 		"@types/universal-analytics": "^0.4.5",
 		"@types/webpack-env": "^1.16.2",
 		"@types/yargs-parser": "^21.0.0",
-		"schema-dts": "^1.1.2"
+		"schema-dts": "^1.1.2",
+		"webpack-bundle-analyzer": "^5.2.0"
 	}
 }

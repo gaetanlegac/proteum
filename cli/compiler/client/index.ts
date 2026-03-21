@@ -19,6 +19,11 @@ import createCommonConfig, {
   TCompileOutputTarget,
   regex,
 } from "../common";
+import { createClientBundleAnalysisPlugins } from "../common/bundleAnalysis";
+import {
+  getClientRuntimeTarget,
+  isLegacyClientRuntimeTarget,
+} from "../common/clientRuntimeTarget";
 import identityAssets from "./identite";
 import cli from "../..";
 
@@ -36,15 +41,18 @@ export default function createCompiler(
   mode: TCompileMode,
   outputTarget: TCompileOutputTarget = mode === "dev" ? "dev" : "bin",
 ): webpack.Configuration {
-  console.info(`Creating compiler for client (${mode}).`);
+  const clientRuntimeTarget = getClientRuntimeTarget(app);
+  const legacyClientRuntime = clientRuntimeTarget === "legacy";
+
+  console.info(
+    `Creating compiler for client (${mode}, target=${clientRuntimeTarget}).`,
+  );
   const dev = mode === "dev";
-  const buildDev = dev && outputTarget === "bin";
   const outputPath = app.outputPath(outputTarget);
 
   const commonConfig = createCommonConfig(app, "client", mode, outputTarget);
 
-  // Smoke builds only validate compilation, so skip expensive static generation.
-  identityAssets(app, path.join(outputPath, "public", "app"), !buildDev);
+  identityAssets(app, path.join(outputPath, "public", "app"));
 
   // Symlinks to public
   /*const publicDirs = fs.readdirSync(app.paths.root + '/public');
@@ -85,6 +93,19 @@ export default function createCompiler(
       path: outputPath + "/public",
       filename: "[name].js", // Output client.js
       assetModuleFilename: "[hash][ext]",
+      environment: legacyClientRuntime
+        ? {}
+        : {
+            arrowFunction: true,
+            asyncFunction: true,
+            bigIntLiteral: true,
+            const: true,
+            destructuring: true,
+            dynamicImport: true,
+            forOf: true,
+            optionalChaining: true,
+            templateLiteral: true,
+          },
 
       chunkFilename: dev ? "[name].js" : "[id].[hash:8].js",
     },
@@ -134,14 +155,14 @@ export default function createCompiler(
 
             app.paths.root + "/server/.generated/models.ts",
           ],
-          rules: require("../common/babel")(app, "client", dev, buildDev),
+          rules: require("../common/babel")(app, "client", dev),
         },
 
         // Les pages étan tà la fois compilées dans le bundle client et serveur
         // On ne compile les ressources (css) qu'une seule fois
         {
           test: regex.style,
-          rules: require("../common/files/style")(app, dev, true, buildDev),
+          rules: require("../common/files/style")(app, dev, true),
 
           // Don't consider CSS imports dead code even if the
           // containing package claims to have no side effects.
@@ -167,64 +188,57 @@ export default function createCompiler(
     plugins: [
       ...(commonConfig.plugins || []),
 
-      ...(dev && !buildDev ? [] : [new MiniCssExtractPlugin({})]),
+      ...(dev ? [] : [new MiniCssExtractPlugin({})]),
 
-      ...(buildDev
-        ? []
-        : [
-            // Emit runtime asset manifests only for runnable builds.
-            new WebpackAssetsManifest({
-              output: outputPath + `/asset-manifest.json`,
-              publicPath: true,
-              writeToDisk: true, // Force la copie du fichier sur e disque, au lieu d'en mémoire en mode dev
-              customize: ({ key, value }) => {
-                // You can prevent adding items to the manifest by returning false.
-                if (key.toLowerCase().endsWith(".map")) return false;
-                return { key, value };
+      // Emit runtime asset manifests for the server renderer.
+      new WebpackAssetsManifest({
+        output: outputPath + `/asset-manifest.json`,
+        publicPath: true,
+        writeToDisk: true, // Force la copie du fichier sur e disque, au lieu d'en mémoire en mode dev
+        customize: ({ key, value }) => {
+          // You can prevent adding items to the manifest by returning false.
+          if (key.toLowerCase().endsWith(".map")) return false;
+          return { key, value };
+        },
+        done: (manifest, stats) => {
+          const chunkFileName = outputPath + `/chunk-manifest.json`;
+          try {
+            const fileFilter = (file) => !file.endsWith(".map");
+            const addPath = (file) => manifest.getPublicPath(file);
+            const chunkFiles = stats.compilation.chunkGroups.reduce(
+              (acc, c) => {
+                acc[c.name] = [
+                  ...(acc[c.name] || []),
+                  ...c.chunks.reduce(
+                    (files, cc) => [
+                      ...files,
+                      ...[...cc.files].filter(fileFilter).map(addPath),
+                    ],
+                    [],
+                  ),
+                ];
+                return acc;
               },
-              done: (manifest, stats) => {
-                // Write chunk-manifest.json.json
-                const chunkFileName = outputPath + `/chunk-manifest.json`;
-                try {
-                  const fileFilter = (file) => !file.endsWith(".map");
-                  const addPath = (file) => manifest.getPublicPath(file);
-                  const chunkFiles = stats.compilation.chunkGroups.reduce(
-                    (acc, c) => {
-                      acc[c.name] = [
-                        ...(acc[c.name] || []),
-                        ...c.chunks.reduce(
-                          (files, cc) => [
-                            ...files,
-                            ...[...cc.files].filter(fileFilter).map(addPath),
-                          ],
-                          [],
-                        ),
-                      ];
-                      return acc;
-                    },
-                    Object.create(null),
-                  );
-                  fs.writeFileSync(
-                    chunkFileName,
-                    JSON.stringify(chunkFiles, null, 4),
-                  );
-                } catch (err) {
-                  console.error(`ERROR: Cannot write ${chunkFileName}: `, err);
-                  if (!dev) process.exit(1);
-                }
-              },
-            }),
-          ]),
+              Object.create(null),
+            );
+            fs.writeFileSync(
+              chunkFileName,
+              JSON.stringify(chunkFiles, null, 4),
+            );
+          } catch (err) {
+            console.error(`ERROR: Cannot write ${chunkFileName}: `, err);
+            if (!dev) process.exit(1);
+          }
+        },
+      }),
+
+      ...createClientBundleAnalysisPlugins(app, outputTarget),
 
     ],
 
     // Use the cheapest practical client source maps in dev for faster rebuilds.
     // https://webpack.js.org/configuration/devtool/#devtool
-    devtool: buildDev
-      ? false
-      : dev
-        ? "eval-cheap-module-source-map"
-        : "source-map",
+    devtool: dev ? "eval-cheap-module-source-map" : "source-map",
     /*devServer: {
             hot: true,
         },*/
@@ -269,40 +283,48 @@ export default function createCompiler(
             removeAvailableModules: true,
             minimizer: [
               new TerserPlugin({
-                terserOptions: {
-                  parse: {
-                    // We want terser to parse ecma 8 code. However, we don't want it
-                    // to apply any minification steps that turns valid ecma 5 code
-                    // into invalid ecma 5 code. This is why the 'compress' and 'output'
-                    // sections only apply transformations that are ecma 5 safe
-                    // https://github.com/facebook/create-react-app/pull/4234
-                    ecma: 8,
-                  },
-                  compress: {
-                    ecma: 5,
-                    warnings: false,
-                    // Disabled because of an issue with Uglify breaking seemingly valid code:
-                    // https://github.com/facebook/create-react-app/issues/2376
-                    // Pending further investigation:
-                    // https://github.com/mishoo/UglifyJS2/issues/2011
-                    comparisons: false,
-                    // Disabled because of an issue with Terser breaking valid code:
-                    // https://github.com/facebook/create-react-app/issues/5250
-                    // Pending further investigation:
-                    // https://github.com/terser-js/terser/issues/120
-                    inline: 2,
-                  },
-                  mangle: {
-                    safari10: true,
-                  },
-                  output: {
-                    ecma: 5,
-                    comments: false,
-                    // Turned on because emoji and regex is not minified properly using default
-                    // https://github.com/facebook/create-react-app/issues/2488
-                    ascii_only: true,
-                  },
-                },
+                terserOptions: isLegacyClientRuntimeTarget(app)
+                  ? {
+                      parse: {
+                        // We want terser to parse ecma 8 code. However, we don't want it
+                        // to apply any minification steps that turns valid ecma 5 code
+                        // into invalid ecma 5 code. This is why the 'compress' and 'output'
+                        // sections only apply transformations that are ecma 5 safe
+                        // https://github.com/facebook/create-react-app/pull/4234
+                        ecma: 8,
+                      },
+                      compress: {
+                        ecma: 5,
+                        warnings: false,
+                        comparisons: false,
+                        inline: 2,
+                      },
+                      mangle: {
+                        safari10: true,
+                      },
+                      output: {
+                        ecma: 5,
+                        comments: false,
+                        ascii_only: true,
+                      },
+                    }
+                  : {
+                      parse: {
+                        ecma: 2020,
+                      },
+                      compress: {
+                        ecma: 2020,
+                        warnings: false,
+                        comparisons: false,
+                        inline: 2,
+                      },
+                      mangle: true,
+                      output: {
+                        ecma: 2020,
+                        comments: false,
+                        ascii_only: true,
+                      },
+                    },
               }),
 
               ...(dev ? [] : [new CssMinimizerPlugin()]),

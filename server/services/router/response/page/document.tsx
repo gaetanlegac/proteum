@@ -199,9 +199,6 @@ export default class DocumentRenderer<TRouter extends Router> {
   }
 
   private clientStyles() {
-    if (this.app.env.profile === "dev")
-      return null;
-
     return (
       <>
         <link rel="preload" href="/public/client.css" as="style" />

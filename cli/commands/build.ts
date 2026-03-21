@@ -4,12 +4,17 @@
 
 // Core
 import cli from '..';
+import { app } from '../app';
 
 // Configs
 import Compiler from '../compiler';
 import type { TCompileMode } from '../compiler/common';
+import {
+    getClientBundleAnalysisReportPaths,
+    waitForClientBundleAnalysisArtifacts,
+} from '../compiler/common/bundleAnalysis';
 
-const allowedBuildArgs = new Set(['dev', 'prod', 'cache']);
+const allowedBuildArgs = new Set(['prod', 'cache', 'analyze']);
 
 /*----------------------------------
 - COMMAND
@@ -22,15 +27,15 @@ function resolveBuildMode(): TCompileMode {
 
     const invalidArgs = enabledArgs.filter(arg => !allowedBuildArgs.has(arg));
     if (invalidArgs.length > 0)
-        throw new Error(`Unknown build argument(s): ${invalidArgs.join(', ')}. Allowed values: dev, prod, cache.`);
+        throw new Error(`Unknown build argument(s): ${invalidArgs.join(', ')}. Allowed values: prod, cache, analyze.`);
 
     const requestedModes = enabledArgs.filter((arg): arg is TCompileMode =>
-        arg === 'dev' || arg === 'prod'
+        arg === 'prod'
     );
     if (requestedModes.length > 1)
         throw new Error(`Please specify only one build mode. Received: ${requestedModes.join(', ')}.`);
 
-    return requestedModes[0] ?? 'dev';
+    return requestedModes[0] ?? 'prod';
 }
 
 export const run = async (): Promise<void> => {
@@ -50,6 +55,18 @@ export const run = async (): Promise<void> => {
 
             if (stats?.hasErrors()) {
                 reject(new Error(`Compilation failed for build mode "${mode}".`));
+                return;
+            }
+
+            if (cli.args.analyze === true) {
+                waitForClientBundleAnalysisArtifacts(app, 'bin')
+                    .then(() => {
+                        const { reportPath, statsPath } = getClientBundleAnalysisReportPaths(app, 'bin');
+                        console.info(`Client bundle analysis report: ${reportPath}`);
+                        console.info(`Client bundle analysis stats: ${statsPath}`);
+                        resolve();
+                    })
+                    .catch(reject);
                 return;
             }
 

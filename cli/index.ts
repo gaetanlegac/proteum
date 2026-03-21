@@ -46,6 +46,7 @@ export class CLI {
             dev: false,
             prod: false,
             cache: false,
+            analyze: false,
         },
     };
     

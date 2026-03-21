@@ -4,11 +4,12 @@
 
 // Npm
 import type webpack from "webpack";
-import PresetBabel, { Options } from "@babel/preset-env";
+import PresetBabel from "@babel/preset-env";
 import path from "path";
 
 import cli from "@cli";
 import type { TAppSide, App } from "@cli/app";
+import { createClientPresetEnvOptions } from "../clientRuntimeTarget";
 
 /*----------------------------------
 - REGLES
@@ -17,27 +18,10 @@ module.exports = (
   app: App,
   side: TAppSide,
   dev: boolean,
-  buildDev: boolean = false,
 ): webpack.RuleSetRule[] => {
-  const useClientPolyfills = side === "client" && (!dev || buildDev);
-
-  const babelPresetEnvConfig: Options =
+  const babelPresetEnvConfig =
     side === "client"
-      ? {
-          // Ajoute automatiquement les polyfills babel
-          // https://stackoverflow.com/a/61517521/12199605
-          // Skip per-file polyfill analysis in local dev to speed up client compiles.
-          useBuiltIns: useClientPolyfills ? "usage" : false, // alternative mode: "entry"
-          corejs: useClientPolyfills ? 3 : undefined, // default would be 2
-
-          targets: {
-            browsers: dev ? "last 2 versions" : app.packageJson.browserslist,
-          },
-          forceAllTransforms: !dev, // for UglifyJS
-          modules: false,
-          debug: false,
-          bugfixes: !dev,
-        }
+      ? createClientPresetEnvOptions(app, dev)
       : {
           targets: {
             node: true, //pkg.engines.node.match(/(\d+\.?)+/)[0],
@@ -78,7 +62,7 @@ module.exports = (
                 app.paths.cache,
                 "babel",
                 side,
-                buildDev ? "build-dev" : dev ? "dev" : "prod",
+                dev ? "dev" : "prod",
               )
             : false,
         // Désactive car ralenti compilation

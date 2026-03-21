@@ -44,7 +44,6 @@ export default function createCommonConfig(
   outputTarget: TCompileOutputTarget = mode === "dev" ? "dev" : "bin",
 ): webpack.Configuration {
   const dev = mode === "dev";
-  const buildDev = dev && outputTarget === "bin";
   const enableFilesystemCache = dev
     ? cli.args.cache !== false
     : cli.args.cache === true;
@@ -115,9 +114,9 @@ export default function createCommonConfig(
     performance: false,
 
     // Smoke builds should fail immediately on the first compilation error.
-    bail: buildDev || !dev,
+    bail: !dev,
 
-    // Persistent cache speeds up repeated local dev and build-dev invocations.
+    // Persistent cache speeds up repeated local dev and prod build invocations.
     cache: enableFilesystemCache
       ? {
           type: "filesystem",
@@ -125,7 +124,7 @@ export default function createCommonConfig(
             app.paths.cache,
             "webpack",
             side,
-            buildDev ? "build-dev" : mode,
+            mode,
           ),
           compression: false,
           buildDependencies: {
