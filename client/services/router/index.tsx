@@ -38,10 +38,7 @@ import ClientResponse from './response';
 import ClientPage from './response/page';
 
 // Routes (import __register)
-// We exclude files starting wiht uppercase, as they're considered as components
-// WARN: The routes babel plugin must be updated with the glob path
-//import * as coreRoutes from '@client/pages/**/([a-z0-9]*).tsx';
-import * as appRoutes from '@/client/pages/**/([a-z0-9]*).tsx';
+import appRoutes from '@/client/.generated/routes';
 
 /*----------------------------------
 - CONFIG

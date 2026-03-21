@@ -155,10 +155,7 @@ module.exports = (app: App, side: TAppSide, dev: boolean, buildDev: boolean = fa
                 require('babel-plugin-glob-import')({ 
                     debug: false,
                     removeAliases: (source: string) => app.paths.withoutAlias(source, side)
-                }, [
-                    // Routes imports on frontend side
-                    require('./routes/imports')(app, side, dev)
-                ])
+                }, [])
             ],
 
             overrides: [
