@@ -31,6 +31,7 @@ import cli from '../..';
 import type { App } from '../../app';
 
 const debug = false;
+const ssrScriptPattern = /\.ssr\.(ts|tsx)$/;
 
 /*----------------------------------
 - CONFIG
@@ -104,7 +105,6 @@ export default function createCompiler(
 
             alias: aliases,
 
-            // RAPPEL: on a besoin de résoudre les node_modules
             extensions: [".mjs", '.ts', '.tsx', ".jsx", ".js", ".json", ".sql"],
         },
 
@@ -113,6 +113,21 @@ export default function createCompiler(
             strictExportPresence: true,
 
             rules: [
+                {
+                    test: ssrScriptPattern,
+                    include: [
+
+                        app.paths.root + '/client',
+                        cli.paths.core.root + '/client',
+
+                        app.paths.root + '/common',
+                        cli.paths.core.root + '/common',
+
+                        app.paths.root + '/server',
+                        cli.paths.core.root + '/server',
+                    ],
+                    loader: path.join(cli.paths.core.root, 'cli', 'compiler', 'common', 'loaders', 'forbid-ssr-import.js')
+                },
                 {
                     test: regex.scripts,
                     include: [

@@ -5,6 +5,7 @@
 // Npm
 import webpack from 'webpack';
 import fs from 'fs-extra';
+import path from 'path';
 
 // Minimizers
 const TerserPlugin = require("terser-webpack-plugin");
@@ -35,6 +36,7 @@ import type { App } from '../../app';
 }*/
 
 const debug = false;
+const ssrScriptExtensions = ['.ssr.ts', '.ssr.tsx'];
 
 /*----------------------------------
 - CONFIG
@@ -136,7 +138,8 @@ export default function createCompiler(
 
             alias: aliases,
 
-            extensions: ['.ts', '.tsx', ".json", ".sql", ".js"],
+            // Prefer SSR-specific variants on the server when imports stay extensionless.
+            extensions: [...ssrScriptExtensions, '.ts', '.tsx', ".json", ".sql", ".js"],
         },
 
         module: {
