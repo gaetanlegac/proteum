@@ -42,7 +42,7 @@ export default class DocumentRenderer<TRouter extends Router> {
             />
 
             {/* CSS */}
-            <link rel="preload" href="/public/client.css" as="style" />
+            {this.clientStyles()}
             <link
               rel="preload"
               as="font"
@@ -50,7 +50,6 @@ export default class DocumentRenderer<TRouter extends Router> {
               type="font/woff2"
             />
             <link rel="stylesheet" type="text/css" href="/public/icons.css" />
-            <link rel="stylesheet" type="text/css" href="/public/client.css" />
 
             {/* JS */}
             <script
@@ -178,8 +177,7 @@ export default class DocumentRenderer<TRouter extends Router> {
   private styles(page: Page) {
     return (
       <>
-        <link rel="preload" href="/public/client.css" as="style" />
-        <link rel="stylesheet" type="text/css" href="/public/client.css" />
+        {this.clientStyles()}
 
         {page.style.map((style) =>
           "url" in style ? (
@@ -196,6 +194,18 @@ export default class DocumentRenderer<TRouter extends Router> {
             </>
           ),
         )}
+      </>
+    );
+  }
+
+  private clientStyles() {
+    if (this.app.env.profile === "dev")
+      return null;
+
+    return (
+      <>
+        <link rel="preload" href="/public/client.css" as="style" />
+        <link rel="stylesheet" type="text/css" href="/public/client.css" />
       </>
     );
   }

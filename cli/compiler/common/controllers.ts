@@ -189,7 +189,7 @@ export const indexControllers = (searchDirs: TControllerSearchDir[]) => {
       const code = fs.readFileSync(filepath, "utf8");
       const ast = parse(code, {
         sourceType: "module",
-        plugins: ["typescript", "jsx", "decorators-legacy"],
+        plugins: ["typescript", "jsx"],
       });
 
       const controllerPathOverride = getExportedString(ast, "controllerPath");

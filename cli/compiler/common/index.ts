@@ -137,20 +137,13 @@ export default function createCommonConfig(
     // Increase compilation performance
     profile: false,
 
-    // Pour bundle-stats
-    // https://github.com/relative-ci/bundle-stats/tree/master/packages/cli#webpack-configuration
+    // Keep output compact while preserving timing and error context.
     stats: {
-      cached: dev,
-      cachedAssets: dev,
-      chunks: dev,
-      chunkModules: dev,
       colors: true,
-      hash: dev,
-      modules: dev,
-      reasons: dev,
-      timings: true,
-      version: dev,
+      errors: true,
       errorDetails: true,
+      timings: true,
+      warnings: true,
     },
   };
 

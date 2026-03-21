@@ -19,6 +19,7 @@ import {
   generateControllerClientTree,
   printControllerTree,
 } from "./common/controllers";
+import writeIfChanged from "./writeIfChanged";
 
 type TCompilerCallback = (compiler: webpack.Compiler) => void;
 
@@ -306,7 +307,7 @@ ${routeEntries.join("\n")}
 export default routes;
 `;
 
-    fs.outputFileSync(routeLoadersFile, content);
+    writeIfChanged(routeLoadersFile, content);
   }
 
   private indexControllers() {
@@ -384,12 +385,12 @@ ${printControllerTree(clientTree, runtimeLeaf)}
 export default createControllers;
 `;
 
-    fs.outputFileSync(
+    writeIfChanged(
       path.join(app.paths.common.generated, "controllers.ts"),
       createControllersContent,
     );
 
-    fs.outputFileSync(
+    writeIfChanged(
       path.join(app.paths.client.generated, "controllers.ts"),
       `export { createControllers, default } from '@/common/.generated/controllers';
 export type { TControllers } from '@/common/.generated/controllers';
@@ -414,7 +415,7 @@ export type { TControllers } from '@/common/.generated/controllers';
         ),
     );
 
-    fs.outputFileSync(
+    writeIfChanged(
       path.join(app.paths.server.generated, "controllers.ts"),
       `/*----------------------------------
 - GENERATED FILE
@@ -575,7 +576,7 @@ export default controllers;
       .join("|");
 
     // @/client/.generated/services.d.ts
-    fs.outputFileSync(
+    writeIfChanged(
       path.join(app.paths.client.generated, "services.d.ts"),
       `declare module "@app" {
 
@@ -619,7 +620,7 @@ declare namespace preact.JSX {
     );
 
     // @/client/.generated/context.ts
-    fs.outputFileSync(
+    writeIfChanged(
       path.join(app.paths.client.generated, "context.ts"),
       `// TODO: move it into core (but how to make sure usecontext returns ${appClassIdentifier}'s context ?)
 import React from 'react';
@@ -654,7 +655,7 @@ export default (): ClientContext => React.useContext<ClientContext>(ReactClientC
     );
 
     // @/common/.generated/services.d.ts
-    fs.outputFileSync(
+    writeIfChanged(
       path.join(app.paths.common.generated, "services.d.ts"),
       `declare module '@models/types' {
     export * from '@/var/prisma/index';
@@ -662,7 +663,7 @@ export default (): ClientContext => React.useContext<ClientContext>(ReactClientC
     );
 
     // @/server/.generated/app.ts
-    fs.outputFileSync(
+    writeIfChanged(
       path.join(app.paths.server.generated, "app.ts"),
       `
 import { Application } from '@server/app/index';
@@ -699,7 +700,7 @@ export default class ${appClassIdentifier} extends Application<ServicesContainer
     );
 
     // @/server/.generated/services.d.ts
-    fs.outputFileSync(
+    writeIfChanged(
       path.join(app.paths.server.generated, "services.d.ts"),
       `type InstalledServices = import('./services').Services;
 

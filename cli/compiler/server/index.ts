@@ -212,7 +212,7 @@ export default function createCompiler(
     devtool: buildDev
       ? false
       : dev
-        ? "eval-source-map" // Recommended choice for development builds with high quality SourceMaps.
+        ? "eval-cheap-module-source-map" // Cheaper than eval-source-map while keeping usable module-level stack traces.
         : "source-map", // Recommended choice for production builds with high quality SourceMaps.
 
     // eval-source-map n'est pas précis
