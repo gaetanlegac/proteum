@@ -547,16 +547,23 @@ Logs: ${this.config.enable ? `<br/>` + this.logsToHTML(report.logs) : "Logs coll
             // Remove path prefixs
             if (log.filePath !== undefined) {
 
-                const appPrefix = '/webpack:/' + this.app.pkg.name + '/';
-                const appPrefixIndex = log.filePath.indexOf(appPrefix);
-    
-                const corePrefix = '/webpack:/' + this.app.pkg.name + '/node_modules/proteum/';
-                const corePrefixIndex = log.filePath.indexOf(corePrefix);
-    
-                if (appPrefixIndex !== -1)
-                    log.filePath = '@/' + log.filePath.substring(appPrefixIndex + appPrefix.length);
-                else if (corePrefixIndex !== -1)
-                    log.filePath = '@' + log.filePath.substring(corePrefixIndex + corePrefix.length);
+                for (const prefix of ['/webpack:/', '/rspack:/']) {
+                    const appPrefix = prefix + this.app.pkg.name + '/';
+                    const appPrefixIndex = log.filePath.indexOf(appPrefix);
+
+                    const corePrefix = prefix + this.app.pkg.name + '/node_modules/proteum/';
+                    const corePrefixIndex = log.filePath.indexOf(corePrefix);
+
+                    if (appPrefixIndex !== -1) {
+                        log.filePath = '@/' + log.filePath.substring(appPrefixIndex + appPrefix.length);
+                        break;
+                    }
+
+                    if (corePrefixIndex !== -1) {
+                        log.filePath = '@' + log.filePath.substring(corePrefixIndex + corePrefix.length);
+                        break;
+                    }
+                }
             }
         }
         

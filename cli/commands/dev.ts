@@ -47,7 +47,6 @@ export const run = () => new Promise<void>(async () => {
 
     multiCompiler.watch({
 
-        // https://webpack.js.org/configuration/watch/#watchoptions
         // Watching may not work with NFS and machines in VirtualBox
         // Uncomment next line if it is your case (use true or interval in milliseconds)
         //poll: 1000,

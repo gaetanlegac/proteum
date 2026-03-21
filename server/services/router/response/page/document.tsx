@@ -6,7 +6,9 @@
 import React from "react";
 import renderToString from "preact-render-to-string";
 const safeStringify = require("fast-safe-stringify"); // remplace les références circulairs par un [Circular]
-const chunks = require("./chunk-manifest.json");
+const manifest = require("./client-manifest.json") as {
+  entries?: Record<string, { assets?: string[]; css?: string[]; js?: string[] }>;
+};
 
 // Core
 import type {
@@ -199,9 +201,7 @@ export default class DocumentRenderer<TRouter extends Router> {
   }
 
   private clientStyles() {
-    const styles = this.clientEntryAssets().filter((asset) =>
-      asset.endsWith(".css"),
-    );
+    const styles = this.clientEntryAssets("css");
 
     return (
       <>
@@ -220,9 +220,7 @@ export default class DocumentRenderer<TRouter extends Router> {
   }
 
   private clientScripts() {
-    const scripts = this.clientEntryAssets().filter((asset) =>
-      asset.endsWith(".js"),
-    );
+    const scripts = this.clientEntryAssets("js");
 
     return (
       <>
@@ -284,8 +282,11 @@ export default class DocumentRenderer<TRouter extends Router> {
     );
   }
 
-  private clientEntryAssets(): string[] {
-    return Array.isArray(chunks.client) ? chunks.client : [];
+  private clientEntryAssets(kind: "assets" | "css" | "js" = "assets"): string[] {
+    const entry = manifest.entries?.client;
+    const assets = entry?.[kind];
+
+    return Array.isArray(assets) ? assets : [];
   }
 
   private clientAssetUrl(asset: string, withBuildId = false) {

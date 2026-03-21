@@ -20,7 +20,9 @@ import PageResponse, { TFrontRenderer } from "@common/router/response/page";
 import App from "@client/app/component";
 
 // Caches
-const chunks = require("./chunk-manifest.json");
+const manifest = require("./client-manifest.json") as {
+  chunks?: Record<string, { assets?: string[]; css?: string[]; js?: string[] }>;
+};
 
 /*----------------------------------
 - TYPES
@@ -72,8 +74,8 @@ export default class ServerPage<
     this.buildMetas();
     this.buildJsonLd();
 
-    // Un chunk peut regrouper plusieurs fihciers css / js
-    // L'id du chunk est injecté depuis le plugin babel
+    // A page chunk can group multiple CSS and JS assets.
+    // Route ids come from the generated route wrapper modules.
     this.addChunks();
 
     /*if (page.classeBody)
@@ -91,27 +93,26 @@ export default class ServerPage<
     for (const chunk of pageChunks) {
       if (!chunk) continue;
 
-      const assets = chunks[chunk];
+      const assets = manifest.chunks?.[chunk];
       if (!assets) {
         console.warn(
-          `Chunk ${chunk} was not found. Indexed chunks: ${Object.keys(chunks).join(", ")}`,
+          `Chunk ${chunk} was not found. Indexed chunks: ${Object.keys(manifest.chunks || {}).join(", ")}`,
         );
         continue;
       }
 
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
+      for (const asset of assets.css || []) {
+        this.style.push({
+          id: chunk,
+          url: "/public/" + asset,
+        });
+      }
 
-        if (asset.endsWith(".css"))
-          this.style.push({
-            id: chunk,
-            url: "/public/" + asset,
-          });
-        else
-          this.scripts.push({
-            id: chunk,
-            url: "/public/" + asset,
-          });
+      for (const asset of assets.js || []) {
+        this.scripts.push({
+          id: chunk,
+          url: "/public/" + asset,
+        });
       }
     }
   }

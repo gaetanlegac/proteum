@@ -12,7 +12,7 @@
         "strict": false,
         "downlevelIteration": true,
 
-        // Equivalent webpack: resolve.symblinks = false
+        // Keep symlinked package paths stable for local framework development.
         "preserveSymlinks": true,
         // React
         "jsx": "react-jsx",

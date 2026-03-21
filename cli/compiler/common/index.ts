@@ -3,9 +3,9 @@
 ----------------------------------*/
 
 // npm
-import webpack from "webpack";
 import dayjs from "dayjs";
 import path from "path";
+import { rspack, type Configuration } from "@rspack/core";
 
 // Core
 import cli from "../..";
@@ -19,7 +19,7 @@ import type { TAppSide } from "../../app";
 ----------------------------------*/
 
 export const regex = {
-  scripts: /\.(ts|tsx)$/,
+  scripts: /\.(ts|tsx|js|jsx)$/,
   style: /\.(css|less|scss)$/,
   images: /\.(bmp|gif|jpg|jpeg|png|ico|svg)$/, // SVG gérés par SVGR
   fonts: /\.(woff(2)?|ttf|eot)(\?v=\d+\.\d+\.\d+)?$/,
@@ -42,12 +42,12 @@ export default function createCommonConfig(
   side: TAppSide,
   mode: TCompileMode,
   outputTarget: TCompileOutputTarget = mode === "dev" ? "dev" : "bin",
-): webpack.Configuration {
+): Configuration {
   const dev = mode === "dev";
   const enableFilesystemCache = dev
     ? cli.args.cache !== false
     : cli.args.cache === true;
-  const config: webpack.Configuration = {
+  const config: Configuration = {
     // Project root
     context: app.paths.root,
 
@@ -66,8 +66,7 @@ export default function createCommonConfig(
     },
 
     plugins: [
-      // https://webpack.js.org/plugins/define-plugin/
-      new webpack.DefinePlugin({
+      new rspack.DefinePlugin({
         // Flags
         __DEV__: dev,
         SERVER: side === "server",
@@ -89,12 +88,7 @@ export default function createCommonConfig(
         ),
       }),
 
-      ...(dev
-        ? [
-            // HMR
-            //new webpack.HotModuleReplacementPlugin()
-          ]
-        : []),
+      ...(dev ? [] : []),
     ],
 
     resolve: {
@@ -122,7 +116,7 @@ export default function createCommonConfig(
           type: "filesystem",
           cacheDirectory: path.join(
             app.paths.cache,
-            "webpack",
+            "rspack",
             side,
             mode,
           ),

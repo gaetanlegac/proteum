@@ -3,13 +3,7 @@
 ----------------------------------*/
 
 // Npm
-import webpack from "webpack";
-import fs from "fs-extra";
-import path from "path";
-
-// Minimizers
-const TerserPlugin = require("terser-webpack-plugin");
-//var VirtualModulesPlugin = require('webpack-virtual-modules');
+import { type Configuration } from "@rspack/core";
 
 // Core
 import cli from "@cli";
@@ -18,6 +12,7 @@ import createCommonConfig, {
   TCompileOutputTarget,
   regex,
 } from "../common";
+import { toRspackAliases } from "../common/rspackAliases";
 
 // Type
 import type { App } from "../../app";
@@ -49,7 +44,7 @@ export default function createCompiler(
   app: App,
   mode: TCompileMode,
   outputTarget: TCompileOutputTarget = mode === "dev" ? "dev" : "bin",
-): webpack.Configuration {
+): Configuration {
   debug && console.info(`Creating compiler for server (${mode}).`);
   const dev = mode === "dev";
   const outputPath = app.outputPath(outputTarget);
@@ -62,15 +57,17 @@ export default function createCompiler(
   // We're not supposed in any case to import client services from server
   delete aliases["@client/services"];
   delete aliases["@/client/services"];
+  const rspackAliases = toRspackAliases(aliases);
+  rspackAliases["@/client/router$"] = cli.paths.core.root + "/client/router.ts";
 
   debug &&
     console.log(
       `[${mode}] node_modules dirs:`,
       commonConfig.resolveLoader?.modules,
-      "\nModule aliases for webpack:",
-      aliases,
+      "\nModule aliases for rspack:",
+      rspackAliases,
     );
-  const config: webpack.Configuration = {
+  const config: Configuration = {
     ...commonConfig,
 
     name: "server",
@@ -97,8 +94,7 @@ export default function createCompiler(
 
     externalsPresets: { node: true }, // in order to ignore built-in modules like path, fs, etc.
     externals: [
-      "./chunk-manifest.json",
-      "./asset-manifest.json",
+      "./client-manifest.json",
 
       // node_modules
       function ({ request }, callback) {
@@ -132,7 +128,7 @@ export default function createCompiler(
     resolve: {
       ...commonConfig.resolve,
 
-      alias: aliases,
+      alias: rspackAliases,
 
       // Prefer SSR-specific variants on the server when imports stay extensionless.
       extensions: [
@@ -167,7 +163,7 @@ export default function createCompiler(
             // Temp disabled because compile issue on vercel
             //...getCorePluginsList(app)
           ],
-          rules: require("../common/babel")(app, "server", dev),
+          rules: require("../common/scripts")({ app, side: "server", dev }),
         },
 
         // Les pages étan tà la fois compilées dans le bundle client et serveur
@@ -194,20 +190,9 @@ export default function createCompiler(
     plugins: [...(commonConfig.plugins || [])],
 
     optimization: {
-      minimizer: dev
-        ? []
-        : [
-            new TerserPlugin({
-              terserOptions: {
-                // Consere les classnames
-                //keep_classnames: true,
-                //keep_fnames: true,
-              },
-            }),
-          ],
+      minimizer: [],
     },
 
-    // https://webpack.js.org/configuration/devtool/#devtool
     devtool: dev
       ? "eval-cheap-module-source-map" // Cheaper than eval-source-map while keeping usable module-level stack traces.
       : "source-map", // Recommended choice for production builds with high quality SourceMaps.

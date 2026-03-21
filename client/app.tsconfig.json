@@ -9,7 +9,7 @@
             "@common/*": ["../node_modules/proteum/common/*"],
 
             // Only used for typings (ex: ServerResponse)
-            // Removed before webpack compilation
+            // Removed before bundling
             "@server/*": ["../node_modules/proteum/server/*"],
             "@/*": ["./*"],
 

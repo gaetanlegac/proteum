@@ -27,6 +27,7 @@ export { default as Service } from "./service";
 declare global {
   interface Window {
     dev: boolean;
+    app?: Application;
     /*context: ClientContext,
         user: User,*/
     /*context: ClientContext,

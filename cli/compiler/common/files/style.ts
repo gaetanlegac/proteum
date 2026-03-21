@@ -1,5 +1,5 @@
 // Plugons
-import MiniCssExtractPlugin from "mini-css-extract-plugin";
+import { rspack } from "@rspack/core";
 
 import type { App } from "../../../app";
 
@@ -18,7 +18,7 @@ module.exports = (
           loader: "style-loader",
         }
       : {
-          loader: MiniCssExtractPlugin.loader,
+          loader: rspack.CssExtractRspackPlugin.loader,
         },
 
     // Process external/third-party styles
@@ -35,7 +35,6 @@ module.exports = (
       include: [app.paths.root],
       loader: "css-loader",
       options: {
-        // CSS Loader https://github.com/webpack/css-loader
         importLoaders: 1, // let postcss run on @imports
         sourceMap: enableSourceMaps,
       },

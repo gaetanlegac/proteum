@@ -4,9 +4,10 @@
 
 // Npm
 import path from "path";
-import webpack from "webpack";
 import fs from "fs-extra";
 import serialize from "serialize-javascript";
+import { rspack, type Compiler as RspackCompiler } from "@rspack/core";
+import ts from "typescript";
 
 // Core
 import app from "../app";
@@ -19,9 +20,14 @@ import {
   generateControllerClientTree,
   printControllerTree,
 } from "./common/controllers";
+import { writeClientManifest } from "./common/clientManifest";
+import {
+  getGeneratedRouteModuleFilepath,
+  writeGeneratedRouteModule,
+} from "./common/generatedRouteModules";
 import writeIfChanged from "./writeIfChanged";
 
-type TCompilerCallback = (compiler: webpack.Compiler) => void;
+type TCompilerCallback = (compiler: RspackCompiler) => void;
 
 type TServiceMetas = {
   id: string;
@@ -46,9 +52,6 @@ type TClientRouteLoader = {
   preload: boolean;
 };
 
-const routeRegistrationPattern =
-  /\bRouter\.(?:page|error|get|post|put|delete|patch)\s*\(/;
-
 const normalizePath = (value: string) => value.replace(/\\/g, "/");
 
 /*----------------------------------
@@ -57,6 +60,7 @@ const normalizePath = (value: string) => value.replace(/\\/g, "/");
 export default class Compiler {
   public compiling: { [compiler: string]: Promise<void> } = {};
   private recentCompilationResults: { [compiler: string]: boolean } = {};
+  private refreshingGeneratedArtifacts?: Promise<void>;
 
   public constructor(
     private mode: TCompileMode,
@@ -244,12 +248,39 @@ export default class Compiler {
       if (!/\.(ts|tsx)$/.test(dirent.name)) continue;
 
       const content = fs.readFileSync(filePath, "utf8");
-      if (!routeRegistrationPattern.test(content)) continue;
+      if (!this.hasRegisteredRouteDefinitions(filePath, content)) continue;
 
       files.push(filePath);
     }
 
     return files;
+  }
+
+  private hasRegisteredRouteDefinitions(filepath: string, content: string) {
+    const sourceFile = ts.createSourceFile(
+      filepath,
+      content,
+      ts.ScriptTarget.Latest,
+      true,
+      filepath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+
+    return sourceFile.statements.some((statement) => {
+      if (!ts.isExpressionStatement(statement)) return false;
+      if (!ts.isCallExpression(statement.expression)) return false;
+      if (!ts.isPropertyAccessExpression(statement.expression.expression))
+        return false;
+
+      const callee = statement.expression.expression;
+
+      return (
+        ts.isIdentifier(callee.expression) &&
+        callee.expression.text === "Router" &&
+        ["page", "error", "get", "post", "put", "delete", "patch"].includes(
+          callee.name.text,
+        )
+      );
+    });
   }
 
   private findLayoutFiles(dir: string): string[] {
@@ -304,6 +335,75 @@ export default class Compiler {
     );
   }
 
+  private getGeneratedClientRouteModuleFilepath(filepath: string) {
+    return getGeneratedRouteModuleFilepath(
+      app.paths.client.generated,
+      app.paths.pages,
+      filepath,
+    );
+  }
+
+  private getGeneratedServerRouteModuleFilepath(filepath: string) {
+    return getGeneratedRouteModuleFilepath(
+      app.paths.server.generated,
+      app.paths.root,
+      filepath,
+    );
+  }
+
+  private generateClientRouteWrapperModules() {
+    const clientRouteFiles = this.findClientRouteFiles(app.paths.pages).sort((a, b) =>
+      a.localeCompare(b),
+    );
+    const routeSourceFilepaths = new Set(
+      clientRouteFiles.map((filepath) => normalizePath(path.resolve(filepath))),
+    );
+
+    for (const filepath of clientRouteFiles) {
+      const pageChunk = cli.paths.getPageChunk(app, filepath);
+
+      writeGeneratedRouteModule({
+        outputFilepath: this.getGeneratedClientRouteModuleFilepath(filepath),
+        side: "client",
+        sourceFilepath: filepath,
+        clientRoute: {
+          chunkId: pageChunk.chunkId,
+          filepath: pageChunk.filepath,
+        },
+        routeSourceFilepaths,
+      });
+
+      writeGeneratedRouteModule({
+        outputFilepath: this.getGeneratedServerRouteModuleFilepath(filepath),
+        side: "client",
+        sourceFilepath: filepath,
+        clientRoute: {
+          chunkId: pageChunk.chunkId,
+          filepath: pageChunk.filepath,
+        },
+        routeSourceFilepaths,
+      });
+    }
+  }
+
+  private generateServerRouteWrapperModules() {
+    const serverRouteFiles = this.findServerRouteFiles(
+      path.join(app.paths.root, "server", "routes"),
+    ).sort((a, b) => a.localeCompare(b));
+    const routeSourceFilepaths = new Set(
+      serverRouteFiles.map((filepath) => normalizePath(path.resolve(filepath))),
+    );
+
+    for (const filepath of serverRouteFiles) {
+      writeGeneratedRouteModule({
+        outputFilepath: this.getGeneratedServerRouteModuleFilepath(filepath),
+        side: "server",
+        sourceFilepath: filepath,
+        routeSourceFilepaths,
+      });
+    }
+  }
+
   private generateClientRoutesModule() {
     const routeLoadersFile = path.join(app.paths.client.generated, "routes.ts");
     const preloadedChunks = this.readPreloadedRouteChunks();
@@ -326,7 +426,7 @@ export default class Compiler {
     routes.forEach((route, index) => {
       const normalizedImportPath = this.getGeneratedImportPath(
         app.paths.client.generated,
-        route.filepath,
+        this.getGeneratedClientRouteModuleFilepath(route.filepath),
       );
 
       if (route.preload) {
@@ -436,14 +536,20 @@ export default layouts;
       .sort((a, b) => a.localeCompare(b))
       .map((filepath) => ({
         filepath: normalizePath(path.relative(app.paths.root, filepath)),
-        importPath: this.getGeneratedImportPath(app.paths.server.generated, filepath),
+        importPath: this.getGeneratedImportPath(
+          app.paths.server.generated,
+          this.getGeneratedServerRouteModuleFilepath(filepath),
+        ),
       }));
 
     const pageRouteFiles = this.findClientRouteFiles(app.paths.pages)
       .sort((a, b) => a.localeCompare(b))
       .map((filepath) => ({
         filepath: normalizePath(path.relative(app.paths.root, filepath)),
-        importPath: this.getGeneratedImportPath(app.paths.server.generated, filepath),
+        importPath: this.getGeneratedImportPath(
+          app.paths.server.generated,
+          this.getGeneratedServerRouteModuleFilepath(filepath),
+        ),
       }));
 
     const routeModules = [...serverRouteFiles, ...pageRouteFiles];
@@ -490,6 +596,8 @@ export default routeModules;
   }
 
   private generateRoutingModules() {
+    this.generateClientRouteWrapperModules();
+    this.generateServerRouteWrapperModules();
     this.generateServerRoutesModule();
     this.generateClientRoutesModule();
     this.generateClientLayoutsModule();
@@ -980,12 +1088,23 @@ declare module '@models/types' {
     await app.warmup();
   }
 
+  private async refreshGeneratedArtifacts() {
+    if (!this.refreshingGeneratedArtifacts) {
+      this.refreshingGeneratedArtifacts = (async () => {
+        this.indexServices();
+        this.generateControllerModules();
+        this.generateRoutingModules();
+      })().finally(() => {
+        this.refreshingGeneratedArtifacts = undefined;
+      });
+    }
+
+    await this.refreshingGeneratedArtifacts;
+  }
+
   public async refreshGeneratedTypings() {
     await this.warmupApp();
-
-    this.indexServices();
-    this.generateControllerModules();
-    this.generateRoutingModules();
+    await this.refreshGeneratedArtifacts();
   }
 
   public consumeRecentCompilationResults() {
@@ -1000,13 +1119,10 @@ declare module '@models/types' {
     this.cleanup();
 
     this.fixNpmLinkIssues();
-
-    this.indexServices();
-    this.generateControllerModules();
-    this.generateRoutingModules();
+    await this.refreshGeneratedArtifacts();
 
     // Create compilers
-    const multiCompiler = webpack([
+    const multiCompiler = rspack([
       createServerConfig(app, this.mode, this.outputTarget),
       createClientConfig(app, this.mode, this.outputTarget),
     ]);
@@ -1021,15 +1137,12 @@ declare module '@models/types' {
       let finished: () => void;
       this.compiling[name] = new Promise((resolve) => (finished = resolve));
 
-      if (name === "client") {
-        const refreshClientRoutes = async () => {
-          this.generateControllerModules();
-          this.generateRoutingModules();
-        };
-
-        compiler.hooks.beforeRun.tapPromise(name, refreshClientRoutes);
-        compiler.hooks.watchRun.tapPromise(name, refreshClientRoutes);
-      }
+      compiler.hooks.beforeRun.tapPromise(name, () =>
+        this.refreshGeneratedArtifacts(),
+      );
+      compiler.hooks.watchRun.tapPromise(name, () =>
+        this.refreshGeneratedArtifacts(),
+      );
 
       compiler.hooks.compile.tap(name, (compilation) => {
         this.callbacks.before && this.callbacks.before(compiler);
@@ -1057,6 +1170,10 @@ declare module '@models/types' {
           // Only in prod, because in dev, we want the compiler watcher continue running
           if (this.mode === "prod") process.exit(0);
         } else {
+          if (name === "client") {
+            writeClientManifest(stats, app.outputPath(this.outputTarget));
+          }
+
           this.debug && console.info(stats.toString(compiler.options.stats));
           console.info(`[${name}] Finished compilation after ${time} ms`);
         }

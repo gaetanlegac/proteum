@@ -128,7 +128,6 @@ export default abstract class Service<
     - SUBSERVICES
     ----------------------------------*/
 
-  // TODO:; babel plugin: transform Service references to app.use('Service')
   public use<TService extends AnyService = AnyService>(
     serviceId: string,
     useOptions: { optional?: boolean } = {},

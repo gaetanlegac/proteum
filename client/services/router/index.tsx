@@ -73,8 +73,7 @@ export type Response =
 - TYPES: ROUTES LOADING
 ----------------------------------*/
 
-// WARN: To be updated with the mplemenations list of Router.page AND the routes babel plugin
-//      (both server and client side)
+// WARN: Keep this aligned with the generated route wrapper contract on both sides.
 // Route definition without having loaded the controller
 type TUnresolvedRoute = TUnresolvedErrorRoute | TUnresolvedNormalRoute;
 
@@ -278,11 +277,11 @@ export default class ClientRouter<
       ...args,
     );
 
-    // S'il s'agit d'une page, son id doit avoir été injecté via le plugin babel
+    // Page ids are injected by the generated route wrapper modules.
     const id = options["id"];
     if (id === undefined)
       throw new Error(
-        `ID had not been injected into page options via the routes babel plugin for route ${path}.`,
+        `Page route ${path} is missing its generated id metadata.`,
       );
 
     const { regex, keys } = buildRegex(path);

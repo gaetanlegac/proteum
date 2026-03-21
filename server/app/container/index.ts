@@ -42,9 +42,6 @@ export class ApplicationContainer<
     this.Console = new Console(this, this.Environment.console);
   }
 
-  // Context
-  public hmr: __WebpackModuleApi.Hot | undefined = module.hot;
-
   public path = {
     root: process.cwd(),
     public: path.join(process.cwd(), "/public"),
@@ -101,33 +98,6 @@ export class ApplicationContainer<
     }
   }
 
-  /*----------------------------------
-    - HMR
-    - TODO: move in dev server
-    ----------------------------------*/
-  private activateHMR() {
-    if (!module.hot) return;
-
-    console.info(`Activating HMR ...`);
-
-    module.hot.accept();
-    module.hot.accept(this.path.root + "/.cache/commun/routes.ts");
-
-    module.hot.addDisposeHandler((data) => {
-      console.info(`Cleaning application ...`);
-
-      // Services hooks
-      //this.app.shutdown();
-
-      /*
-            console.log("[nettoyage] Arrêt serveur socket ...");
-            if (socket !== undefined)
-                socket.serveur.close()
-
-            console.log("[nettoyage] Reset du cache requêtes JSQL ...");
-            QueryParser.clearCache();*/
-    });
-  }
 }
 
 export default new ApplicationContainer();

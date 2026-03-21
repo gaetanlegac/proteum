@@ -5,9 +5,7 @@
 // Npm
 import fs from "fs-extra";
 import path from "path";
-import { parse } from "@babel/parser";
-import traverse from "@babel/traverse";
-import * as types from "@babel/types";
+import ts from "typescript";
 
 /*----------------------------------
 - TYPES
@@ -46,8 +44,9 @@ const getControllerBasePathFromFilepath = (filepath: string, root: string) => {
   if (
     segments.length > 1 &&
     segments[segments.length - 1] === segments[segments.length - 2]
-  )
+  ) {
     segments.pop();
+  }
 
   return segments.join("/");
 };
@@ -59,90 +58,6 @@ const getGeneratedClassName = (filepath: string) => {
   const normalized = filename.length ? filename : "Controller";
 
   return normalized[0].toUpperCase() + normalized.substring(1);
-};
-
-const countInputCalls = (
-  methodPath: traverse.NodePath<types.ClassMethod | types.ClassPrivateMethod>,
-) => {
-  let inputCallsCount = 0;
-
-  methodPath.traverse({
-    CallExpression(callPath) {
-      const callee = callPath.node.callee;
-
-      if (
-        callee.type === "MemberExpression" &&
-        callee.object.type === "ThisExpression" &&
-        callee.property.type === "Identifier" &&
-        callee.property.name === "input"
-      ) {
-        inputCallsCount++;
-      }
-    },
-  });
-
-  return inputCallsCount;
-};
-
-const getExportedString = (ast: types.File, exportName: string) => {
-  let value: string | undefined;
-
-  traverse(ast, {
-    ExportNamedDeclaration(path) {
-      const declaration = path.node.declaration;
-      if (!declaration || declaration.type !== "VariableDeclaration") return;
-
-      for (const declarator of declaration.declarations) {
-        if (
-          declarator.id.type === "Identifier" &&
-          declarator.id.name === exportName &&
-          declarator.init?.type === "StringLiteral"
-        ) {
-          value = declarator.init.value;
-          path.stop();
-          return;
-        }
-      }
-    },
-  });
-
-  return value;
-};
-
-const getExportedStringMap = (ast: types.File, exportName: string) => {
-  const map: Record<string, string> = {};
-
-  traverse(ast, {
-    ExportNamedDeclaration(path) {
-      const declaration = path.node.declaration;
-      if (!declaration || declaration.type !== "VariableDeclaration") return;
-
-      for (const declarator of declaration.declarations) {
-        if (
-          declarator.id.type !== "Identifier" ||
-          declarator.id.name !== exportName ||
-          declarator.init?.type !== "ObjectExpression"
-        )
-          continue;
-
-        for (const property of declarator.init.properties) {
-          if (
-            property.type !== "ObjectProperty" ||
-            property.key.type !== "Identifier" ||
-            property.value.type !== "StringLiteral"
-          )
-            continue;
-
-          map[property.key.name] = property.value.value;
-        }
-
-        path.stop();
-        return;
-      }
-    },
-  });
-
-  return map;
 };
 
 const buildImportPath = (searchDir: TControllerSearchDir, filepath: string) =>
@@ -166,13 +81,113 @@ const findControllerFiles = (dir: string): string[] => {
     }
 
     if (!dirent.isFile()) continue;
-
     if (!dirent.name.endsWith(".controller.ts")) continue;
 
     files.push(filepath);
   }
 
   return files;
+};
+
+const parseSourceFile = (filepath: string, code: string) =>
+  ts.createSourceFile(
+    filepath,
+    code,
+    ts.ScriptTarget.Latest,
+    true,
+    filepath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+
+const hasModifier = (node: ts.Node, kind: ts.SyntaxKind) =>
+  !!node.modifiers?.some((modifier) => modifier.kind === kind);
+
+const getDefaultExportClass = (sourceFile: ts.SourceFile) => {
+  const classes = new Map<string, ts.ClassDeclaration>();
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isClassDeclaration(statement) && statement.name) {
+      classes.set(statement.name.text, statement);
+
+      if (hasModifier(statement, ts.SyntaxKind.DefaultKeyword)) {
+        return statement;
+      }
+    }
+  }
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportAssignment(statement) || statement.isExportEquals) continue;
+
+    if (ts.isIdentifier(statement.expression)) {
+      return classes.get(statement.expression.text);
+    }
+  }
+
+  return undefined;
+};
+
+const getExportedString = (sourceFile: ts.SourceFile, exportName: string) => {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
+
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue;
+      if (declaration.name.text !== exportName) continue;
+      if (!declaration.initializer || !ts.isStringLiteral(declaration.initializer))
+        continue;
+
+      return declaration.initializer.text;
+    }
+  }
+
+  return undefined;
+};
+
+const getExportedStringMap = (sourceFile: ts.SourceFile, exportName: string) => {
+  const values: Record<string, string> = {};
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
+
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue;
+      if (declaration.name.text !== exportName) continue;
+      if (!declaration.initializer || !ts.isObjectLiteralExpression(declaration.initializer))
+        continue;
+
+      for (const property of declaration.initializer.properties) {
+        if (!ts.isPropertyAssignment(property)) continue;
+        if (!ts.isIdentifier(property.name)) continue;
+        if (!ts.isStringLiteral(property.initializer)) continue;
+
+        values[property.name.text] = property.initializer.text;
+      }
+    }
+  }
+
+  return values;
+};
+
+const countInputCalls = (method: ts.MethodDeclaration) => {
+  let inputCallsCount = 0;
+
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
+      node.expression.name.text === "input"
+    ) {
+      inputCallsCount++;
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  if (method.body) ts.forEachChild(method.body, visit);
+
+  return inputCallsCount;
 };
 
 /*----------------------------------
@@ -187,74 +202,43 @@ export const indexControllers = (searchDirs: TControllerSearchDir[]) => {
 
     for (const filepath of controllerFiles.sort((a, b) => a.localeCompare(b))) {
       const code = fs.readFileSync(filepath, "utf8");
-      const ast = parse(code, {
-        sourceType: "module",
-        plugins: ["typescript", "jsx"],
-      });
+      const sourceFile = parseSourceFile(filepath, code);
 
-      const controllerPathOverride = getExportedString(ast, "controllerPath");
+      const controllerPathOverride = getExportedString(sourceFile, "controllerPath");
       const controllerMethodsOverride = getExportedStringMap(
-        ast,
+        sourceFile,
         "controllerMethods",
       );
+      const defaultClass = getDefaultExportClass(sourceFile);
 
-      let className = getGeneratedClassName(filepath);
+      if (!defaultClass) continue;
+
+      const className = defaultClass.name?.text || getGeneratedClassName(filepath);
+      const routeBasePath =
+        controllerPathOverride ||
+        getControllerBasePathFromFilepath(filepath, searchDir.root);
       const methods: TControllerMethodMeta[] = [];
 
-      traverse(ast, {
-        ExportDefaultDeclaration(path) {
-          const declaration = path.node.declaration;
+      for (const member of defaultClass.members) {
+        if (!ts.isMethodDeclaration(member)) continue;
+        if (!member.body) continue;
+        if (!member.name || !ts.isIdentifier(member.name)) continue;
 
-          if (declaration.type === "Identifier") {
-            className = declaration.name;
-            return;
-          }
+        const methodName = member.name.text;
+        const inputCallsCount = countInputCalls(member);
 
-          if (declaration.type !== "ClassDeclaration") return;
+        if (inputCallsCount > 1) {
+          throw new Error(`${filepath}#${methodName} uses this.input() more than once.`);
+        }
 
-          if (declaration.id?.name) className = declaration.id.name;
-
-          const routeBasePath =
-            controllerPathOverride ||
-            getControllerBasePathFromFilepath(filepath, searchDir.root);
-
-          for (const classBodyItem of declaration.body.body) {
-            if (
-              classBodyItem.type !== "ClassMethod" ||
-              classBodyItem.kind !== "method" ||
-              classBodyItem.computed ||
-              classBodyItem.key.type !== "Identifier"
-            )
-              continue;
-
-            const methodName = classBodyItem.key.name;
-            const methodPath = path
-              .get("declaration")
-              .get("body")
-              .get("body")
-              .find(
-                (bodyItemPath) => bodyItemPath.node === classBodyItem,
-              ) as traverse.NodePath<types.ClassMethod>;
-
-            const inputCallsCount = countInputCalls(methodPath);
-
-            if (inputCallsCount > 1)
-              throw new Error(
-                `${filepath}#${methodName} uses this.input() more than once.`,
-              );
-
-            methods.push({
-              name: methodName,
-              inputCallsCount,
-              routePath:
-                controllerMethodsOverride[methodName] ||
-                [routeBasePath, methodName].filter(Boolean).join("/"),
-            });
-          }
-
-          path.stop();
-        },
-      });
+        methods.push({
+          name: methodName,
+          inputCallsCount,
+          routePath:
+            controllerMethodsOverride[methodName] ||
+            [routeBasePath, methodName].filter(Boolean).join("/"),
+        });
+      }
 
       if (!methods.length) continue;
 
@@ -262,9 +246,7 @@ export const indexControllers = (searchDirs: TControllerSearchDir[]) => {
         filepath,
         importPath: buildImportPath(searchDir, filepath),
         className,
-        routeBasePath:
-          controllerPathOverride ||
-          getControllerBasePathFromFilepath(filepath, searchDir.root),
+        routeBasePath,
         methods,
       });
     }

@@ -1,6 +1,6 @@
 import fs from "fs-extra";
 import path from "path";
-import type webpack from "webpack";
+import type { RspackPluginInstance } from "@rspack/core";
 
 import cli from "../..";
 import type { App } from "../../app";
@@ -29,7 +29,7 @@ export const getClientBundleAnalysisReportPaths = (
 export const createClientBundleAnalysisPlugins = (
   app: App,
   outputTarget: "dev" | "bin",
-): webpack.WebpackPluginInstance[] => {
+): RspackPluginInstance[] => {
   if (!isBundleAnalysisEnabled()) return [];
 
   const { reportPath, statsPath } = getClientBundleAnalysisReportPaths(
