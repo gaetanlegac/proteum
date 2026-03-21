@@ -24,7 +24,7 @@ import Container from "@server/app/container";
 import type Router from "..";
 
 // Middlewaees (core)
-import { MiddlewareFormData } from "./multipart";
+import { isMutipart, MiddlewareFormData } from "./multipart";
 
 /*----------------------------------
 - CONFIG
@@ -88,6 +88,19 @@ export default class HttpServer {
 
   public async start() {
     const routes = this.express;
+    const routeRequest = this.router.middleware.bind(this.router);
+    const apiOnly =
+      (middleware: express.RequestHandler): express.RequestHandler =>
+      (req, res, next) =>
+        req.path === "/api" || req.path.startsWith("/api/")
+          ? middleware(req, res, next)
+          : next();
+    const apiMultipartOnly =
+      (middleware: express.RequestHandler): express.RequestHandler =>
+      (req, res, next) =>
+        (req.path === "/api" || req.path.startsWith("/api/")) && isMutipart(req)
+          ? middleware(req, res, next)
+          : next();
 
     /*----------------------------------
         - SECURITÉ DE BASE
@@ -95,6 +108,36 @@ export default class HttpServer {
 
     // Config
     routes.set("trust proxy", 1); // Indique qu'on est sous le proxy apache
+    /*----------------------------------
+        - FAST PATH: API
+        ----------------------------------*/
+
+    // Keep /api requests off the heavier page middleware stack below.
+    routes.use(apiOnly(hpp()));
+    routes.use(apiOnly(cookieParser()));
+    routes.use(
+      apiOnly(
+        express.json({
+          limit: bytes(this.config.upload.maxSize),
+        }),
+      ),
+    );
+    routes.use(
+      apiMultipartOnly(
+        fileUpload({
+          debug: false,
+          limits: {
+            fileSize: bytes(this.config.upload.maxSize),
+            abortOnLimit: true,
+          },
+        }),
+      ),
+    );
+    routes.use(apiMultipartOnly(MiddlewareFormData));
+    if (this.config.cors !== undefined)
+      routes.use(apiOnly(cors(this.config.cors)));
+    routes.use(apiOnly(routeRequest));
+
     // Diverses protections (dont le disable x-powered-by)
     routes.use(helmet(this.config.helmet));
 
@@ -195,7 +238,7 @@ export default class HttpServer {
       }),
     );
 
-    routes.use(this.router.middleware.bind(this.router));
+    routes.use(routeRequest);
 
     /*----------------------------------
         - BOOT SERVICES
