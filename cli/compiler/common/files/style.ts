@@ -6,13 +6,18 @@ import type { App } from '../../../app';
 module.exports = (app: App, dev: boolean, client: boolean, buildDev: boolean = false) => {
 
     const enableSourceMaps = dev && !buildDev;
+    const useStyleLoader = client && dev && !buildDev;
 
     return [
 
         // Apply PostCSS plugins including autoprefixer
-        {
-            loader: MiniCssExtractPlugin.loader
-        },
+        useStyleLoader
+            ? {
+                loader: 'style-loader'
+            }
+            : {
+                loader: MiniCssExtractPlugin.loader
+            },
 
         // Process external/third-party styles
         {

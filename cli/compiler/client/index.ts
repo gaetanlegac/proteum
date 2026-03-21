@@ -175,7 +175,7 @@ export default function createCompiler(
 
             ...(commonConfig.plugins || []),
 
-            ...((dev && false) ? [] : [
+            ...((dev && !buildDev) ? [] : [
                 new MiniCssExtractPlugin({})
             ]),
             
