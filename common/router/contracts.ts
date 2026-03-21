@@ -3,44 +3,27 @@
 ----------------------------------*/
 
 // Core
-import type { TFetcherList } from "./request/api";
-import type { TFrontRenderer, TPageSetup } from "./response/page";
-import type { TRouteOptions } from ".";
+import type { TFrontRenderer, TPageSetup } from './response/page';
+import type { TRouteOptions } from '.';
 
 /*----------------------------------
-- TYPES
+- PUBLIC API
 ----------------------------------*/
 
-export type TRegisterPageArgs<
-  TProvidedData extends {} = {},
-  TPageOptions extends {} = TRouteOptions,
-> =
-  | [path: string, renderer: TFrontRenderer<TProvidedData>]
-  | [
-      path: string,
-      setup: TPageSetup<TProvidedData>,
-      renderer: TFrontRenderer<TProvidedData>,
-    ]
-  | [
-      path: string,
-      options: Partial<TPageOptions>,
-      renderer: TFrontRenderer<TProvidedData>,
-    ]
-  | [
-      path: string,
-      options: Partial<TPageOptions>,
-      setup: TPageSetup<TProvidedData>,
-      renderer: TFrontRenderer<TProvidedData>,
-    ];
+// Supported `Router.page(...)` registration signatures shared by client and compiler code.
+export type TRegisterPageArgs<TProvidedData extends {} = {}, TPageOptions extends {} = TRouteOptions> =
+    | [path: string, renderer: TFrontRenderer<TProvidedData>]
+    | [path: string, setup: TPageSetup<TProvidedData>, renderer: TFrontRenderer<TProvidedData>]
+    | [path: string, options: Partial<TPageOptions>, renderer: TFrontRenderer<TProvidedData>]
+    | [
+          path: string,
+          options: Partial<TPageOptions>,
+          setup: TPageSetup<TProvidedData>,
+          renderer: TFrontRenderer<TProvidedData>,
+      ];
 
-export type TSsrUnresolvedRoute<TKey = number | string> = {
-  chunk: string;
-} & (
-  | {
-      regex: string;
-      keys: TKey[];
-    }
-  | {
-      code: number;
-    }
+// Serialized SSR route description exchanged between build output and runtime.
+export type TSsrUnresolvedRoute<TKey = number | string> = { chunk: string } & (
+    | { regex: string; keys: TKey[] }
+    | { code: number }
 );

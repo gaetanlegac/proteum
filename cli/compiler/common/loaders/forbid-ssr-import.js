@@ -8,6 +8,6 @@ module.exports = function forbidSsrImportLoader() {
             'SSR-only module imported into the client bundle:',
             resourcePath,
             'Provide the browser implementation without the ".ssr" suffix and keep SSR-specific logic in "*.ssr.tsx" files.',
-        ].join('\n')
+        ].join('\n'),
     );
 };

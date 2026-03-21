@@ -8,11 +8,11 @@ import Compiler from '../compiler';
 /*----------------------------------
 - COMMAND
 ----------------------------------*/
-export const run = (): Promise<void> => new Promise(async (resolve) => {
+export const run = (): Promise<void> =>
+    new Promise(async (resolve) => {
+        const compiler = new Compiler('dev');
 
-    const compiler = new Compiler('dev');
+        await compiler.refreshGeneratedTypings();
 
-    await compiler.refreshGeneratedTypings();
-
-    resolve();
-});
+        resolve();
+    });

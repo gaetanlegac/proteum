@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clean Project Code"
+  short_description: "Conservative repo cleanup workflow"
+  default_prompt: "Use $clean-project-code to clean this project conservatively without changing behavior."

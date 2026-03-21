@@ -1,7 +1,7 @@
-export { default as useDeferredModule } from "./useDeferredModule";
+export { default as useDeferredModule } from './useDeferredModule';
 export type {
-  TDeferredModuleLoader,
-  TDeferredModuleOptions,
-  TDeferredModuleResult,
-  TDeferredModuleStrategy,
-} from "./useDeferredModule";
+    TDeferredModuleLoader,
+    TDeferredModuleOptions,
+    TDeferredModuleResult,
+    TDeferredModuleStrategy,
+} from './useDeferredModule';

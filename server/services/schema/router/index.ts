@@ -4,14 +4,12 @@
 
 // Core
 import {
-  default as Router,
-  Request as ServerRequest,
-  Config as RouterConfig,
-  RouterService,
-  TAnyRouter,
-} from "@server/services/router";
+    Request as ServerRequest,
+    RouterService,
+    TAnyRouter,
+} from '@server/services/router';
 
-import makeRequestValidators from "../request";
+import makeRequestValidators from '../request';
 
 /*----------------------------------
 - TYPES
@@ -20,10 +18,8 @@ import makeRequestValidators from "../request";
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
-export default class SchemaRouterService<
-  TUser extends {} = {},
-> extends RouterService<{}, TAnyRouter> {
-  public requestService(request: ServerRequest) {
-    return makeRequestValidators(request, this.config);
-  }
+export default class SchemaRouterService<TUser extends {} = {}> extends RouterService<{}, TAnyRouter> {
+    public requestService(request: ServerRequest) {
+        return makeRequestValidators(request, this.config);
+    }
 }

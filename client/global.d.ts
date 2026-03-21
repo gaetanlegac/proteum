@@ -1,5 +1,5 @@
 declare global {
-  interface Window {
-    dev?: boolean;
-  }
+    interface Window {
+        dev?: boolean;
+    }
 }

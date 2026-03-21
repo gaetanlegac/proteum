@@ -21,16 +21,13 @@ import type { TEnvConfig } from '../../server/app/container/config';
 - LOADE
 ----------------------------------*/
 export default class ConfigParser {
-
     public constructor(
         public appDir: string,
         public envName?: string,
-        public routerPortOverride?: number
-    ) {
+        public routerPortOverride?: number,
+    ) {}
 
-    }
-
-    private loadYaml( filepath: string ) {
+    private loadYaml(filepath: string) {
         console.info(`Loading config ${filepath}`);
         const rawConfig = fs.readFileSync(filepath, 'utf-8');
         return yaml.parse(rawConfig);
@@ -39,23 +36,21 @@ export default class ConfigParser {
     public env(): TEnvConfig {
         // We assume that when we run 5htp dev, we're in local
         // Otherwise, we're in production environment (docker)
-        console.log("[app] Using environment:", process.env.NODE_ENV);
+        console.log('[app] Using environment:', process.env.NODE_ENV);
         const envFileName = this.appDir + '/env.yaml';
-        const envFile = this.loadYaml( envFileName );
+        const envFile = this.loadYaml(envFileName);
         return {
             ...envFile,
-            router: this.routerPortOverride === undefined
-                ? envFile.router
-                : {
-                    ...envFile.router,
-                    port: this.routerPortOverride
-                },
-            version: 'CLI'
-        }
+            router:
+                this.routerPortOverride === undefined
+                    ? envFile.router
+                    : { ...envFile.router, port: this.routerPortOverride },
+            version: 'CLI',
+        };
     }
 
     public identity() {
         const identityFile = this.appDir + '/identity.yaml';
-        return this.loadYaml( identityFile );
+        return this.loadYaml(identityFile);
     }
 }

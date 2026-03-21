@@ -4,5 +4,4 @@
  * @param seconds The number of seconds to wait
  * @returns A void promise
  */
-export const seconds = (seconds: number) =>
-  new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+export const seconds = (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds * 1000));

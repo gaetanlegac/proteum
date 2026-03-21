@@ -18,47 +18,30 @@ import type { TEnvConfig } from '../../server/app/container/config';
 - TYPES
 ----------------------------------*/
 
-export type TAppSide = 'server' | 'client'
+export type TAppSide = 'server' | 'client';
 
-type TServiceSetup = {
-    id: string,
-    name: string,
-    config: {},
-    subservices: TServiceSubservices,
-    type: 'service.setup'
-}
+type TServiceSetup = { id: string; name: string; config: {}; subservices: TServiceSubservices; type: 'service.setup' };
 
-type TServiceRef = {
-    refTo: string,
-    type: 'service.ref'
-}
+type TServiceRef = { refTo: string; type: 'service.ref' };
 
-type TServiceSubservices = {
-    [key: string]: TServiceSetup | TServiceRef
-}
+type TServiceSubservices = { [key: string]: TServiceSetup | TServiceRef };
 
-const parseRouterPortOverride = (
-    rawPort: string | boolean | string[] | undefined
-): number | undefined => {
+const parseRouterPortOverride = (rawPort: string | boolean | string[] | undefined): number | undefined => {
+    if (rawPort === undefined || rawPort === '') return undefined;
 
-    if (rawPort === undefined || rawPort === '')
-        return undefined;
-
-    if (typeof rawPort !== 'string')
-        throw new Error(`Invalid value for -port: expected a numeric value.`);
+    if (typeof rawPort !== 'string') throw new Error(`Invalid value for -port: expected a numeric value.`);
 
     const port = Number(rawPort);
     if (!Number.isInteger(port) || port < 1 || port > 65535)
         throw new Error(`Invalid value for -port: "${rawPort}". Expected an integer between 1 and 65535.`);
 
     return port;
-}
+};
 
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
 export class App {
-
     // config
     // WARNING: High level config files (env and services) shouldn't be loaded from the CLI
     //  The CLI will be run on CircleCI, and no env file should be sent to this service
@@ -70,37 +53,30 @@ export class App {
 
     public devEventPort?: number;
 
-    public packageJson: {[key: string]: any};
+    public packageJson: { [key: string]: any };
 
     public buildId: number = Date.now();
 
     public paths = {
-
         root: cli.paths.appRoot,
-        bin: path.join( cli.paths.appRoot, 'bin'),
-        dev: path.join( cli.paths.appRoot, 'dev'),
-        data: path.join( cli.paths.appRoot, 'var', 'data'),
-        public: path.join( cli.paths.appRoot, 'public'),
-        pages: path.join( cli.paths.appRoot, 'client', 'pages'),
-        cache: path.join( cli.paths.appRoot, '.cache'),
+        bin: path.join(cli.paths.appRoot, 'bin'),
+        dev: path.join(cli.paths.appRoot, 'dev'),
+        data: path.join(cli.paths.appRoot, 'var', 'data'),
+        public: path.join(cli.paths.appRoot, 'public'),
+        pages: path.join(cli.paths.appRoot, 'client', 'pages'),
+        cache: path.join(cli.paths.appRoot, '.cache'),
 
-        client: {
-            generated: path.join( cli.paths.appRoot, 'client', '.generated')
-        },
+        client: { generated: path.join(cli.paths.appRoot, 'client', '.generated') },
         server: {
-            generated: path.join( cli.paths.appRoot, 'server', '.generated'),
-            configs: path.join( cli.paths.appRoot, 'server', 'app')
+            generated: path.join(cli.paths.appRoot, 'server', '.generated'),
+            configs: path.join(cli.paths.appRoot, 'server', 'app'),
         },
-        common: {
-            generated: path.join( cli.paths.appRoot, 'common', '.generated')
-        },
-        
-        withAlias: (filename: string, side: TAppSide) => 
-            this.aliases[side].apply(filename),
+        common: { generated: path.join(cli.paths.appRoot, 'common', '.generated') },
 
-        withoutAlias: (filename: string, side: TAppSide) => 
-            this.aliases[side].realpath(filename),
-    }
+        withAlias: (filename: string, side: TAppSide) => this.aliases[side].apply(filename),
+
+        withoutAlias: (filename: string, side: TAppSide) => this.aliases[side].realpath(filename),
+    };
 
     public containerServices = [
         //'Services',
@@ -109,28 +85,20 @@ export class App {
         /*'Application',
         'Path',
         'Event'*/
-    ]
+    ];
 
     public constructor() {
-        
         cli.debug && console.log(`[cli] Loading app config ...`);
-        this.routerPortOverride = parseRouterPortOverride( cli.args.port );
+        this.routerPortOverride = parseRouterPortOverride(cli.args.port);
 
-        const configParser = new ConfigParser(
-            cli.paths.appRoot,
-            undefined,
-            this.routerPortOverride
-        );
+        const configParser = new ConfigParser(cli.paths.appRoot, undefined, this.routerPortOverride);
         this.identity = configParser.identity();
         this.env = configParser.env();
         this.packageJson = this.loadPkg();
-        
     }
 
     public outputPath(target: 'dev' | 'bin') {
-        return target === 'dev'
-            ? this.paths.dev
-            : this.paths.bin;
+        return target === 'dev' ? this.paths.dev : this.paths.bin;
     }
 
     /*----------------------------------
@@ -140,21 +108,15 @@ export class App {
     public aliases = {
         client: new TsAlias({
             rootDir: this.paths.root + '/client',
-            modulesDir: [ 
-                cli.paths.appRoot + '/node_modules',  
-                cli.paths.coreRoot + '/node_modules'
-            ],
-            debug: false
+            modulesDir: [cli.paths.appRoot + '/node_modules', cli.paths.coreRoot + '/node_modules'],
+            debug: false,
         }),
         server: new TsAlias({
             rootDir: this.paths.root + '/server',
-            modulesDir: [ 
-                cli.paths.appRoot + '/node_modules',  
-                cli.paths.coreRoot + '/node_modules'
-            ],
-            debug: false
+            modulesDir: [cli.paths.appRoot + '/node_modules', cli.paths.coreRoot + '/node_modules'],
+            debug: false,
         }),
-    }
+    };
 
     private loadPkg() {
         return fs.readJSONSync(this.paths.root + '/package.json');
@@ -164,66 +126,62 @@ export class App {
     - WARMUP (Services awareness)
     ----------------------------------*/
 
-    public registered = {}
+    public registered = {};
 
-    public use( referenceName: string ): TServiceRef {
-
+    public use(referenceName: string): TServiceRef {
         // We don't check because all service are not regstered when we register subservices
         /*if (this.registered[referenceName] === undefined) {
             throw new Error(`Service ${referenceName} is not registered`);
         }*/
 
-        return {
-            refTo: referenceName,
-            type: 'service.ref'
-        }
+        return { refTo: referenceName, type: 'service.ref' };
     }
 
-    public setup(...args: [
-        // { user: app.setup('Core/User') }
-        servicePath: string,
-        serviceConfig?: {},
-    ] | [
-        // app.setup('User', 'Core/User')
-        serviceName: string, 
-        servicePath: string,
-        serviceConfig?: {},
-    ]): TServiceSetup {
-
+    public setup(
+        ...args:
+            | [
+                  // { user: app.setup('Core/User') }
+                  servicePath: string,
+                  serviceConfig?: {},
+              ]
+            | [
+                  // app.setup('User', 'Core/User')
+                  serviceName: string,
+                  servicePath: string,
+                  serviceConfig?: {},
+              ]
+    ): TServiceSetup {
         // Registration to app root
         if (typeof args[1] === 'string') {
-            
             const [name, id, config] = args;
 
-            const service = { id, name, config, type: 'service.setup' } as TServiceSetup
+            const service = { id, name, config, type: 'service.setup' } as TServiceSetup;
 
             this.registered[name] = service;
 
             return service;
 
-        // Scoped to a parent service
+            // Scoped to a parent service
         } else {
-
             const [id, config] = args;
 
-            const service = { id, config, type: 'service.setup' } as TServiceSetup
+            const service = { id, config, type: 'service.setup' } as TServiceSetup;
 
             return service;
         }
     }
 
     public async warmup() {
-
         // Require all config files in @/server/config
         const configDir = path.resolve(cli.paths.appRoot, 'server', 'config');
         const configFiles = fs.readdirSync(configDir);
         for (const configFile of configFiles) {
-            console.log("Loading config file:", configFile);
-            require( path.resolve(configDir, configFile) );
+            console.log('Loading config file:', configFile);
+            require(path.resolve(configDir, configFile));
         }
     }
 }
 
-export const app = new App
+export const app = new App();
 
-export default app
+export default app;

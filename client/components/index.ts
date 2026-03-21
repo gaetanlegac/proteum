@@ -1,1 +1,1 @@
-export { Link } from "../services/router/components/Link";
+export { Link } from '../services/router/components/Link';

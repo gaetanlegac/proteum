@@ -3,20 +3,13 @@
 ----------------------------------*/
 
 // Npm
-import zod from "zod";
+import zod from 'zod';
 
 // Core
-import {
-  default as Router,
-  TServerRouter,
-  Request as ServerRequest,
-} from "@server/services/router";
+import { TServerRouter, Request as ServerRequest } from '@server/services/router';
 
 // Ap
-import {
-  preprocessSchema,
-  schema,
-} from "@server/services/router/request/validation/zod";
+import { schema } from '@server/services/router/request/validation/zod';
 
 /*----------------------------------
 - SERVICE CONFIG
@@ -24,51 +17,44 @@ import {
 
 const LogPrefix = `[router][validation]`;
 
-export type TConfig = {
-  debug?: boolean;
-};
+export type TConfig = { debug?: boolean };
 
 type TValidationSchema = zod.ZodTypeAny;
 type TValidationShape = zod.ZodRawShape;
 
 const isZodSchema = (fields: unknown): fields is TValidationSchema => {
-  return (
-    typeof fields === "object" &&
-    fields !== null &&
-    "safeParse" in fields &&
-    typeof (fields as TValidationSchema).safeParse === "function"
-  );
+    return (
+        typeof fields === 'object' &&
+        fields !== null &&
+        'safeParse' in fields &&
+        typeof (fields as TValidationSchema).safeParse === 'function'
+    );
 };
 
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
 export default (
-  request: ServerRequest<TServerRouter>,
-  config: TConfig,
-  router = request.router,
-  app = router.app,
+    request: ServerRequest<TServerRouter>,
+    config: TConfig,
+    router = request.router,
+    _app = router.app,
 ) => {
-  function validate<TSchema extends TValidationSchema>(
-    fields: TSchema,
-  ): zod.output<TSchema>;
-  function validate<TShape extends TValidationShape>(
-    fields: TShape,
-  ): zod.output<zod.ZodObject<TShape>>;
-  function validate(fields: TValidationSchema | TValidationShape) {
-    config.debug &&
-      console.log(LogPrefix, "Validate request data:", request.data);
+    function validate<TSchema extends TValidationSchema>(fields: TSchema): zod.output<TSchema>;
+    function validate<TShape extends TValidationShape>(fields: TShape): zod.output<zod.ZodObject<TShape>>;
+    function validate(fields: TValidationSchema | TValidationShape) {
+        config.debug && console.log(LogPrefix, 'Validate request data:', request.data);
 
-    const validationSchema = isZodSchema(fields) ? fields : zod.object(fields);
+        const validationSchema = isZodSchema(fields) ? fields : zod.object(fields);
 
-    //const preprocessedSchema = preprocessSchema(validationSchema);
+        //const preprocessedSchema = preprocessSchema(validationSchema);
 
-    return validationSchema.parse(request.data);
-  }
+        return validationSchema.parse(request.data);
+    }
 
-  return {
-    ...schema,
+    return {
+        ...schema,
 
-    validate,
-  };
+        validate,
+    };
 };

@@ -3,11 +3,11 @@
 ----------------------------------*/
 
 // Npm
-import React from "react";
+import React from 'react';
 
 /*----------------------------------
 - COMPOSANT
 ----------------------------------*/
 export default function DialogManager() {
-  return null;
+    return null;
 }

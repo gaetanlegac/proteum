@@ -1,47 +1,32 @@
-declare type TObjetDonnees = {[cle: string]: any}
+declare type TObjetDonnees = { [cle: string]: any };
 
 // Rend certaines clés d'un objet obligatoires
 declare type With<
     TObject,
-    TRequired extends (keyof TObject) | {[key in keyof TObject]?: any},
-    TAdditionnal extends {[key: string]: any} = {}
-> = (
-    Omit<TObject, TRequired extends (keyof TObject) ? TRequired : keyof TRequired> 
-    & 
-    (TRequired extends (keyof TObject) ? Required<Pick<TObject, TRequired>> : TRequired)
-    &
-    TAdditionnal
-)
+    TRequired extends keyof TObject | { [key in keyof TObject]?: any },
+    TAdditionnal extends { [key: string]: any } = {},
+> = Omit<TObject, TRequired extends keyof TObject ? TRequired : keyof TRequired> &
+    (TRequired extends keyof TObject ? Required<Pick<TObject, TRequired>> : TRequired) &
+    TAdditionnal;
 
-declare type NonNullFields<T, K extends keyof T> = Omit<T, K> & {
-    [P in K]: NonNullable<T[P]>;
-};
+declare type NonNullFields<T, K extends keyof T> = Omit<T, K> & { [P in K]: NonNullable<T[P]> };
 
 declare type ValueOf<T> = T[keyof T];
 
 // Extrait la valeur de retour d'une promise
 // https://stackoverflow.com/questions/48011353/how-to-unwrap-type-of-a-promise
-declare type ThenArg<T> = T extends PromiseLike<infer U> ? U : T
+declare type ThenArg<T> = T extends PromiseLike<infer U> ? U : T;
 
-declare type TPagination<TElement> = {
-    list: TElement[],
-    page: number,
-    pages: number,
-    total: number
-}
+declare type TPagination<TElement> = { list: TElement[]; page: number; pages: number; total: number };
 
 // https://stackoverflow.com/questions/39392853/is-there-a-type-for-class-in-typescript-and-does-any-include-it
-declare interface ClassType<T> extends Function { new(): T; }
-
-declare type TPagination<T> = {
-    docs: Array<T>;
-    pages: number;
-    total: number;
+declare interface ClassType<T> extends Function {
+    new (): T;
 }
 
-declare type TStats<T> = {
-    [time: number]: T
-}
+declare type TPagination<T> = { docs: Array<T>; pages: number; total: number };
+
+declare type TStats<T> = { [time: number]: T };
 
 /*declare namespace JSX {
     interface IntrinsicElements {
@@ -49,13 +34,7 @@ declare type TStats<T> = {
     }
 }*/
 
-declare type Routes = {
-    [path: string]: {
-        params: {
-            [param: string]: any
-        }
-    }
-}
+declare type Routes = { [path: string]: { params: { [param: string]: any } } };
 
 declare type PrimitiveValue = string | number | boolean;
 
@@ -87,17 +66,8 @@ declare type PrimitiveValue = string | number | boolean;
     },
 }*/
 
-type TServiceSetup = {
-    id: string,
-    name: string,
-    config: {},
-    subservices: TServiceSubservices
-}
+type TServiceSetup = { id: string; name: string; config: {}; subservices: TServiceSubservices };
 
-type TServiceRef = {
-    refTo: string
-}
+type TServiceRef = { refTo: string };
 
-type TServiceSubservices = {
-    [key: string]: TServiceSetup | TServiceRef
-}
+type TServiceSubservices = { [key: string]: TServiceSetup | TServiceRef };

@@ -20,18 +20,15 @@ const allowedBuildArgs = new Set(['prod', 'cache', 'analyze']);
 - COMMAND
 ----------------------------------*/
 function resolveBuildMode(): TCompileMode {
-
     const enabledArgs = Object.entries(cli.args)
         .filter(([name, value]) => name !== 'workdir' && value === true)
         .map(([name]) => name);
 
-    const invalidArgs = enabledArgs.filter(arg => !allowedBuildArgs.has(arg));
+    const invalidArgs = enabledArgs.filter((arg) => !allowedBuildArgs.has(arg));
     if (invalidArgs.length > 0)
         throw new Error(`Unknown build argument(s): ${invalidArgs.join(', ')}. Allowed values: prod, cache, analyze.`);
 
-    const requestedModes = enabledArgs.filter((arg): arg is TCompileMode =>
-        arg === 'prod'
-    );
+    const requestedModes = enabledArgs.filter((arg): arg is TCompileMode => arg === 'prod');
     if (requestedModes.length > 1)
         throw new Error(`Please specify only one build mode. Received: ${requestedModes.join(', ')}.`);
 
@@ -39,16 +36,14 @@ function resolveBuildMode(): TCompileMode {
 }
 
 export const run = async (): Promise<void> => {
-
     const mode = resolveBuildMode();
     const compiler = new Compiler(mode, {}, false, 'bin');
     const multiCompiler = await compiler.create();
 
     await new Promise<void>((resolve, reject) => {
         multiCompiler.run((error, stats) => {
-
             if (error) {
-                console.error("An error occurred during the compilation:", error);
+                console.error('An error occurred during the compilation:', error);
                 reject(error);
                 return;
             }
@@ -72,6 +67,5 @@ export const run = async (): Promise<void> => {
 
             resolve();
         });
-
     });
 };

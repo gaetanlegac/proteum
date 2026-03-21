@@ -1,4 +1,4 @@
-import Application from "@/client";
+import Application from '@/client';
 
 const app = new Application();
 app.app = app;
