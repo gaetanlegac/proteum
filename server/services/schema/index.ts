@@ -3,30 +3,37 @@
 ----------------------------------*/
 
 // Core
-import type { Application } from '@server/app';
+import type { Application } from "@server/app";
 
 // Specific
-import { SchemaValidators, TFileValidator } from '@server/services/router/request/validation/validators';
-import Validator, { TValidatorOptions } from '@server/services/router/request/validation/validator';
+import {
+  SchemaValidators,
+  TFileValidator,
+} from "@server/services/router/request/validation/validators";
+import Validator, {
+  TValidatorOptions,
+} from "@server/services/router/request/validation/validator";
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
-
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
 export default class ServerSchemaValidator extends SchemaValidators {
+  public constructor(public app: Application) {
+    super();
+  }
 
-    public constructor( public app: Application ) {
-        super();
-    }
-
-    public richText = (opts: TValidatorOptions<string> & {
-        attachements?: TFileValidator
-    } = {}) => new Validator<string>('richText', (val, options, path) => {
-
+  public richText = (
+    opts: TValidatorOptions<string> & {
+      attachements?: TFileValidator;
+    } = {},
+  ) =>
+    new Validator<string>(
+      "richText",
+      (val, options, path) => {
         // Default validation
         val = super.richText(opts).validate(val, options, path);
 
@@ -35,10 +42,10 @@ export default class ServerSchemaValidator extends SchemaValidators {
         // - Cleanup before upload
 
         return val;
-
-    }, {
+      },
+      {
         //defaut: new Date,
         ...opts,
-    })
-
+      },
+    );
 }

@@ -3,65 +3,63 @@
 ----------------------------------*/
 
 // Npm
-import loadScript from 'load-script';
+import loadScript from "load-script";
 
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
 export default class Recaptcha {
+  private idClientCaptcha: string | null = null;
+  public init(): Promise<void> {
+    const idConteneurBadge = "badge-recaptcha";
+    return new Promise((resolve: Function, reject: Function) => {
+      // Déjà chargé
+      if (this.idClientCaptcha !== null) return resolve();
 
-    private idClientCaptcha: string | null = null;
-    public init(): Promise<void> {
-        const idConteneurBadge = 'badge-recaptcha';
-        return new Promise((resolve: Function, reject: Function) => {
+      loadScript(
+        "https://www.google.com/recaptcha/api.js?render=explicit",
+        (err /*, script*/) => {
+          if (err) {
+            reject(err);
+            return;
+          }
 
-            // Déjà chargé
-            if (this.idClientCaptcha !== null)
-                return resolve();
+          grecaptcha.ready(() => {
+            const conteneur = document.getElementById(idConteneurBadge);
 
-            loadScript('https://www.google.com/recaptcha/api.js?render=explicit', (err/*, script*/) => {
-                
-                if (err) {
-                    reject(err);
-                    return;
-                }
+            if (!conteneur)
+              throw new Error("Conteneur badge recaptcha pas trouvé");
 
-                grecaptcha.ready(() => {
-
-                    const conteneur = document.getElementById(idConteneurBadge);
-
-                    if (!conteneur)
-                        throw new Error("Conteneur badge recaptcha pas trouvé");
-
-                    if (this.idClientCaptcha === null) {
-                        if (conteneur.dataset.flottant)
-                            this.idClientCaptcha = grecaptcha.render(idConteneurBadge, {
-                                'sitekey': this.app.apis.recaptcha.pub,
-                                'size': 'invisible'
-                            });
-                        else
-                            this.idClientCaptcha = grecaptcha.render(idConteneurBadge, {
-                                'sitekey': this.app.apis.recaptcha.pub,
-                                'badge': 'inline',
-                                'size': 'invisible'
-                            });
-                    }
-
-                    if (this.idClientCaptcha !== null)
-                        resolve();
-                    else
-                        reject("Attendez que la page soit complètement chargée. Si c'est déjà le cas, rechargez la page.");
+            if (this.idClientCaptcha === null) {
+              if (conteneur.dataset.flottant)
+                this.idClientCaptcha = grecaptcha.render(idConteneurBadge, {
+                  sitekey: this.app.apis.recaptcha.pub,
+                  size: "invisible",
                 });
-            })
-        });
-    }
+              else
+                this.idClientCaptcha = grecaptcha.render(idConteneurBadge, {
+                  sitekey: this.app.apis.recaptcha.pub,
+                  badge: "inline",
+                  size: "invisible",
+                });
+            }
 
-    public async check(action: string): Promise<string> {
+            if (this.idClientCaptcha !== null) resolve();
+            else
+              reject(
+                "Attendez que la page soit complètement chargée. Si c'est déjà le cas, rechargez la page.",
+              );
+          });
+        },
+      );
+    });
+  }
 
-        await this.init();
+  public async check(action: string): Promise<string> {
+    await this.init();
 
-        const token = grecaptcha.execute(this.idClientCaptcha, { action: action });
+    const token = grecaptcha.execute(this.idClientCaptcha, { action: action });
 
-        return token;
-    }
+    return token;
+  }
 }

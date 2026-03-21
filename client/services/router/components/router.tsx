@@ -2,217 +2,227 @@
 - DEPENDANCES
 ----------------------------------*/
 // Npm
-import React from 'react';
+import React from "react";
 
 // Core
-import useContext from '@/client/context';
+import useContext from "@/client/context";
 
 // Specific
-import type ClientRouter from '..';
-import PageComponent from './Page';
-import ClientRequest from '../request';
-import { history, location, Update } from '../request/history';
+import type ClientRouter from "..";
+import PageComponent from "./Page";
+import ClientRequest from "../request";
+import { history, location, Update } from "../request/history";
 //import initTooltips from '@client/components/Donnees/Tooltip';
-import type Page from '../response/page';
+import type Page from "../response/page";
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
 export type PropsPage<TParams extends { [cle: string]: unknown }> = TParams & {
-    data: {[cle: string]: unknown}
-}
+  data: { [cle: string]: unknown };
+};
 
 export type TProps = {
-    service?: ClientRouter,
-    loaderComponent?: React.ComponentType<{ isLoading: boolean }>,
-}
+  service?: ClientRouter;
+  loaderComponent?: React.ComponentType<{ isLoading: boolean }>;
+};
 
 /*----------------------------------
 - PAGE STATE
 ----------------------------------*/
 
-const LogPrefix = `[router][component]`
+const LogPrefix = `[router][component]`;
 
-const PageLoading = ({ clientRouter, loaderComponent: LoaderComponent }: { 
-    clientRouter?: ClientRouter,
-    loaderComponent?: React.ComponentType<{ isLoading: boolean }>,
+const PageLoading = ({
+  clientRouter,
+  loaderComponent: LoaderComponent,
+}: {
+  clientRouter?: ClientRouter;
+  loaderComponent?: React.ComponentType<{ isLoading: boolean }>;
 }) => {
+  const [isLoading, setLoading] = React.useState(false);
 
-    const [isLoading, setLoading] = React.useState(false);
+  if (clientRouter) clientRouter.setLoading = setLoading;
 
-    if (clientRouter)
-        clientRouter.setLoading = setLoading;
+  return LoaderComponent ? (
+    <LoaderComponent isLoading={isLoading} />
+  ) : (
+    <div id="loading" class={isLoading ? "display" : ""}>
+      <i src="spin" />
+    </div>
+  );
+};
 
-    return LoaderComponent 
-        ? <LoaderComponent isLoading={isLoading} /> 
-        : (
-            <div id="loading" class={isLoading ? 'display' : ''}>
-                <i src="spin" />
-            </div>
-        )
-}
-
-const scrollToElement = (selector: string) => document.querySelector( selector )
-    ?.scrollIntoView({
-        behavior: "smooth", 
-        block: "start", 
-        inline: "nearest"
-    })
+const scrollToElement = (selector: string) =>
+  document.querySelector(selector)?.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+    inline: "nearest",
+  });
 
 /*----------------------------------
 - COMPONENT
 ----------------------------------*/
 export default ({ service: clientRouter, loaderComponent }: TProps) => {
-
-    /*----------------------------------
+  /*----------------------------------
     - INIT
     ----------------------------------*/
 
-    const context = useContext();
+  const context = useContext();
 
-    const [currentPage, setCurrentPage] = React.useState<undefined | Page>(context.page);
+  const [currentPage, setCurrentPage] = React.useState<undefined | Page>(
+    context.page,
+  );
 
-    // Bind context object to client router
-    if (clientRouter !== undefined) {
-        clientRouter.context = context;
-        clientRouter.navigate = changePage;
-    }
-    
-    /*----------------------------------
+  // Bind context object to client router
+  if (clientRouter !== undefined) {
+    clientRouter.context = context;
+    clientRouter.navigate = changePage;
+  }
+
+  /*----------------------------------
     - ACTIONS
     ----------------------------------*/
-    const resolvePage = async (request: ClientRequest, data: {} = {}) => {
+  const resolvePage = async (request: ClientRequest, data: {} = {}) => {
+    if (!clientRouter) return;
 
-        if (!clientRouter) return;
+    const currentRequest = context.request;
+    context.request = request;
 
-        const currentRequest = context.request;
-        context.request = request;
-
-        // WARNING: Don"t try to play with pages here, since the object will not be updated
-        //  If needed to play with pages, do it in the setPages callback below
-        // Unchanged path
-        if (
-            request.path === currentRequest.path 
-            && 
-            request.hash !== currentRequest.hash
-            && 
-            request.hash !== undefined
-        ) {
-            scrollToElement(request.hash);
-            return;
-        }
-        
-        // Set loading state
-        clientRouter.runHook('page.change', request);
-        window.scrollTo({
-            top: 0,
-            behavior: 'smooth'
-        });
-        clientRouter.setLoading(true);
-        const newpage = context.page = await clientRouter.resolve(request);
-
-        // Unable to load (no connection, server error, ....)
-        if (newpage === null) {
-            return;
-        }
-
-        return await changePage(newpage, data, request);
+    // WARNING: Don"t try to play with pages here, since the object will not be updated
+    //  If needed to play with pages, do it in the setPages callback below
+    // Unchanged path
+    if (
+      request.path === currentRequest.path &&
+      request.hash !== currentRequest.hash &&
+      request.hash !== undefined
+    ) {
+      scrollToElement(request.hash);
+      return;
     }
 
-    async function changePage(newpage: Page, data?: {}, request?: ClientRequest) {
+    // Set loading state
+    clientRouter.runHook("page.change", request);
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+    clientRouter.setLoading(true);
+    const newpage = (context.page = await clientRouter.resolve(request));
 
-        // Fetch API data to hydrate the page
-        try {
-            await newpage.preRender();
-        } catch (error) {
-            console.error(LogPrefix, "Unable to fetch data:", error);
-            clientRouter?.setLoading(false);
-            return;
-        }
+    // Unable to load (no connection, server error, ....)
+    if (newpage === null) {
+      return;
+    }
 
-        // Add additional data
-        if (data)
-            newpage.data = { ...newpage.data, ...data };
+    return await changePage(newpage, data, request);
+  };
 
-        // Add page container
-        setCurrentPage( page => {
+  async function changePage(newpage: Page, data?: {}, request?: ClientRequest) {
+    // Fetch API data to hydrate the page
+    try {
+      await newpage.preRender();
+    } catch (error) {
+      console.error(LogPrefix, "Unable to fetch data:", error);
+      clientRouter?.setLoading(false);
+      return;
+    }
 
-            // WARN: Don't cancel navigation if same page as before, as we already instanciated the new page and bound the context with it
-            //  Otherwise it would cause reference issues (ex: page.setAllData makes ref to the new context)
+    // Add additional data
+    if (data) newpage.data = { ...newpage.data, ...data };
 
-            // If if the layout changed
-            const curLayout = currentPage?.layout;
-            const newLayout = newpage?.layout;
-            if (newLayout && curLayout && newLayout.path !== curLayout.path) {
+    // Add page container
+    setCurrentPage((page) => {
+      // WARN: Don't cancel navigation if same page as before, as we already instanciated the new page and bound the context with it
+      //  Otherwise it would cause reference issues (ex: page.setAllData makes ref to the new context)
 
-                // TEMPORARY FIX: reload everything when we change layout
-                //  Because layout can have a different CSS theme
-                //  But when we call setLayout, the style of the previous layout are still oaded and applied
-                //  Find a way to unload the  previous layout / page resources before to load the new one
-                console.log(LogPrefix, `Changing layout. Before:`, curLayout, 'New layout:', newLayout);
-                /*window.location.replace( request ? request.url : window.location.href );
+      // If if the layout changed
+      const curLayout = currentPage?.layout;
+      const newLayout = newpage?.layout;
+      if (newLayout && curLayout && newLayout.path !== curLayout.path) {
+        // TEMPORARY FIX: reload everything when we change layout
+        //  Because layout can have a different CSS theme
+        //  But when we call setLayout, the style of the previous layout are still oaded and applied
+        //  Find a way to unload the  previous layout / page resources before to load the new one
+        console.log(
+          LogPrefix,
+          `Changing layout. Before:`,
+          curLayout,
+          "New layout:",
+          newLayout,
+        );
+        /*window.location.replace( request ? request.url : window.location.href );
                 return page; // Don't spread since it's an instance*/
 
-                context.app.setLayout(newLayout);
-            }
+        context.app.setLayout(newLayout);
+      }
 
-            return newpage;
-        });
-    }
+      return newpage;
+    });
+  }
 
-    const restoreScroll = (currentPage?: Page) => currentPage?.scrollToId 
-        && scrollToElement( currentPage.scrollToId.substring(1) )
+  const restoreScroll = (currentPage?: Page) =>
+    currentPage?.scrollToId &&
+    scrollToElement(currentPage.scrollToId.substring(1));
 
-    // First render
-    React.useEffect(() => {
+  // First render
+  React.useEffect(() => {
+    // Resolve page if it wasn't done via SSR
+    if (context.page === undefined) resolvePage(context.request);
 
-        // Resolve page if it wasn't done via SSR
-        if (context.page === undefined)
-            resolvePage(context.request);
+    // Foreach URL change (Ex: bowser' back buttton)
+    return history?.listen(async (locationUpdate) => {
+      // Load the concerned route
+      const request = new ClientRequest(
+        locationUpdate.location,
+        context.Router,
+      );
+      await resolvePage(request);
+    });
+  }, []);
 
-        // Foreach URL change (Ex: bowser' back buttton)
-        return history?.listen(async (locationUpdate) => {
+  // On every page change
+  React.useEffect(() => {
+    if (!clientRouter) return;
 
-            // Load the concerned route
-            const request = new ClientRequest(locationUpdate.location, context.Router);
-            await resolvePage(request);
-        })
-    }, []);
+    // Page loaded
+    clientRouter.setLoading(false);
 
-    // On every page change
-    React.useEffect(() => {
+    // Reset scroll
+    window.scrollTo(0, 0);
+    // Should be called AFTER rendering the page (so after the state change)
+    currentPage?.updateClient();
+    // Scroll to the selected content via url hash
+    restoreScroll(currentPage);
 
-        if (!clientRouter) return;
+    // Hooks
+    clientRouter.runHook("page.changed", currentPage);
+  }, [currentPage]);
 
-        // Page loaded
-        clientRouter.setLoading(false);
-
-        // Reset scroll
-        window.scrollTo(0, 0);
-        // Should be called AFTER rendering the page (so after the state change)
-        currentPage?.updateClient();
-        // Scroll to the selected content via url hash
-        restoreScroll(currentPage);
-
-        // Hooks
-        clientRouter.runHook('page.changed', currentPage)
-        
-    }, [currentPage]);
-
-    /*----------------------------------
+  /*----------------------------------
     - RENDER
     ----------------------------------*/
-    // Render the page component
-    return <>
-        {currentPage && (
-            <PageComponent page={currentPage} 
-                /* Create a new instance of the Page component every time the page change 
+  // Render the page component
+  return (
+    <>
+      {currentPage && (
+        <PageComponent
+          page={currentPage}
+          /* Create a new instance of the Page component every time the page change 
                 Otherwise the page will memorise the data of the previous page */
-                key={currentPage.chunkId === undefined ? undefined : 'page_' + currentPage.chunkId} 
-            />
-        )}
+          key={
+            currentPage.chunkId === undefined
+              ? undefined
+              : "page_" + currentPage.chunkId
+          }
+        />
+      )}
 
-        <PageLoading clientRouter={clientRouter} loaderComponent={loaderComponent} />
+      <PageLoading
+        clientRouter={clientRouter}
+        loaderComponent={loaderComponent}
+      />
     </>
-}
+  );
+};

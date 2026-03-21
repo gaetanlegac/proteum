@@ -3,125 +3,120 @@
 ----------------------------------*/
 
 // Npm
-import type { ImportTransformer } from 'babel-plugin-glob-import';
-import * as types from '@babel/types'
-import path from 'path';
-import generate from '@babel/generator';
+import type { ImportTransformer } from "babel-plugin-glob-import";
+import * as types from "@babel/types";
+import path from "path";
+import generate from "@babel/generator";
 
 // Core
-import cli from '@cli';
-import type { TAppSide, default as App } from '@cli/app';
+import cli from "@cli";
+import type { TAppSide, default as App } from "@cli/app";
 
 // Resources
-const routesToPreload = require( cli.paths.appRoot + '/client/pages/preload.json' );
+const routesToPreload = require(
+  cli.paths.appRoot + "/client/pages/preload.json",
+);
 
 /*----------------------------------
 - CONFIG
 ----------------------------------*/
 
-const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 /*----------------------------------
 - TRANSFORMER
 ----------------------------------*/
 
-module.exports = (app: App, side: TAppSide, dev: boolean): ImportTransformer => ({
+module.exports = (
+  app: App,
+  side: TAppSide,
+  dev: boolean,
+): ImportTransformer => ({
+  debug: false,
 
-    debug: false,
+  test: (request) =>
+    side === "client" &&
+    (request.source === "@client/pages/**/([a-z0-9]*).tsx" ||
+      request.source === "@/client/pages/**/([a-z0-9]*).tsx") &&
+    request.type === "import",
+  replace: (request, matches, t) => {
+    if (request.imported.type !== "all") return;
 
-    test: (request) => (
-        side === 'client'
-        &&
-        (
-            request.source === '@client/pages/**/([a-z0-9]*).tsx' 
-            || 
-            request.source === '@/client/pages/**/([a-z0-9]*).tsx'
-        )
-        &&
-        request.type === 'import'
-    ),
-    replace: (request, matches, t) => {
+    const imports: types.ImportDeclaration[] = [];
 
-        if (request.imported.type !== 'all')
-            return;
+    // const routes = {
+    //    <chunkId1>: () => import(/* webpackChunkName: '<chunkId>' */ "<file>"),
+    //    <chunkId2>: () => require("<file>").default,
+    // }
 
-        const imports: types.ImportDeclaration[] = [];
+    const pageLoaders: types.ObjectProperty[] = [];
+    for (const file of matches) {
+      // Exclude layouts
+      if (file.filename.includes("/_layout/")) {
+        //console.log("Exclude", file, 'from pages loaders (its a layout)');
+        continue;
+      }
 
-        // const routes = {
-        //    <chunkId1>: () => import(/* webpackChunkName: '<chunkId>' */ "<file>"),
-        //    <chunkId2>: () => require("<file>").default,
-        // }
+      // Page config
+      const { chunkId } = cli.paths.getPageChunk(app, file.filename);
+      const preloadPage = routesToPreload.includes(chunkId);
 
-        const pageLoaders: types.ObjectProperty[] = [];
-        for (const file of matches) {
+      // Preload = use sync import
+      if (preloadPage) {
+        // import <chunkId> from "<file>";
+        imports.push(
+          t.importDeclaration(
+            [
+              t.importSpecifier(
+                t.identifier(chunkId),
+                t.identifier("__register"),
+              ),
+            ],
+            t.stringLiteral(file.filename),
+          ),
+        );
 
-            // Exclude layouts
-            if (file.filename.includes("/_layout/")) {
-                //console.log("Exclude", file, 'from pages loaders (its a layout)');
-                continue;
-            }
-                
-            // Page config
-            const { chunkId } = cli.paths.getPageChunk(app, file.filename);
-            const preloadPage = routesToPreload.includes(chunkId);
+        // { <chunkId>: <chunkId> }
+        pageLoaders.push(
+          t.objectProperty(t.stringLiteral(chunkId), t.identifier(chunkId)),
+        );
 
-            // Preload = use sync import
-            if (preloadPage) {
+        // Otherwise, use async import + chunk name
+      } else {
+        // <chunkId>: () => ...
+        pageLoaders.push(
+          t.objectProperty(
+            t.stringLiteral(chunkId),
+            // () => import(/* webpackChunkName: '<chunkId>' */ "<file>")
+            t.arrowFunctionExpression(
+              [],
+              t.callExpression(t.import(), [
+                t.addComment(
+                  t.stringLiteral(file.filename),
+                  "leading",
+                  "webpackChunkName: '" + chunkId + "'",
+                ),
+              ]),
+            ),
+          ),
+        );
+      }
+    }
 
-                // import <chunkId> from "<file>";
-                imports.push(
-                    t.importDeclaration(
-                        [t.importSpecifier(
-                            t.identifier(chunkId),
-                            t.identifier('__register'),
-                        )],
-                        t.stringLiteral(file.filename)
-                    )
-                );
-
-                // { <chunkId>: <chunkId> }
-                pageLoaders.push(
-                    t.objectProperty( 
-                        t.stringLiteral(chunkId),
-                        t.identifier(chunkId)
-                    )
-                );
-
-            // Otherwise, use async import + chunk name
-            } else {
-
-                // <chunkId>: () => ...
-                pageLoaders.push( 
-                    t.objectProperty( 
-                        
-                        t.stringLiteral(chunkId),
-                        // () => import(/* webpackChunkName: '<chunkId>' */ "<file>")
-                        t.arrowFunctionExpression([], t.callExpression(
-
-                            t.import(), [t.addComment(
-                                t.stringLiteral(file.filename),
-                                "leading",
-                                "webpackChunkName: '" + chunkId + "'"
-                            )]
-                        ))
-                    )
-                )
-            }
-        }
-        
-        /*console.log( generate(t.variableDeclaration("const", [t.variableDeclarator(
+    /*console.log( generate(t.variableDeclaration("const", [t.variableDeclarator(
             t.identifier(request.imported.name),
             t.objectExpression(pageLoaders)
         )])).code );*/
 
-        return [
-            ...imports,
-            // const routes = { ... }
-            t.variableDeclaration("const", [t.variableDeclarator(
-                t.identifier(request.imported.name),
-                t.objectExpression(pageLoaders)
-            )])
-        ]
-
-    }
-})
+    return [
+      ...imports,
+      // const routes = { ... }
+      t.variableDeclaration("const", [
+        t.variableDeclarator(
+          t.identifier(request.imported.name),
+          t.objectExpression(pageLoaders),
+        ),
+      ]),
+    ];
+  },
+});

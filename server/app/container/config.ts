@@ -8,12 +8,12 @@
 */
 
 // Npm
-import fs from 'fs-extra';
-import yaml from 'yaml';
+import fs from "fs-extra";
+import yaml from "yaml";
 
 // Types
-import type { TDomainsList } from '@common/router';
-import type { TLogProfile } from './console';
+import type { TDomainsList } from "@common/router";
+import type { TLogProfile } from "./console";
 
 declare const PROTEUM_ROUTER_PORT_OVERRIDE: number | null;
 
@@ -22,14 +22,13 @@ declare const PROTEUM_ROUTER_PORT_OVERRIDE: number | null;
 ----------------------------------*/
 
 declare global {
-    namespace Config {
+  namespace Config {
+    type EnvName = TEnvConfig["name"];
 
-        type EnvName = TEnvConfig["name"];
-
-        type Env = TEnvConfig;
-        type Identity = AppIdentityConfig;
-        interface Services {}
-    }
+    type Env = TEnvConfig;
+    type Identity = AppIdentityConfig;
+    interface Services {}
+  }
 }
 
 /*
@@ -63,111 +62,106 @@ declare global {
 
 export type TEnvName = TEnvConfig["name"];
 export type TEnvConfig = {
-    name: 'local' | 'server',
-    profile: 'dev' | 'testing' | 'prod',
-    
-    router: {
-        port: number,
-        domains: TDomainsList
-    },
-    console: {
-        enable: boolean,
-        debug: boolean,
-        bufferLimit: number,
-        level: TLogProfile,
-    },
-}
+  name: "local" | "server";
+  profile: "dev" | "testing" | "prod";
+
+  router: {
+    port: number;
+    domains: TDomainsList;
+  };
+  console: {
+    enable: boolean;
+    debug: boolean;
+    bufferLimit: number;
+    level: TLogProfile;
+  };
+};
 
 type AppIdentityConfig = {
+  name: string;
+  identifier: string;
+  description: string;
+  author: {
+    name: string;
+    url: string;
+    email: string;
+  };
 
-    name: string,
-    identifier: string,
-    description: string,
-    author: {
-        name: string,
-        url: string,
-        email: string
-    },
+  social: {};
 
-    social: {
+  locale: string;
+  language: string;
+  maincolor: string;
+  iconsPack?: string;
 
-    },
+  web: {
+    title: string;
+    titleSuffix: string;
+    fullTitle: string;
+    description: string;
+    version: string;
+    metas?: { [name: string]: string };
+    jsonld?: { [name: string]: string };
+  };
+};
 
-    locale: string
-    language: string
-    maincolor: string, 
-    iconsPack?: string,
-
-    web: {
-        title: string,
-        titleSuffix: string,
-        fullTitle: string,
-        description: string,
-        version: string,
-        metas?: {[name: string]: string},
-        jsonld?: {[name: string]: string},
-    }                         
-}
-
-export type AppConfig = { 
-    env: Config.Env, 
-    identity: Config.Identity,
-}
+export type AppConfig = {
+  env: Config.Env;
+  identity: Config.Identity;
+};
 
 const debug = false;
 
 const getRouterPortOverride = () => {
-    if (
-        typeof PROTEUM_ROUTER_PORT_OVERRIDE !== 'undefined'
-        && PROTEUM_ROUTER_PORT_OVERRIDE !== null
-    )
-        return PROTEUM_ROUTER_PORT_OVERRIDE;
+  if (
+    typeof PROTEUM_ROUTER_PORT_OVERRIDE !== "undefined" &&
+    PROTEUM_ROUTER_PORT_OVERRIDE !== null
+  )
+    return PROTEUM_ROUTER_PORT_OVERRIDE;
 
-    return undefined;
-}
+  return undefined;
+};
 
 /*----------------------------------
 - LOADE
 ----------------------------------*/
 export default class ConfigParser {
+  public constructor(
+    public appDir: string,
+    public envName?: string,
+  ) {}
 
-    public constructor(
-        public appDir: string,
-        public envName?: string
-    ) {
+  private loadYaml(filepath: string) {
+    debug && console.info(`Loading config ${filepath}`);
+    const rawConfig = fs.readFileSync(filepath, "utf-8");
+    return yaml.parse(rawConfig);
+  }
 
-    }
+  public env(): TEnvConfig {
+    // We assume that when we run 5htp dev, we're in local
+    // Otherwise, we're in production environment (docker)
+    console.log("[app] Using environment:", process.env.NODE_ENV);
+    const envFileName = this.appDir + "/env.yaml";
+    const envFile = this.loadYaml(envFileName);
+    const routerPortOverride = getRouterPortOverride();
+    return {
+      ...envFile,
+      router:
+        routerPortOverride === undefined
+          ? envFile.router
+          : {
+              ...envFile.router,
+              port: routerPortOverride,
+            },
+      version: BUILD_DATE,
+    };
+  }
 
-    private loadYaml( filepath: string ) {
-        debug && console.info(`Loading config ${filepath}`);
-        const rawConfig = fs.readFileSync(filepath, 'utf-8');
-        return yaml.parse(rawConfig);
-    }
-
-    public env(): TEnvConfig {
-        // We assume that when we run 5htp dev, we're in local
-        // Otherwise, we're in production environment (docker)
-        console.log("[app] Using environment:", process.env.NODE_ENV);
-        const envFileName = this.appDir + '/env.yaml';
-        const envFile = this.loadYaml( envFileName );
-        const routerPortOverride = getRouterPortOverride();
-        return {
-            ...envFile,
-            router: routerPortOverride === undefined
-                ? envFile.router
-                : {
-                    ...envFile.router,
-                    port: routerPortOverride
-                },
-            version: BUILD_DATE
-        }
-    }
-
-    public identity() {
-        const identityFile = this.appDir + '/identity.yaml';
-        debug && console.info(`Loading identity ${identityFile}`);
-        return this.loadYaml( identityFile );
-    }
+  public identity() {
+    const identityFile = this.appDir + "/identity.yaml";
+    debug && console.info(`Loading identity ${identityFile}`);
+    return this.loadYaml(identityFile);
+  }
 }
 
 /*const walkYaml = (dir: string, configA: any, envName: string) => {

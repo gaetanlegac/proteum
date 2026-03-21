@@ -45,7 +45,6 @@ export class CLI {
             port: '',
             dev: false,
             prod: false,
-            analyze: false,
             cache: false,
         },
     };

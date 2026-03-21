@@ -3,437 +3,594 @@
 ----------------------------------*/
 
 // Npm
-import path from 'path';
-import webpack from 'webpack';
-import fs from 'fs-extra';
-import serialize from 'serialize-javascript';
-
-import SpeedMeasurePlugin from "speed-measure-webpack-v5-plugin";
-const smp = new SpeedMeasurePlugin({ disable: true });
+import path from "path";
+import webpack from "webpack";
+import fs from "fs-extra";
+import serialize from "serialize-javascript";
 
 // Core
-import app from '../app';
-import cli from '..';
-import createServerConfig from './server';
-import createClientConfig from './client';
-import { TCompileMode, TCompileOutputTarget } from './common';
+import app from "../app";
+import cli from "..";
+import createServerConfig from "./server";
+import createClientConfig from "./client";
+import { TCompileMode, TCompileOutputTarget } from "./common";
+import {
+  indexControllers,
+  generateControllerClientTree,
+  printControllerTree,
+} from "./common/controllers";
 
-type TCompilerCallback = (compiler: webpack.Compiler) => void
+type TCompilerCallback = (compiler: webpack.Compiler) => void;
 
 type TServiceMetas = {
-    id: string, 
-    name: string, 
-    parent: string, 
-    dependences: string, 
-    importationPath: string,
-    priority: number
-}
+  id: string;
+  name: string;
+  parent: string;
+  dependences: string;
+  importationPath: string;
+  priority: number;
+};
 
 type TRegisteredService = {
-    id?: string,
-    name: string,
-    className: string,
-    instanciation: (parentRef?: string) => string,
-    priority: number,
-}
+  id?: string;
+  name: string;
+  className: string;
+  instanciation: (parentRef?: string) => string;
+  priority: number;
+};
 
 type TClientRouteLoader = {
-    filepath: string,
-    chunkId: string,
-    preload: boolean,
-}
+  filepath: string;
+  chunkId: string;
+  preload: boolean;
+};
+
+const clientRouteRegistrationPattern =
+  /\bRouter\.(?:page|error|get|post|put|delete|patch)\s*\(/;
 
 /*----------------------------------
 - FONCTION
 ----------------------------------*/
 export default class Compiler {
+  public compiling: { [compiler: string]: Promise<void> } = {};
+  private recentCompilationResults: { [compiler: string]: boolean } = {};
 
-    public compiling: { [compiler: string]: Promise<void> } = {};     
-    private recentCompilationResults: { [compiler: string]: boolean } = {};
+  public constructor(
+    private mode: TCompileMode,
+    private callbacks: {
+      before?: TCompilerCallback;
+      after?: TCompilerCallback;
+    } = {},
+    private debug: boolean = false,
+    private outputTarget: TCompileOutputTarget = mode === "dev" ? "dev" : "bin",
+  ) {}
 
-    public constructor(
-        private mode: TCompileMode,
-        private callbacks: {
-            before?: TCompilerCallback,
-            after?: TCompilerCallback,
-        } = {},
-        private debug: boolean = false,
-        private outputTarget: TCompileOutputTarget = mode === 'dev' ? 'dev' : 'bin'
-    ) {
+  public cleanup() {
+    const outputPath = app.outputPath(this.outputTarget);
+    const generatedPublicEntries = new Set(["app"]);
+    const outputPublicPath = path.join(outputPath, "public");
+    const preserveDevOutput =
+      this.mode === "dev" && this.outputTarget === "dev";
 
-    }
+    if (!preserveDevOutput) fs.emptyDirSync(outputPath);
 
-    public cleanup() {
-        const outputPath = app.outputPath(this.outputTarget);
-        const generatedPublicEntries = new Set(['app']);
-        const outputPublicPath = path.join(outputPath, 'public');
-        const preserveDevOutput = this.mode === 'dev' && this.outputTarget === 'dev';
-
-        if (!preserveDevOutput)
-            fs.emptyDirSync(outputPath);
-
-        fs.ensureDirSync(outputPublicPath);
-        this.syncPublicEntries(outputPublicPath, generatedPublicEntries, this.mode === 'dev');
-    }
-    /* FIX issue with npm link
+    fs.ensureDirSync(outputPublicPath);
+    this.syncPublicEntries(
+      outputPublicPath,
+      generatedPublicEntries,
+      this.mode === "dev",
+    );
+  }
+  /* FIX issue with npm link
         When we install a module with npm link, this module's deps are not installed in the parent project scope
         Which causes some issues:
         - The module's deps are not found by Typescript
         - Including React, so VSCode shows that JSX is missing
     */
-    public fixNpmLinkIssues() {
-        const corePath = path.join(app.paths.root, '/node_modules/proteum');
-        if (!fs.lstatSync( corePath ).isSymbolicLink())
-            return console.info("Not fixing npm issue because proteum wasn't installed with npm link.");
+  public fixNpmLinkIssues() {
+    const corePath = path.join(app.paths.root, "/node_modules/proteum");
+    if (!fs.lstatSync(corePath).isSymbolicLink())
+      return console.info(
+        "Not fixing npm issue because proteum wasn't installed with npm link.",
+      );
 
-        this.debug && console.info(`Fix NPM link issues ...`);
-        const outputPath = app.outputPath(this.outputTarget);
+    this.debug && console.info(`Fix NPM link issues ...`);
+    const outputPath = app.outputPath(this.outputTarget);
 
-        const appModules = path.join(app.paths.root, 'node_modules');
-        const coreModules = path.join(corePath, 'node_modules');
+    const appModules = path.join(app.paths.root, "node_modules");
+    const coreModules = path.join(corePath, "node_modules");
 
-        // When the 5htp package is installed from npm link,
-        // Modules are installed locally and not glbally as with with the 5htp package from NPM.
-        // So we need to symbilnk the http-core node_modules in one of the parents of server.js.
-        // It avoids errors like: "Error: Cannot find module 'intl'"
-        this.ensureSymlinkSync(coreModules, path.join(outputPath, 'node_modules'));
+    // When the 5htp package is installed from npm link,
+    // Modules are installed locally and not glbally as with with the 5htp package from NPM.
+    // So we need to symbilnk the http-core node_modules in one of the parents of server.js.
+    // It avoids errors like: "Error: Cannot find module 'intl'"
+    this.ensureSymlinkSync(coreModules, path.join(outputPath, "node_modules"));
 
-        // Same problem: when 5htp-core is installed via npm link, 
-        // Typescript doesn't detect React and shows mission JSX errors
-        const preactCoreModule = path.join(coreModules, 'preact');
-        const preactAppModule = path.join(appModules, 'preact');
-        const reactAppModule = path.join(appModules, 'react');
+    // Same problem: when 5htp-core is installed via npm link,
+    // Typescript doesn't detect React and shows mission JSX errors
+    const preactCoreModule = path.join(coreModules, "preact");
+    const preactAppModule = path.join(appModules, "preact");
+    const reactAppModule = path.join(appModules, "react");
 
-        if (!fs.existsSync( preactAppModule ))
-            fs.symlinkSync( preactCoreModule, preactAppModule );
-        if (!fs.existsSync( reactAppModule ))
-            fs.symlinkSync( path.join(preactCoreModule, 'compat'), reactAppModule );
+    if (!fs.existsSync(preactAppModule))
+      fs.symlinkSync(preactCoreModule, preactAppModule);
+    if (!fs.existsSync(reactAppModule))
+      fs.symlinkSync(path.join(preactCoreModule, "compat"), reactAppModule);
+  }
+
+  private syncPublicEntries(
+    outputPublicPath: string,
+    generatedPublicEntries: Set<string>,
+    useSymlinks: boolean,
+  ) {
+    const publicFiles = new Set(
+      fs
+        .readdirSync(app.paths.public)
+        .filter((publicFile) => !generatedPublicEntries.has(publicFile)),
+    );
+
+    for (const existingPublicFile of fs.readdirSync(outputPublicPath)) {
+      if (
+        generatedPublicEntries.has(existingPublicFile) ||
+        publicFiles.has(existingPublicFile)
+      )
+        continue;
+
+      fs.removeSync(path.join(outputPublicPath, existingPublicFile));
     }
 
-    private syncPublicEntries(
-        outputPublicPath: string,
-        generatedPublicEntries: Set<string>,
-        useSymlinks: boolean
-    ) {
-        const publicFiles = new Set(
-            fs.readdirSync(app.paths.public).filter((publicFile) => !generatedPublicEntries.has(publicFile))
+    for (const publicFile of publicFiles) {
+      const sourcePath = path.join(app.paths.public, publicFile);
+      const outputFilePath = path.join(outputPublicPath, publicFile);
+
+      if (useSymlinks) {
+        this.ensureSymlinkSync(sourcePath, outputFilePath);
+        continue;
+      }
+
+      if (fs.existsSync(outputFilePath)) fs.removeSync(outputFilePath);
+
+      fs.copySync(sourcePath, outputFilePath);
+    }
+  }
+
+  private ensureSymlinkSync(targetPath: string, linkPath: string) {
+    fs.ensureDirSync(path.dirname(linkPath));
+
+    try {
+      const linkStats = fs.lstatSync(linkPath);
+
+      if (linkStats.isSymbolicLink()) {
+        const currentTarget = path.resolve(
+          path.dirname(linkPath),
+          fs.readlinkSync(linkPath),
         );
+        if (currentTarget === path.resolve(targetPath)) return;
+      }
 
-        for (const existingPublicFile of fs.readdirSync(outputPublicPath)) {
-            if (generatedPublicEntries.has(existingPublicFile) || publicFiles.has(existingPublicFile))
-                continue;
-
-            fs.removeSync(path.join(outputPublicPath, existingPublicFile));
-        }
-
-        for (const publicFile of publicFiles) {
-            const sourcePath = path.join(app.paths.public, publicFile);
-            const outputFilePath = path.join(outputPublicPath, publicFile);
-
-            if (useSymlinks) {
-                this.ensureSymlinkSync(sourcePath, outputFilePath);
-                continue;
-            }
-
-            if (fs.existsSync(outputFilePath))
-                fs.removeSync(outputFilePath);
-
-            fs.copySync(sourcePath, outputFilePath);
-        }
+      fs.removeSync(linkPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
 
-    private ensureSymlinkSync(targetPath: string, linkPath: string) {
-        fs.ensureDirSync(path.dirname(linkPath));
+    fs.symlinkSync(targetPath, linkPath);
+  }
 
-        try {
-            const linkStats = fs.lstatSync(linkPath);
+  private findServices(dir: string) {
+    const blacklist = ["node_modules", "proteum"];
+    const files: string[] = [];
+    const dirents = fs.readdirSync(dir, { withFileTypes: true });
 
-            if (linkStats.isSymbolicLink()) {
-                const currentTarget = path.resolve(path.dirname(linkPath), fs.readlinkSync(linkPath));
-                if (currentTarget === path.resolve(targetPath))
-                    return;
-            }
+    for (let dirent of dirents) {
+      let fileName = dirent.name;
+      let filePath = path.resolve(dir, fileName);
 
-            fs.removeSync(linkPath);
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-                throw error;
-        }
+      if (blacklist.includes(fileName)) continue;
 
-        fs.symlinkSync(targetPath, linkPath);
+      // Define is we should recursively find service in the current item
+      let iterate: boolean = false;
+      if (dirent.isSymbolicLink()) {
+        const realPath = path.resolve(dir, fs.readlinkSync(filePath));
+        const destinationInfos = fs.lstatSync(realPath);
+        if (destinationInfos.isDirectory()) iterate = true;
+      } else if (dirent.isDirectory()) iterate = true;
+
+      // Update the list of found services
+      if (iterate) {
+        files.push(...this.findServices(filePath));
+      } else if (dirent.name === "service.json") {
+        files.push(path.dirname(filePath));
+      }
+    }
+    return files;
+  }
+
+  private findClientRouteFiles(dir: string): string[] {
+    const files: string[] = [];
+
+    for (const dirent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const filePath = path.join(dir, dirent.name);
+
+      if (dirent.isDirectory()) {
+        if (dirent.name === "_layout") continue;
+
+        files.push(...this.findClientRouteFiles(filePath));
+        continue;
+      }
+
+      if (!dirent.isFile()) continue;
+
+      if (!/\.(ts|tsx)$/.test(dirent.name)) continue;
+
+      const content = fs.readFileSync(filePath, "utf8");
+      if (!clientRouteRegistrationPattern.test(content)) continue;
+
+      files.push(filePath);
     }
 
-    private findServices( dir: string ) {
+    return files;
+  }
 
-        const blacklist = ['node_modules', 'proteum']
-        const files: string[] = [];
-        const dirents = fs.readdirSync(dir, { withFileTypes: true });
+  private readPreloadedRouteChunks() {
+    const preloadPath = path.join(app.paths.pages, "preload.json");
 
-        for (let dirent of dirents) {
+    if (!fs.existsSync(preloadPath)) return new Set<string>();
 
-            let fileName = dirent.name;
-            let filePath = path.resolve(dir, fileName);
+    const content = fs.readJsonSync(preloadPath);
 
-            if (blacklist.includes( fileName ))
-                continue;
+    if (!Array.isArray(content))
+      throw new Error(
+        `Invalid client/pages/preload.json format: expected an array of chunk ids.`,
+      );
 
-            // Define is we should recursively find service in the current item
-            let iterate: boolean = false;
-            if (dirent.isSymbolicLink()) {
+    return new Set<string>(
+      content.filter((value): value is string => typeof value === "string"),
+    );
+  }
 
-                const realPath = path.resolve( dir, fs.readlinkSync(filePath) );
-                const destinationInfos = fs.lstatSync( realPath );
-                if (destinationInfos.isDirectory())
-                    iterate = true;
+  private generateClientRoutesModule() {
+    const routeLoadersFile = path.join(app.paths.client.generated, "routes.ts");
+    const preloadedChunks = this.readPreloadedRouteChunks();
 
-            } else if (dirent.isDirectory())
-                iterate = true;
+    const routes = this.findClientRouteFiles(app.paths.pages)
+      .sort((a, b) => a.localeCompare(b))
+      .map<TClientRouteLoader>((filepath) => {
+        const { chunkId } = cli.paths.getPageChunk(app, filepath);
 
-            // Update the list of found services
-            if (iterate) {
-                files.push( ...this.findServices(filePath) );
-            } else if (dirent.name === 'service.json') {
-                files.push( path.dirname(filePath) );
-            }
-        }
-        return files;
-    }
+        return {
+          filepath,
+          chunkId,
+          preload: preloadedChunks.has(chunkId),
+        };
+      });
 
-    private findClientRouteFiles(dir: string): string[] {
+    const imports: string[] = [];
+    const routeEntries: string[] = [];
 
-        const files: string[] = [];
+    routes.forEach((route, index) => {
+      const importPath = path
+        .relative(app.paths.client.generated, route.filepath)
+        .replace(/\\/g, "/");
+      const normalizedImportPath = importPath.startsWith(".")
+        ? importPath
+        : "./" + importPath;
 
-        for (const dirent of fs.readdirSync(dir, { withFileTypes: true })) {
-            const filePath = path.join(dir, dirent.name);
+      if (route.preload) {
+        const localIdentifier = `preloadedRoute${index}`;
+        imports.push(
+          `import { __register as ${localIdentifier} } from ${JSON.stringify(normalizedImportPath)};`,
+        );
+        routeEntries.push(
+          `    ${JSON.stringify(route.chunkId)}: () => Promise.resolve({ __register: ${localIdentifier} }),`,
+        );
+        return;
+      }
 
-            if (dirent.isDirectory()) {
-                if (dirent.name === '_layout')
-                    continue;
+      routeEntries.push(
+        `    ${JSON.stringify(route.chunkId)}: () => import(/* webpackChunkName: ${JSON.stringify(route.chunkId)} */ ${JSON.stringify(normalizedImportPath)}),`,
+      );
+    });
 
-                files.push(...this.findClientRouteFiles(filePath));
-                continue;
-            }
-
-            if (!dirent.isFile())
-                continue;
-
-            if (!/^[a-z0-9]*\.tsx$/.test(dirent.name))
-                continue;
-
-            files.push(filePath);
-        }
-
-        return files;
-    }
-
-    private readPreloadedRouteChunks() {
-        const preloadPath = path.join(app.paths.pages, 'preload.json');
-
-        if (!fs.existsSync(preloadPath))
-            return new Set<string>();
-
-        const content = fs.readJsonSync(preloadPath);
-
-        if (!Array.isArray(content))
-            throw new Error(`Invalid client/pages/preload.json format: expected an array of chunk ids.`);
-
-        return new Set<string>(content.filter((value): value is string => typeof value === 'string'));
-    }
-
-    private generateClientRoutesModule() {
-
-        const routeLoadersFile = path.join(app.paths.client.generated, 'routes.ts');
-        const preloadedChunks = this.readPreloadedRouteChunks();
-
-        const routes = this.findClientRouteFiles(app.paths.pages)
-            .sort((a, b) => a.localeCompare(b))
-            .map<TClientRouteLoader>((filepath) => {
-                const { chunkId } = cli.paths.getPageChunk(app, filepath);
-
-                return {
-                    filepath,
-                    chunkId,
-                    preload: preloadedChunks.has(chunkId),
-                };
-            });
-
-        const imports: string[] = [];
-        const routeEntries: string[] = [];
-
-        routes.forEach((route, index) => {
-            const importPath = path.relative(app.paths.client.generated, route.filepath)
-                .replace(/\\/g, '/');
-            const normalizedImportPath = importPath.startsWith('.')
-                ? importPath
-                : './' + importPath;
-
-            if (route.preload) {
-                const localIdentifier = `preloadedRoute${index}`;
-                imports.push(`import { __register as ${localIdentifier} } from ${JSON.stringify(normalizedImportPath)};`);
-                routeEntries.push(
-                    `    ${JSON.stringify(route.chunkId)}: () => Promise.resolve({ __register: ${localIdentifier} }),`
-                );
-                return;
-            }
-
-            routeEntries.push(
-                `    ${JSON.stringify(route.chunkId)}: () => import(/* webpackChunkName: ${JSON.stringify(route.chunkId)} */ ${JSON.stringify(normalizedImportPath)}),`
-            );
-        });
-
-        const content = `/*----------------------------------
+    const content = `/*----------------------------------
 - GENERATED FILE
 ----------------------------------*/
 
 // This file is generated by Proteum to avoid rebuilding the page loader map in Babel.
 // Do not edit it manually.
 
-${imports.join('\n')}
-${imports.length ? '\n' : ''}const routes = {
-${routeEntries.join('\n')}
+${imports.join("\n")}
+${imports.length ? "\n" : ""}const routes = {
+${routeEntries.join("\n")}
 };
 
 export default routes;
 `;
 
-        fs.outputFileSync(routeLoadersFile, content);
+    fs.outputFileSync(routeLoadersFile, content);
+  }
+
+  private indexControllers() {
+    return indexControllers([
+      {
+        importPrefix: "@server/services/",
+        root: path.join(cli.paths.core.root, "server", "services"),
+      },
+      {
+        importPrefix: "@/server/services/",
+        root: path.join(app.paths.root, "server", "services"),
+      },
+    ]);
+  }
+
+  private generateControllerModules() {
+    const controllers = this.indexControllers();
+    const clientTree = generateControllerClientTree(controllers);
+
+    const runtimeLeaf = (leaf: string) => {
+      const meta = JSON.parse(leaf) as {
+        routePath: string;
+        hasInput: boolean;
+      };
+
+      return meta.hasInput
+        ? `(data) => api.createFetcher('POST', ${JSON.stringify(meta.routePath)}, data)`
+        : `() => api.createFetcher('POST', ${JSON.stringify(meta.routePath)})`;
+    };
+
+    const typeImports = controllers
+      .map(
+        (controller, index) =>
+          `import type Controller${index} from ${JSON.stringify(controller.importPath)};`,
+      )
+      .join("\n");
+
+    const typeLeaf = (leaf: string) => {
+      const meta = JSON.parse(leaf) as {
+        importPath: string;
+        className: string;
+        methodName: string;
+        hasInput: boolean;
+      };
+
+      const controllerIndex = controllers.findIndex(
+        (controller) => controller.importPath === meta.importPath,
+      );
+
+      const returnType = `ReturnType<Controller${controllerIndex}[${JSON.stringify(meta.methodName)}]>`;
+
+      return meta.hasInput
+        ? `(data: any) => ${returnType}`
+        : `() => ${returnType}`;
+    };
+
+    const createControllersContent = `/*----------------------------------
+- GENERATED FILE
+----------------------------------*/
+
+// This file is generated by Proteum from server controller files.
+// Do not edit it manually.
+
+import type ApiClient from '@common/router/request/api';
+${typeImports ? "\n" + typeImports : ""}
+
+export type TControllers = ${printControllerTree(clientTree, typeLeaf)};
+
+export const createControllers = (
+    api: Pick<ApiClient, 'createFetcher'>
+): TControllers => (
+${printControllerTree(clientTree, runtimeLeaf)}
+);
+
+export default createControllers;
+`;
+
+    fs.outputFileSync(
+      path.join(app.paths.common.generated, "controllers.ts"),
+      createControllersContent,
+    );
+
+    fs.outputFileSync(
+      path.join(app.paths.client.generated, "controllers.ts"),
+      `export { createControllers, default } from '@/common/.generated/controllers';
+export type { TControllers } from '@/common/.generated/controllers';
+`,
+    );
+
+    const controllerImports = controllers
+      .map(
+        (controller, index) =>
+          `import Controller${index} from ${JSON.stringify(controller.importPath)};`,
+      )
+      .join("\n");
+
+    const controllerEntries = controllers.flatMap(
+      (controller, controllerIndex) =>
+        controller.methods.map(
+          (method) => `    {
+        path: ${JSON.stringify("/api/" + method.routePath)},
+        Controller: Controller${controllerIndex},
+        method: ${JSON.stringify(method.name)},
+    },`,
+        ),
+    );
+
+    fs.outputFileSync(
+      path.join(app.paths.server.generated, "controllers.ts"),
+      `/*----------------------------------
+- GENERATED FILE
+----------------------------------*/
+
+// This file is generated by Proteum from server controller files.
+// Do not edit it manually.
+
+import type Controller from '@server/app/controller';
+${controllerImports ? "\n" + controllerImports : ""}
+
+export type TGeneratedControllerDefinition = {
+    path: string,
+    Controller: new (request: any) => Controller,
+    method: string,
+}
+
+const controllers: TGeneratedControllerDefinition[] = [
+${controllerEntries.join("\n")}
+];
+
+export default controllers;
+`,
+    );
+  }
+
+  private indexServices() {
+    // Index services
+    const searchDirs = [
+      // The less priority is the first
+      {
+        path: "@server/services/",
+        priority: -1,
+        root: path.join(cli.paths.core.root, "server", "services"),
+      },
+      {
+        path: "@/server/services/",
+        priority: 0,
+        root: path.join(app.paths.root, "server", "services"),
+      },
+      // Temp disabled because compile issue on vercel
+      //'': path.join(app.paths.root, 'node_modules'),
+    ];
+
+    // Generate app class file
+    const servicesAvailable: { [id: string]: TServiceMetas } = {};
+    for (const searchDir of searchDirs) {
+      const services = this.findServices(searchDir.root);
+
+      for (const serviceDir of services) {
+        const metasFile = path.join(serviceDir, "service.json");
+
+        // The +1 is to remove the slash
+        const importationPath =
+          searchDir.path + serviceDir.substring(searchDir.root.length + 1);
+
+        const serviceMetas = require(metasFile);
+
+        servicesAvailable[serviceMetas.id] = {
+          importationPath,
+          priority: searchDir.priority,
+          ...serviceMetas,
+        };
+      }
     }
 
-    private indexServices() {
-        
+    // Read app services
+    const imported: string[] = [];
+    const referencedNames: { [serviceId: string]: string } = {}; // ID to Name
 
-        // Index services
-        const searchDirs = [
-            // The less priority is the first
-            {
-                path: '@server/services/',
-                priority: -1,
-                root: path.join(cli.paths.core.root, 'server', 'services')
-            },
-            {
-                path: '@/server/services/',
-                priority: 0,
-                root: path.join(app.paths.root, 'server', 'services')
-            },
-            // Temp disabled because compile issue on vercel
-            //'': path.join(app.paths.root, 'node_modules'),
-        ]
+    const refService = (
+      serviceName: string,
+      serviceConfig: any,
+      level: number = 0,
+    ): TRegisteredService => {
+      if (serviceConfig.refTo !== undefined) {
+        const refTo = serviceConfig.refTo;
+        return {
+          name: serviceName,
+          instanciation: () => `this.${refTo}`,
+          priority: 0,
+        };
+      }
 
-        // Generate app class file
-        const servicesAvailable: {[id: string]: TServiceMetas} = {};
-        for (const searchDir of searchDirs) {
+      const serviceMetas = servicesAvailable[serviceConfig.id];
+      if (serviceMetas === undefined)
+        throw new Error(
+          `Service ${serviceConfig.id} not found. Referenced services: ${Object.keys(servicesAvailable).join("\n")}`,
+        );
 
-            const services = this.findServices(searchDir.root);
+      const referencedName = referencedNames[serviceConfig.id];
+      if (referencedName !== undefined)
+        throw new Error(
+          `Service ${serviceConfig.id} is already setup as ${referencedName}`,
+        );
 
-            for (const serviceDir of services) {
-                const metasFile = path.join( serviceDir, 'service.json');
+      // Generate index & typings
+      imported.push(
+        `import ${serviceMetas.name} from "${serviceMetas.importationPath}";`,
+      );
 
-                // The +1 is to remove the slash
-                const importationPath = searchDir.path + serviceDir.substring( searchDir.root.length + 1 );
+      if (serviceConfig.name !== undefined)
+        referencedNames[serviceConfig.id] = serviceConfig.name;
 
-                const serviceMetas = require(metasFile);
+      const processConfig = (config: any, level: number = 0) => {
+        let propsStr = "";
+        for (const key in config) {
+          const value = config[key];
 
-                servicesAvailable[ serviceMetas.id ] = {
-                    importationPath,
-                    priority: searchDir.priority,
-                    ...serviceMetas,
-                };
-            }
+          if (!value || typeof value !== "object")
+            propsStr += `"${key}":${serialize(value, { space: 4 })},\n`;
+          // Reference to a service
+          else if (
+            value.type === "service.setup" ||
+            value.type === "service.ref"
+          )
+            // TODO: more reliable way to detect a service reference
+            propsStr +=
+              `${key}:` +
+              refService(key, value, level + 1).instanciation() +
+              ",\n";
+          // Recursion
+          else if (level <= 4 && !Array.isArray(value))
+            propsStr += `"${key}":` + processConfig(value, level + 1) + ",\n";
+          else propsStr += `"${key}":${serialize(value, { space: 4 })},\n`;
         }
 
-        // Read app services
-        const imported: string[] = []
-        const referencedNames: {[serviceId: string]: string} = {} // ID to Name
+        return `{ ${propsStr} }`;
+      };
+      const config = processConfig(serviceConfig.config || {});
 
-        const refService = (serviceName: string, serviceConfig: any, level: number = 0): TRegisteredService => {
-
-            if (serviceConfig.refTo !== undefined) {
-                const refTo = serviceConfig.refTo;
-                return {
-                    name: serviceName,
-                    instanciation: () => `this.${refTo}`,
-                    priority: 0
-                }
-            }
-
-            const serviceMetas = servicesAvailable[ serviceConfig.id ];
-            if (serviceMetas === undefined)
-                throw new Error(`Service ${serviceConfig.id} not found. Referenced services: ${Object.keys(servicesAvailable).join('\n')}`);
-
-            const referencedName = referencedNames[serviceConfig.id];
-            if (referencedName !== undefined)
-                throw new Error(`Service ${serviceConfig.id} is already setup as ${referencedName}`);
-            
-            // Generate index & typings
-            imported.push(`import ${serviceMetas.name} from "${serviceMetas.importationPath}";`);
-
-            if (serviceConfig.name !== undefined)
-                referencedNames[serviceConfig.id] = serviceConfig.name;
-
-            const processConfig = (config: any, level: number = 0) => {
-
-                let propsStr = '';
-                for (const key in config) {
-                    const value = config[key];
-
-                    if (!value || typeof value !== 'object')
-                        propsStr += `"${key}":${serialize(value, { space: 4 })},\n`;
-
-                    // Reference to a service
-                    else if (value.type === 'service.setup' || value.type === 'service.ref') // TODO: more reliable way to detect a service reference
-                        propsStr += `${key}:`+ refService(key, value, level + 1).instanciation() + ',\n'
-                    
-                    // Recursion
-                    else if (level <= 4 && !Array.isArray(value))
-                        propsStr += `"${key}":` + processConfig(value, level + 1) + ',\n';
-
-                    else
-                        propsStr += `"${key}":${serialize(value, { space: 4 })},\n`;
-
-                }
-
-                return `{ ${propsStr} }`;
-            }
-            const config = processConfig(serviceConfig.config || {});
-
-            // Generate the service instance
-            const instanciation = (parentRef?: string) => 
-                `new ${serviceMetas.name}( 
-                    ${parentRef ? `${parentRef},` : ''}
+      // Generate the service instance
+      const instanciation = (parentRef?: string) =>
+        `new ${serviceMetas.name}( 
+                    ${parentRef ? `${parentRef},` : ""}
                     ${config},
                     this 
-                )`
+                )`;
 
-            return {
-                id: serviceConfig.id,
-                name: serviceName,
-                instanciation,
-                className: serviceMetas.name,
-                priority: serviceConfig.config?.priority || serviceMetas.priority || 0,
-            };
-        }
+      return {
+        id: serviceConfig.id,
+        name: serviceName,
+        instanciation,
+        className: serviceMetas.name,
+        priority: serviceConfig.config?.priority || serviceMetas.priority || 0,
+      };
+    };
 
-        const servicesCode = Object.values(app.registered).map( s => refService(s.name, s, 0));
-        const sortedServices = servicesCode.sort((a, b) => a.priority - b.priority);
+    const servicesCode = Object.values(app.registered).map((s) =>
+      refService(s.name, s, 0),
+    );
+    const sortedServices = servicesCode.sort((a, b) => a.priority - b.priority);
 
-        // Define the app class identifier
-        const appClassIdentifier = app.identity.identifier;
-        const containerServices = app.containerServices.map( s => "'" + s + "'").join('|');
+    // Define the app class identifier
+    const appClassIdentifier = app.identity.identifier;
+    const containerServices = app.containerServices
+      .map((s) => "'" + s + "'")
+      .join("|");
 
-        // @/client/.generated/services.d.ts
-        fs.outputFileSync(
-            path.join( app.paths.client.generated, 'services.d.ts'),
-`declare module "@app" {
+    // @/client/.generated/services.d.ts
+    fs.outputFileSync(
+      path.join(app.paths.client.generated, "services.d.ts"),
+      `declare module "@app" {
 
     import { ${appClassIdentifier} as ${appClassIdentifier}Client } from "@/client";
     import ${appClassIdentifier}Server from "@/server/.generated/app";
   
     export const Router: ${appClassIdentifier}Client['Router'];
 
-    ${sortedServices.map(service => service.name !== 'Router'
-        ? `export const ${service.name}: ${appClassIdentifier}Server["${service.name}"];`
-        : ''
-    ).join('\n')}
+    ${sortedServices
+      .map((service) =>
+        service.name !== "Router"
+          ? `export const ${service.name}: ${appClassIdentifier}Server["${service.name}"];`
+          : "",
+      )
+      .join("\n")}
 
 }
     
@@ -453,27 +610,24 @@ declare module '@common/errors' {
     export type UpgradeRequired = import('@common/errors/index').UpgradeRequired<FeatureKeys>;
 }
 
-declare module '@request' {
-    
-}
-
 declare namespace preact.JSX {
     interface HTMLAttributes {
         src?: string;
     }
 }
-`
-        );
+`,
+    );
 
-        // @/client/.generated/context.ts
-        fs.outputFileSync(
-            path.join( app.paths.client.generated, 'context.ts'),
-`// TODO: move it into core (but how to make sure usecontext returns ${appClassIdentifier}'s context ?)
+    // @/client/.generated/context.ts
+    fs.outputFileSync(
+      path.join(app.paths.client.generated, "context.ts"),
+      `// TODO: move it into core (but how to make sure usecontext returns ${appClassIdentifier}'s context ?)
 import React from 'react';
 
 import type ${appClassIdentifier}Server from '@/server/.generated/app';
 import type { TRouterContext as TServerRouterRequestContext } from '@server/services/router/response';
 import type { TRouterContext as TClientRouterRequestContext } from '@client/services/router/response';
+import type { TControllers } from '@/common/.generated/controllers';
 import type ${appClassIdentifier}Client from '.';
 
 // TO Fix: TClientRouterRequestContext is unable to get the right type of ${appClassIdentifier}Client["router"]
@@ -488,56 +642,66 @@ export type ClientContext = (
     & 
     Partial<Omit<ClientRequestContext, keyof UniversalServices>>
     &
+    TControllers
+    &
     {
         Router: ${appClassIdentifier}Client["Router"],
     }
 )
 
 export const ReactClientContext = React.createContext<ClientContext>({} as ClientContext);
-export default (): ClientContext => React.useContext<ClientContext>(ReactClientContext);`);
+export default (): ClientContext => React.useContext<ClientContext>(ReactClientContext);`,
+    );
 
-        // @/common/.generated/services.d.ts
-        fs.outputFileSync(
-            path.join( app.paths.common.generated, 'services.d.ts'),
-`declare module '@models/types' {
+    // @/common/.generated/services.d.ts
+    fs.outputFileSync(
+      path.join(app.paths.common.generated, "services.d.ts"),
+      `declare module '@models/types' {
     export * from '@/var/prisma/index';
-}`
-        );
+}`,
+    );
 
-        // @/server/.generated/app.ts
-        fs.outputFileSync(
-            path.join( app.paths.server.generated, 'app.ts'),
-`
+    // @/server/.generated/app.ts
+    fs.outputFileSync(
+      path.join(app.paths.server.generated, "app.ts"),
+      `
 import { Application } from '@server/app/index';
 import { ServicesContainer } from '@server/app/service/container';
 
-${imported.join('\n')}
+${imported.join("\n")}
 
 export default class ${appClassIdentifier} extends Application<ServicesContainer, CurrentUser> {
 
     // Make sure the services typigs are reflecting the config and referring to the app
-    ${sortedServices.map(service => 
-        `public ${service.name}!: ReturnType<${appClassIdentifier}["registered"]["${service.id}"]["start"]>;`
-    ).join('\n')}
+    ${sortedServices
+      .map(
+        (service) =>
+          `public ${service.name}!: ReturnType<${appClassIdentifier}["registered"]["${service.id}"]["start"]>;`,
+      )
+      .join("\n")}
 
     protected registered = {
-        ${sortedServices.map(service => 
-            `"${service.id}": {
+        ${sortedServices
+          .map(
+            (service) =>
+              `"${service.id}": {
                 name: "${service.name}",
                 priority: ${service.priority},
-                start: () => ${service.instanciation('this')}
-            }`
-        ).join(',\n')}
+                start: () => ${service.instanciation("this")}
+            }`,
+          )
+          .join(",\n")}
     } as const;
 }
 
 
-`);
+`,
+    );
 
-        // @/server/.generated/services.d.ts
-        fs.outputFileSync(
-            path.join( app.paths.server.generated, 'services.d.ts'),
-`type InstalledServices = import('./services').Services;
+    // @/server/.generated/services.d.ts
+    fs.outputFileSync(
+      path.join(app.paths.server.generated, "services.d.ts"),
+      `type InstalledServices = import('./services').Services;
 
 declare type ${appClassIdentifier} = import("@/server/.generated/app").default;
 
@@ -608,26 +772,6 @@ declare module '@server/app' {
     export = foo;
 }
 
-declare module '@request' {
-    import type { TRouterContext } from '@server/services/router/response';
-    const routerContext: TRouterContext<${appClassIdentifier}["Router"]>;
-    export = routerContext;
-}
-    
-declare module '@models' {
-    import { Prisma, PrismaClient } from '@/var/prisma/index';
-  
-    type ModelNames = Prisma.ModelName;
-  
-    type ModelDelegates = {
-      [K in ModelNames]: PrismaClient[Uncapitalize<K>];
-    };
-  
-    const models: ModelDelegates;
-  
-    export = models;
-}
-
 declare module '@common/errors' {
         
     export * from '@common/errors/index';
@@ -642,110 +786,101 @@ declare module '@common/errors' {
     
 declare module '@models/types' {
     export * from '@/var/prisma/index';
-}`
-        );
-    }
+}`,
+    );
+  }
 
-    private async warmupApp() {
+  private async warmupApp() {
+    await app.warmup();
+  }
 
-        await app.warmup();
+  public async refreshGeneratedTypings() {
+    await this.warmupApp();
 
-    }
+    this.indexServices();
+    this.generateControllerModules();
+    this.generateClientRoutesModule();
+  }
 
-    public async refreshGeneratedTypings() {
+  public consumeRecentCompilationResults() {
+    const recentCompilationResults = { ...this.recentCompilationResults };
+    this.recentCompilationResults = {};
+    return recentCompilationResults;
+  }
 
-        await this.warmupApp();
+  public async create() {
+    await this.warmupApp();
 
-        this.indexServices();
-        this.generateClientRoutesModule();
+    this.cleanup();
 
-    }
+    this.fixNpmLinkIssues();
 
-    public consumeRecentCompilationResults() {
-        const recentCompilationResults = { ...this.recentCompilationResults };
-        this.recentCompilationResults = {};
-        return recentCompilationResults;
-    }
+    this.indexServices();
+    this.generateControllerModules();
+    this.generateClientRoutesModule();
 
-    public async create() {
+    // Create compilers
+    const multiCompiler = webpack([
+      createServerConfig(app, this.mode, this.outputTarget),
+      createClientConfig(app, this.mode, this.outputTarget),
+    ]);
 
-        await this.warmupApp();
+    for (const compiler of multiCompiler.compilers) {
+      const name = compiler.name;
+      if (name === undefined)
+        throw new Error(`A name must be specified to each compiler.`);
 
-        this.cleanup();
+      let timeStart = new Date();
 
-        this.fixNpmLinkIssues();
+      let finished: () => void;
+      this.compiling[name] = new Promise((resolve) => (finished = resolve));
 
-        this.indexServices();
-        this.generateClientRoutesModule();
+      if (name === "client") {
+        const refreshClientRoutes = async () => {
+          this.generateControllerModules();
+          this.generateClientRoutesModule();
+        };
 
-        // Create compilers
-        const multiCompiler = webpack([
-            smp.wrap( createServerConfig(app, this.mode, this.outputTarget) ),
-            smp.wrap( createClientConfig(app, this.mode, this.outputTarget) )
-        ]);
+        compiler.hooks.beforeRun.tapPromise(name, refreshClientRoutes);
+        compiler.hooks.watchRun.tapPromise(name, refreshClientRoutes);
+      }
 
-        for (const compiler of multiCompiler.compilers) {
+      compiler.hooks.compile.tap(name, (compilation) => {
+        this.callbacks.before && this.callbacks.before(compiler);
 
-            const name = compiler.name;
-            if (name === undefined)
-                throw new Error(`A name must be specified to each compiler.`);
+        this.compiling[name] = new Promise((resolve) => (finished = resolve));
 
-            let timeStart = new Date();
+        timeStart = new Date();
+        console.info(`[${name}] Compiling ...`);
+      });
 
-            let finished: (() => void);
-            this.compiling[name] = new Promise((resolve) => finished = resolve);
-
-            if (name === 'client') {
-                const refreshClientRoutes = async () => {
-                    this.generateClientRoutesModule();
-                };
-
-                compiler.hooks.beforeRun.tapPromise(name, refreshClientRoutes);
-                compiler.hooks.watchRun.tapPromise(name, refreshClientRoutes);
-            }
-
-            compiler.hooks.compile.tap(name, (compilation) => {
-                
-                this.callbacks.before && this.callbacks.before( compiler );
-
-                this.compiling[name] = new Promise((resolve) => finished = resolve);
-
-                timeStart = new Date();
-                console.info(`[${name}] Compiling ...`);
-            });
-
-            /* TODO: Ne pas résoudre la promise tant que la recompilation des données indexées (icones, identité, ...) 
+      /* TODO: Ne pas résoudre la promise tant que la recompilation des données indexées (icones, identité, ...) 
                 n'a pas été achevée */
-            compiler.hooks.done.tap(name, stats => {
-                const compilationSucceeded = !stats.hasErrors();
-                this.recentCompilationResults[name] = compilationSucceeded;
+      compiler.hooks.done.tap(name, (stats) => {
+        const compilationSucceeded = !stats.hasErrors();
+        this.recentCompilationResults[name] = compilationSucceeded;
 
-                // Shiow status
-                const timeEnd = new Date();
-                const time = timeEnd.getTime() - timeStart.getTime();
-                if (!compilationSucceeded) {
+        // Shiow status
+        const timeEnd = new Date();
+        const time = timeEnd.getTime() - timeStart.getTime();
+        if (!compilationSucceeded) {
+          console.info(stats.toString(compiler.options.stats));
+          console.error(`[${name}] Failed to compile after ${time} ms`);
 
-                    console.info(stats.toString(compiler.options.stats));
-                    console.error(`[${name}] Failed to compile after ${time} ms`);
-
-                    // Exit process with code 0, so the CI container can understand building failed
-                    // Only in prod, because in dev, we want the compiler watcher continue running
-                    if (this.mode === 'prod')
-                        process.exit(0);
-
-                } else {
-                    this.debug && console.info(stats.toString(compiler.options.stats));
-                    console.info(`[${name}] Finished compilation after ${time} ms`);
-                }
-
-                // Mark as finished
-                finished();
-                delete this.compiling[name];
-            });
+          // Exit process with code 0, so the CI container can understand building failed
+          // Only in prod, because in dev, we want the compiler watcher continue running
+          if (this.mode === "prod") process.exit(0);
+        } else {
+          this.debug && console.info(stats.toString(compiler.options.stats));
+          console.info(`[${name}] Finished compilation after ${time} ms`);
         }
 
-        return multiCompiler;
-
+        // Mark as finished
+        finished();
+        delete this.compiling[name];
+      });
     }
 
+    return multiCompiler;
+  }
 }

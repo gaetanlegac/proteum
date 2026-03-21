@@ -3,9 +3,9 @@
 ----------------------------------*/
 
 // Npm
-import escapeStringRegexp from 'escape-regexp';
-import slugify from 'slugify';
-import { removeStopwords, eng } from 'stopword';
+import escapeStringRegexp from "escape-regexp";
+import slugify from "slugify";
+import { removeStopwords, eng } from "stopword";
 
 /*----------------------------------
 - TYPES
@@ -15,41 +15,38 @@ import { removeStopwords, eng } from 'stopword';
 - SERVICE
 ----------------------------------*/
 export class Slug {
+  public async generate(label: string);
+  public async generate(label: string, SQL: SQL, table: string, column: string);
+  public async generate(
+    label: string,
+    SQL?: SQL,
+    table?: string,
+    column?: string,
+  ) {
+    // Generate slug
+    let slug = slugify(label, {
+      replacement: "-", // replace spaces with replacement character, defaults to `-`
+      remove: /[^a-z\s]/gi, // remove characters that match regex, defaults to `undefined`
+      lower: true, // convert to lower case, defaults to `false`
+      strict: true, // strip special characters except replacement, defaults to `false`
+      locale: "vi", // language code of the locale to use
+      trim: true, // trim leading and trailing replacement chars, defaults to `true`
+    });
 
-    public async generate( label: string );
-    public async generate( label: string, SQL: SQL, table: string, column: string );
-    public async generate( label: string, SQL?: SQL, table?: string, column?: string ) {
+    slug = removeStopwords(slug.split("-"), eng).join("-");
 
-        // Generate slug
-        let slug = slugify(label, {
-            replacement: '-',  // replace spaces with replacement character, defaults to `-`
-            remove: /[^a-z\s]/ig, // remove characters that match regex, defaults to `undefined`
-            lower: true,      // convert to lower case, defaults to `false`
-            strict: true,     // strip special characters except replacement, defaults to `false`
-            locale: 'vi',       // language code of the locale to use
-            trim: true         // trim leading and trailing replacement chars, defaults to `true`
-        });
-
-        slug = removeStopwords( slug.split('-'), eng).join('-');
-
-        // Check if already existing
-        if (SQL !== undefined) {
-            slug = await this.Correct(slug, SQL, table, column);
-        }
-
-        return slug;
+    // Check if already existing
+    if (SQL !== undefined) {
+      slug = await this.Correct(slug, SQL, table, column);
     }
 
-    public async Correct( 
-        slug: string, 
-        SQL: SQL, 
-        table: string, 
-        column: string 
-    ) {
-        
-        const escapedSlug = escapeStringRegexp(slug);
+    return slug;
+  }
 
-        const duplicates = await SQL.selectVal<number>(`
+  public async Correct(slug: string, SQL: SQL, table: string, column: string) {
+    const escapedSlug = escapeStringRegexp(slug);
+
+    const duplicates = await SQL.selectVal<number>(`
             SELECT 
                 IF( ${column} LIKE ${SQL.esc(slug)},
                     1,
@@ -64,13 +61,10 @@ export class Slug {
             LIMIT 1
         `);
 
-        if (duplicates && duplicates > 0)
-            slug += `-${duplicates + 1}`;
+    if (duplicates && duplicates > 0) slug += `-${duplicates + 1}`;
 
-        return slug;
-
-    }
-
+    return slug;
+  }
 }
 
-export default new Slug;
+export default new Slug();

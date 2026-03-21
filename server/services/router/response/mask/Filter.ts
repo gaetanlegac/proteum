@@ -3,7 +3,7 @@
 ----------------------------------*/
 
 // Libs
-import { TSelecteur } from './selecteurs';
+import { TSelecteur } from "./selecteurs";
 
 /*----------------------------------
 - TYPES
@@ -23,204 +23,193 @@ const maxLevel = 10; // Prévention contre les références circulaires
 - CLASS
 ----------------------------------*/
 export default class Filtre {
+  public constructor() {}
 
-    public constructor() {
+  public filtrer(
+    donnee: TObjet | Array<unknown> | Date,
+    schema?: TSelecteur,
+    chemin: string[] = [],
+    schemaParent?: TObjet,
+  ): any {
+    // Prévention contre les références circulaires
+    if (chemin.length > maxLevel)
+      throw new Error(
+        `Erreur: Niveau max (${maxLevel}) atteint via la branche ${chemin.join(".")}. Vérifier s'il n'existe pas une référence circulaire dans l'objet à filtrer.`,
+      );
 
+    try {
+      // Tableau: on itère chaque élement de celui-ci
+      if (Array.isArray(donnee)) {
+        debug &&
+          console.log(
+            `[requete][reponse][filtre]`,
+            chemin.join("."),
+            ": Tableau",
+          );
 
-    }
+        return this.tableau(donnee, schema, chemin, schemaParent);
 
-    public filtrer(
-        donnee: TObjet | Array<unknown> | Date,
-        schema?: TSelecteur,
-        chemin: string[] = [],
-        schemaParent?: TObjet
-    ): any {
+        // Valeur: Chaque true doit être remplacé par la donnee[ nomBranche ] correspondante
+        // Si la donnée est une chaine, un nombre, etc ... On la traite comme s'il y avait un true
+      } else if (
+        // Extrémité de la branche
+        schema === true ||
+        // Valeur non-itérable
+        !donnee ||
+        typeof donnee !== "object" ||
+        donnee instanceof Date
+      ) {
+        debug &&
+          console.log(
+            `[requete][reponse][filtre]`,
+            chemin.join("."),
+            ": Valeur",
+          );
 
-        // Prévention contre les références circulaires
-        if (chemin.length > maxLevel)
-            throw new Error(`Erreur: Niveau max (${maxLevel}) atteint via la branche ${chemin.join('.')}. Vérifier s'il n'existe pas une référence circulaire dans l'objet à filtrer.`)
-
-        try {
-
-            // Tableau: on itère chaque élement de celui-ci
-            if (Array.isArray(donnee)) {
-
-                debug && console.log(`[requete][reponse][filtre]`, chemin.join('.'), ': Tableau');
-
-                return this.tableau(donnee, schema, chemin, schemaParent);
-
-                // Valeur: Chaque true doit être remplacé par la donnee[ nomBranche ] correspondante
-                // Si la donnée est une chaine, un nombre, etc ... On la traite comme s'il y avait un true
-            } else if (
-                // Extrémité de la branche
-                schema === true
-                ||
-                // Valeur non-itérable
-                !donnee
-                ||
-                typeof donnee !== 'object'
-                ||
-                donnee instanceof Date
-            ) {
-
-                debug && console.log(`[requete][reponse][filtre]`, chemin.join('.'), ': Valeur');
-
-                return this.valeur(
-                    donnee,
-                    schema,
-                    chemin
-                );
-
-                // Objet
-            } else {
-
-                debug && console.log(`[requete][reponse][filtre]`, chemin.join('.'), ': Objet');
-
-                return this.objet(donnee, schema, chemin, schemaParent);
-
-            }
-
-        } catch (error) {
-
-            console.error('Erreur =', error, '|| données =', donnee, '|| chemin =', chemin, '|| schema =', schema);
-            throw new Error(`Erreur lors du filtrage. Infos ci-dessus.`);
-
-        }
-    }
-
-    private tableau(
-        donnee: any[],
-        schema: TSelecteur | undefined,
-
-        chemin: string[],
-        schemaParent?: TObjet
-    ) {
-
-        let retour: any[] = [];
-
-        for (const iElem in donnee) {
-            retour.push(
-                this.filtrer(
-                    donnee[iElem],
-                    schema,
-
-                    [...chemin, iElem],
-                    schemaParent
-                )
-            )
-        }
-
-        return retour;
-    }
-
-    private objet(
-        donnee: TObjet,
-        schema: TSelecteur | undefined,
-
-        chemin: string[],
-        schemaParent?: TObjet
-    ) {
-
-        if (typeof schema === 'object') {
-
-            // Exemple: article ( titre enfant( @ ) )
-            // Copie du schéma parent
-            if (schema['@'] === true) {
-
-                if (schemaParent === undefined)
-                    throw new Error(`Référence au schéma parent trouvée, mais impossible d'accéder au schéma parent (schemaParent = undefined)`);
-
-                schema = schemaParent;
-
-                // Exemple: *
-                // Parcours et filtre toutes les entrées
-            } else if (schema['*'] === true) {
-
-                // L'itération se fera directement sur les données fournies
-                schema = undefined;
-
-                // Exemple: * ( nom symbole )
-                // Applique un selecteurs à toutes les entrées
-            } else if (schema['*'] !== undefined) {
-
-                const schemaBranches = schema['*'];
-                schema = {};
-
-                // Applique le schema du wildcard à toutes les entrées de l'objet
-                // TODO: alternative plus performante
-                for (const cle in donnee)
-                    schema[cle] = schemaBranches;
-
-            }
-        }
-
-        let retour: TObjet = {};
-
-        // Liste des clés à itérer
-        let clesAiterer: string[];
-        if (schema !== undefined)
-            clesAiterer = Object.keys(schema as object);
-        else // En dernier recours, on itère tout simplement les données de l'objet
-            clesAiterer = Object.keys(donnee);
+        return this.valeur(donnee, schema, chemin);
 
         // Objet
-        for (const nomBranche of clesAiterer) {
+      } else {
+        debug &&
+          console.log(
+            `[requete][reponse][filtre]`,
+            chemin.join("."),
+            ": Objet",
+          );
 
-            const cheminA = [...chemin, nomBranche];
-            let donneeBranche = undefined;
+        return this.objet(donnee, schema, chemin, schemaParent);
+      }
+    } catch (error) {
+      console.error(
+        "Erreur =",
+        error,
+        "|| données =",
+        donnee,
+        "|| chemin =",
+        chemin,
+        "|| schema =",
+        schema,
+      );
+      throw new Error(`Erreur lors du filtrage. Infos ci-dessus.`);
+    }
+  }
 
-            // Extraction de la valeur de la propriété
-            if (donneeBranche === undefined)
-                donneeBranche = donnee[nomBranche];
+  private tableau(
+    donnee: any[],
+    schema: TSelecteur | undefined,
 
-            // Filtrage de la valeur de la propriété
-            retour[nomBranche] = this.filtrer(
-                donneeBranche,
-                schema !== undefined ? schema[nomBranche] : undefined,
+    chemin: string[],
+    schemaParent?: TObjet,
+  ) {
+    let retour: any[] = [];
 
-                cheminA,
+    for (const iElem in donnee) {
+      retour.push(
+        this.filtrer(
+          donnee[iElem],
+          schema,
 
-                schema as TObjet
-            );
-        }
-
-        return retour;
+          [...chemin, iElem],
+          schemaParent,
+        ),
+      );
     }
 
-    // Traitement des données aux extrémités (auxquelles font référence les true)
-    private valeur(
-        donnee: any,
-        schema: TSelecteur,
-        chemin: string[]
-    ) {
+    return retour;
+  }
 
-        // Si sélecteur wildcard
-        const wildcard = typeof schema === 'object' && schema['*'] === true
+  private objet(
+    donnee: TObjet,
+    schema: TSelecteur | undefined,
 
-        // Traitement des objets
-        if (donnee && typeof donnee === 'object') {
+    chemin: string[],
+    schemaParent?: TObjet,
+  ) {
+    if (typeof schema === "object") {
+      // Exemple: article ( titre enfant( @ ) )
+      // Copie du schéma parent
+      if (schema["@"] === true) {
+        if (schemaParent === undefined)
+          throw new Error(
+            `Référence au schéma parent trouvée, mais impossible d'accéder au schéma parent (schemaParent = undefined)`,
+          );
 
-            // Promise
-            if (typeof donnee.then === 'function')
-                throw new Error(chemin.join('.') + ": Les promises ne sont pas autorisées en retour api, sauf via un getter de modèle.");
+        schema = schemaParent;
 
-            // Sinon, wildcard obliatoire si on souhaite conserver l'objet entier
-            else if (wildcard === false) {
+        // Exemple: *
+        // Parcours et filtre toutes les entrées
+      } else if (schema["*"] === true) {
+        // L'itération se fera directement sur les données fournies
+        schema = undefined;
 
-                if (donnee instanceof Date)
-                    return donnee.toISOString();
-                // Mauvaise idée: Les instances de modèle Sequelize possèdent une méthode toString()
-                /*else if (typeof donnee.toString === 'function')
+        // Exemple: * ( nom symbole )
+        // Applique un selecteurs à toutes les entrées
+      } else if (schema["*"] !== undefined) {
+        const schemaBranches = schema["*"];
+        schema = {};
+
+        // Applique le schema du wildcard à toutes les entrées de l'objet
+        // TODO: alternative plus performante
+        for (const cle in donnee) schema[cle] = schemaBranches;
+      }
+    }
+
+    let retour: TObjet = {};
+
+    // Liste des clés à itérer
+    let clesAiterer: string[];
+    if (schema !== undefined)
+      clesAiterer = Object.keys(schema as object); // En dernier recours, on itère tout simplement les données de l'objet
+    else clesAiterer = Object.keys(donnee);
+
+    // Objet
+    for (const nomBranche of clesAiterer) {
+      const cheminA = [...chemin, nomBranche];
+      let donneeBranche = undefined;
+
+      // Extraction de la valeur de la propriété
+      if (donneeBranche === undefined) donneeBranche = donnee[nomBranche];
+
+      // Filtrage de la valeur de la propriété
+      retour[nomBranche] = this.filtrer(
+        donneeBranche,
+        schema !== undefined ? schema[nomBranche] : undefined,
+
+        cheminA,
+
+        schema as TObjet,
+      );
+    }
+
+    return retour;
+  }
+
+  // Traitement des données aux extrémités (auxquelles font référence les true)
+  private valeur(donnee: any, schema: TSelecteur, chemin: string[]) {
+    // Si sélecteur wildcard
+    const wildcard = typeof schema === "object" && schema["*"] === true;
+
+    // Traitement des objets
+    if (donnee && typeof donnee === "object") {
+      // Promise
+      if (typeof donnee.then === "function")
+        throw new Error(
+          chemin.join(".") +
+            ": Les promises ne sont pas autorisées en retour api, sauf via un getter de modèle.",
+        );
+      // Sinon, wildcard obliatoire si on souhaite conserver l'objet entier
+      else if (wildcard === false) {
+        if (donnee instanceof Date) return donnee.toISOString();
+        // Mauvaise idée: Les instances de modèle Sequelize possèdent une méthode toString()
+        /*else if (typeof donnee.toString === 'function')
                     return donnee.toString();*/
-
-            }
-
-        }
-
-        return donnee;
+      }
     }
 
-    /*private propriete<TModele extends Modele>(
+    return donnee;
+  }
+
+  /*private propriete<TModele extends Modele>(
         nom: keyof TModele,
         modele: TModele,
         metasClasse: TModelMetas,
@@ -319,5 +308,4 @@ export default class Filtre {
             return false;
         }
     }*/
-
 }

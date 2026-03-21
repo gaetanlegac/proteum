@@ -1,5 +1,5 @@
-import type { Prisma, PrismaClient } from '@models/types';
-import * as runtime from '@/var/prisma/runtime/library.js';
+import type { Prisma, PrismaClient } from "@models/types";
+import * as runtime from "@/var/prisma/runtime/library.js";
 
 /*export type TDelegate<R> = {
     findMany(args?: any): Promise<R[]>
@@ -9,7 +9,6 @@ import * as runtime from '@/var/prisma/runtime/library.js';
 /*
 
 */
-
 
 export type TDelegate<R> = PrismaClient[string];
 
@@ -22,121 +21,107 @@ export type TExtractPayload2<D> =
     : never;*/
 
 export type Transform<S extends TSubset, R, RT> = (
-    row: runtime.Types.Result.GetResult<
-        Prisma.$ProspectContactLeadPayload,
-        ReturnType<S>,
-        'findMany'
-    >[number]
-) => RT
+  row: runtime.Types.Result.GetResult<
+    Prisma.$ProspectContactLeadPayload,
+    ReturnType<S>,
+    "findMany"
+  >[number],
+) => RT;
 
 export type TWithStats = {
-    $table: string,
-    $key: string
+  $table: string;
+  $key: string;
 } & {
-    [key: string]: string // key => SQL
-}
+  [key: string]: string; // key => SQL
+};
 
-export type TSubset = (...a: any[]) => Prisma.ProspectContactLeadFindFirstArgs & {
-    withStats?: TWithStats
-}
+export type TSubset = (
+  ...a: any[]
+) => Prisma.ProspectContactLeadFindFirstArgs & {
+  withStats?: TWithStats;
+};
 
 export default class Facet<
-    D extends TDelegate<R>,
-    S extends TSubset,
-    R, // Result type
-    RT // Transformed result type
+  D extends TDelegate<R>,
+  S extends TSubset,
+  R, // Result type
+  RT, // Transformed result type
 > {
-    constructor(
+  constructor(
+    private readonly prisma: PrismaClient,
 
-        private readonly prisma: PrismaClient,
+    private readonly delegate: D,
+    private readonly subset: S,
 
-        private readonly delegate: D,
-        private readonly subset: S,
+    /* the **ONLY** line that changed ↓↓↓ */
+    private readonly transform?: Transform<S, R, RT>,
+  ) {}
 
-        /* the **ONLY** line that changed ↓↓↓ */
-        private readonly transform?: Transform<S, R, RT>,
-    ) { }
+  public async findMany(...args: Parameters<S>): Promise<RT[]> {
+    const { withStats, ...subset } = this.subset(...args);
 
-    public async findMany(
-        ...args: Parameters<S>
-    ): Promise<RT[]> {
+    const results = await this.delegate.findMany(subset);
+    if (results.length === 0) return [];
 
-        const { withStats, ...subset } = this.subset(...args);
+    // Load stats
+    const stats = withStats ? await this.fetchStats(withStats, results) : [];
 
-        const results = await this.delegate.findMany(subset);
-        if (results.length === 0)
-            return [];
+    return results.map((row) => this.transformResult(row, stats, withStats));
+  }
 
-        // Load stats
-        const stats = withStats 
-            ? await this.fetchStats( withStats, results )
-            : [];
+  public async findFirst(...args: Parameters<S>): Promise<RT | null> {
+    const { withStats, ...subset } = this.subset(...args);
 
-        return results.map(row => this.transformResult(row, stats, withStats));
-    }
+    const result = await this.delegate.findFirst(subset);
+    if (!result) return null;
 
-    public async findFirst(
-        ...args: Parameters<S>
-    ): Promise<RT | null> {
+    const stats = withStats ? await this.fetchStats(withStats, [result]) : [];
 
-        const { withStats, ...subset } = this.subset(...args);
+    return this.transformResult(result, stats, withStats);
+  }
 
-        const result = await this.delegate.findFirst(subset);
-        if (!result)
-            return null;
-
-        const stats = withStats 
-            ? await this.fetchStats( withStats, [result] )
-            : [];
-
-        return this.transformResult(result, stats, withStats);
-    }
-
-    private async fetchStats(
-        { $table, $key, ...withStats }: TWithStats,
-        results: any[]
-    ): Promise<any[]> {
-
-        const select = Object.entries(withStats).map(([key, sql]) =>    
-            `(COALESCE((
+  private async fetchStats(
+    { $table, $key, ...withStats }: TWithStats,
+    results: any[],
+  ): Promise<any[]> {
+    const select = Object.entries(withStats).map(
+      ([key, sql]) =>
+        `(COALESCE((
                 ${sql}
-            ), 0)) as ${key}`
-        );
+            ), 0)) as ${key}`,
+    );
 
-        const stats = await this.prisma.$queryRawUnsafe(`
-            SELECT ${$key}, ${select.join(', ')} 
+    const stats = await this.prisma.$queryRawUnsafe(`
+            SELECT ${$key}, ${select.join(", ")} 
             FROM ${$table} 
             WHERE ${$key} IN (
-                ${results.map(r => "'" + r[ $key ] + "'").join(',')}
+                ${results.map((r) => "'" + r[$key] + "'").join(",")}
             )
         `);
 
-        for (const stat of stats) {
-            for (const key in stat) {
-    
-                if (key === $key)
-                    continue;
-    
-                stat[key] = stat[key] ? parseInt(stat[key]) : 0;
-            }
-        }
+    for (const stat of stats) {
+      for (const key in stat) {
+        if (key === $key) continue;
 
-        return stats;
+        stat[key] = stat[key] ? parseInt(stat[key]) : 0;
+      }
     }
 
-    private transformResult( result: any, stats: any[], withStats?: TWithStats ) {
+    return stats;
+  }
 
-        // Transform stats
-        const resultStats = withStats
-            ? stats.find(stat => stat[withStats.$key] === result[withStats.$key]) || {}
-            : {};
+  private transformResult(result: any, stats: any[], withStats?: TWithStats) {
+    // Transform stats
+    const resultStats = withStats
+      ? stats.find((stat) => stat[withStats.$key] === result[withStats.$key]) ||
+        {}
+      : {};
 
-        if (this.transform)
-            result = this.transform(result);
+    if (this.transform) result = this.transform(result);
 
-        return {
-            ...result,
-            ...resultStats
-        }
-    }
+    return {
+      ...result,
+      ...resultStats,
+    };
+  }
 }

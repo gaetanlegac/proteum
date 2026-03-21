@@ -3,1168 +3,327 @@
 ----------------------------------*/
 
 // Npm
-import * as types from '@babel/types'
-import type { PluginObj, NodePath } from '@babel/core';
+import * as types from "@babel/types";
+import type { PluginObj, NodePath } from "@babel/core";
 
 // Core
-import cli from '@cli';
-import { App, TAppSide } from '../../../../app';
+import cli from "@cli";
+import { App, TAppSide } from "../../../../app";
 
 /*----------------------------------
 - WEBPACK RULE
 ----------------------------------*/
 
 type TOptions = {
-    side: TAppSide,
-    app: App,
-    debug?: boolean
-}
+  side: TAppSide;
+  app: App;
+  debug?: boolean;
+};
+
 type TRouteDefinition = {
-    definition: types.CallExpression,
-    dataFetchers: types.ObjectProperty[],
-    contextName?: string
-}
+  definition: types.CallExpression;
+};
 
 type TFileInfos = {
-    path: string,
-    process: boolean,
-    side: 'front'|'back',
+  path: string;
+  process: boolean;
+  side: "front" | "back";
+  importedServices: { [local: string]: string };
+  routeDefinitions: TRouteDefinition[];
+};
 
-    importedServices: {[local: string]: string},
-    routeDefinitions: TRouteDefinition[],
-}
+const routerMethods = ["get", "post", "put", "delete", "patch"];
 
-module.exports = (options: TOptions) => (
-    [Plugin, options]
-)
-
-const clientServices = ['Router'];
-// Others will be called via app.<Service> (backend) or api.post(<path>, <params>) (frontend)
-
-const routerMethods = ['get', 'post', 'put', 'delete', 'patch'];
+module.exports = (options: TOptions) => [Plugin, options];
 
 /*----------------------------------
 - PLUGIN
 ----------------------------------*/
-function Plugin(babel, { app, side, debug }: TOptions) {
 
-    //debug = true;
+function Plugin(babel, { app, debug }: TOptions) {
+  const t = babel.types as typeof types;
 
-    const t = babel.types as typeof types;
+  type TPluginState = {
+    filename: string;
+    file: TFileInfos;
+  };
 
-    type TPluginState = {
-        filename: string,
-        file: TFileInfos,
-        apiInjectedRootFunctions: WeakSet<types.Node>,
-        needsUseContextImport: boolean
-    }
+  const plugin: PluginObj<TPluginState> = {
+    pre(state) {
+      this.filename = state.opts.filename as string;
+      this.file = getFileInfos(this.filename);
+    },
+    visitor: {
+      ImportDeclaration(path) {
+        if (!this.file.process) return;
 
-    /*
-        - Wrap route.get(...) with (app: Application) => { }
-        - Inject chunk ID into client route options
-        - Transform api.fetch:
-        
-        Input:
-        const { stats } = api.fetch({
-            stats: api.get(...)
-        }):
+        const source = path.node.source.value;
+        const isClientRouterImport =
+          this.file.side === "front" &&
+          (source === "@client/router" || source === "@/client/router");
 
-        Output:
+        if (source !== "@app" && !isClientRouterImport) return;
 
-        Route.page('/', { data: { stats: api.get(...) } });
-        ...
-        const stats = page.data.stats;
-    */
+        for (const specifier of path.node.specifiers) {
+          if (
+            specifier.type === "ImportDefaultSpecifier" &&
+            isClientRouterImport
+          ) {
+            this.file.importedServices[specifier.local.name] = "Router";
+            continue;
+          }
 
-    const plugin: PluginObj<TPluginState> = {
-        pre(state) {
-            this.filename = state.opts.filename as string;
+          if (
+            specifier.type !== "ImportSpecifier" ||
+            specifier.imported.type !== "Identifier"
+          )
+            continue;
 
-            this.file = getFileInfos(this.filename);
-
-            this.apiInjectedRootFunctions = new WeakSet();
-            this.needsUseContextImport = false;
-        },
-        visitor: {
-            // Find @app imports
-            // Test:            import { Router } from '@app';
-            // Replace by:      nothing
-            ImportDeclaration(path) {
-                
-                const shouldTransformImports = this.file.process;
-                if (!shouldTransformImports)
-                    return;
-                
-                if (path.node.source.value !== '@app')
-                    return;  
-
-                for (const specifier of path.node.specifiers) {
-                    
-                    if (specifier.type !== 'ImportSpecifier')
-                        continue;
-
-                    if (specifier.imported.type !== 'Identifier')
-                        continue;
-
-                    const serviceName = specifier.imported.name;
-
-                    if (clientServices.includes(serviceName))
-                        this.file.importedServices[ specifier.local.name ] = serviceName;
-                    else
-                        this.file.importedServices[ specifier.local.name ] = 'app';
-                }
-
-                // Remove this import
-                path.remove();
-
-            },
-
-            // Transform services service calls
-            CallExpression(path) {
-
-                if (!this.file.process)
-                    return;
-
-                // object.property()
-                const callee = path.node.callee
-                if (!(
-                    callee.type === 'MemberExpression'
-                ))
-                    return;
-
-                // Create full path
-                const completePath: string[] = [];
-                let currCallee: types.MemberExpression = callee;
-                while (1) {
-
-                    if (currCallee.property.type === 'Identifier')
-                        completePath.unshift(currCallee.property.name);
-
-                    if (currCallee.object.type === 'MemberExpression')
-                        currCallee = currCallee.object;
-                    else {
-
-                        if (currCallee.object.type === 'Identifier')
-                            completePath.unshift(currCallee.object.name);
-
-                        break;
-                    }
-                }
-
-                // If we actually call a service
-                const serviceName = completePath[0];
-
-                /*
-                    Router.page: wrap with export const __register = ({ Router }) => Router.page(...)
-                */
-                if (
-                    serviceName === 'Router' 
-                    && 
-                    callee.property.type === 'Identifier' 
-                    && 
-                    ['page', 'error', ...routerMethods].includes(callee.property.name)
-                ) {
-
-                    // Should be at the root of the document
-                    if (!(
-                        path.parent.type === 'ExpressionStatement'
-                        &&
-                        path.parentPath.parent.type === 'Program'
-                    ))
-                        return;
-
-                    const routeDef: TRouteDefinition = {
-                        definition: path.node,
-                        dataFetchers: []
-                    }
-
-                    // Adjust
-                    // /client/pages/*
-                    if (this.file.side === 'front') {
-                        transformDataFetchers(path, this, routeDef);
-                    }
-                        
-                    // Add to the list of route definitons to wrap
-                    this.file.routeDefinitions.push(routeDef);
-
-                    // Delete the route def since it will be replaced by a wrapper
-                    path.replaceWithMultiple([]);
-
-      
-                } else if (this.file.side === 'front') {
-                    
-                    const isAService = (
-                        serviceName in this.file.importedServices
-                        &&
-                        serviceName[0] === serviceName[0].toUpperCase()
-                    );
-                    if(!isAService)
-                        return;
-
-                    /* [client] Backend Service calls: Transform to api.post( <method path>, <params> )
-
-                        Events.Create( form.data ).then(res => toast.success(res.message))
-                        =>
-                        api.post( '/api/events/create', form.data ).then(res => toast.success(res.message)).catch(app.handleError)
-                    */
-                    if (side === 'client' && !clientServices.includes(serviceName)) {
-
-                        ensureApiExposedInRootFunction(path, this);
-
-                        // Get complete call path
-                        const apiPath = '/api/' + completePath.join('/');
-                        
-                        // Replace by api.post( <method path>, <params> )
-                        const apiPostArgs: types.CallExpression["arguments"] = [t.stringLiteral(apiPath)];
-                        if (path.node.arguments.length >= 1)
-                            apiPostArgs.push( path.node.arguments[0] );
-
-                        path.replaceWith(
-                            t.callExpression(
-                                t.memberExpression(
-                                    t.identifier('api'), t.identifier('post')
-                                ), apiPostArgs
-                            )
-                        )
-                        
-                        ensureBackendServicePromiseCatch(path);
-
-                    /* [server] Backend Service calls
-
-                        Events.Create( form.data ).then(res => toast.success(res.message))
-                        =>
-                        app.Events.Create( form.data, context ).then(res => toast.success(res.message))
-                    */
-                    } else {
-
-                        // Rebuild member expression from completePath, adding a api prefix
-                        let newCallee = t.memberExpression(
-                            t.identifier('app'),
-                            t.identifier(completePath[0])
-                        );
-                        for (let i = 1; i < completePath.length; i++) {
-                            newCallee = t.memberExpression(
-                                newCallee,
-                                t.identifier(completePath[i])
-                            );
-                        }
-                        
-                        // Replace by app.<service>.<method>(...)
-                        path.replaceWith(
-                            t.callExpression(
-                                newCallee, 
-                                [...path.node.arguments]
-                            )
-                        )
-                    }
-                }
-               
-            },
-            Program: {
-                exit(path, parent) {
-
-                    if (!this.file.process)
-                        return;
-
-                    ensureUseContextImport(path, this);
-                        
-                    const wrappedrouteDefs = wrapRouteDefs( this.file );
-                    if (wrappedrouteDefs)
-                        path.pushContainer('body', [wrappedrouteDefs])
-                }
-            }
-        }
-    }
-
-    function ensureBackendServicePromiseCatch(path: NodePath<types.CallExpression>) {
-
-        const chainRoot = getPromiseChainRoot(path);
-
-        // Only append if we are in a promise chain (e.g. .then(...))
-        if (chainRoot === path)
-            return;
-
-        if (isCatchWithAppHandleErrorArrow(chainRoot))
-            return;
-
-        if (isCatchWithAppHandleErrorMember(chainRoot)) {
-            const updatedCatch = t.callExpression(
-                chainRoot.node.callee,
-                [buildCatchHandler()]
-            );
-            chainRoot.replaceWith(updatedCatch);
-            return;
+          this.file.importedServices[specifier.local.name] =
+            specifier.imported.name;
         }
 
-        if (isCatchWithAppHandleErrorWrapped(chainRoot)) {
-            const updatedCatch = t.callExpression(
-                chainRoot.node.callee,
-                [buildCatchHandler()]
-            );
-            chainRoot.replaceWith(updatedCatch);
-            return;
-        }
+        path.remove();
+      },
 
-        const newChain = t.callExpression(
-            t.memberExpression(chainRoot.node, t.identifier('catch')),
-            [buildCatchHandler()]
-        );
-
-        chainRoot.replaceWith(newChain);
-    }
-
-    function buildCatchHandler(): types.ArrowFunctionExpression {
-        const errorIdentifier = t.identifier('e');
-        return t.arrowFunctionExpression(
-            [errorIdentifier],
-            t.callExpression(
-                t.memberExpression(t.identifier('app'), t.identifier('handleError')),
-                [t.identifier(errorIdentifier.name)]
-            )
-        );
-    }
-
-    function getPromiseChainRoot(path: NodePath<types.CallExpression>): NodePath<types.CallExpression> {
-
-        let current = path;
-
-        while (1) {
-
-            const member = current.parentPath;
-            if (!member?.isMemberExpression())
-                break;
-
-            if (member.node.object !== current.node)
-                break;
-
-            if (member.node.property.type !== 'Identifier')
-                break;
-
-            const propName = member.node.property.name;
-            if (!['then', 'catch', 'finally'].includes(propName))
-                break;
-
-            const call = member.parentPath;
-            if (!call?.isCallExpression())
-                break;
-
-            if (call.node.callee !== member.node)
-                break;
-
-            current = call;
-        }
-
-        return current;
-    }
-
-    function isCatchCall(path: NodePath<types.CallExpression>): boolean {
+      CallExpression(path) {
+        if (!this.file.process) return;
 
         const callee = path.node.callee;
-        if (callee.type !== 'MemberExpression')
-            return false;
+        if (
+          callee.type !== "MemberExpression" ||
+          callee.object.type !== "Identifier" ||
+          callee.property.type !== "Identifier"
+        )
+          return;
 
-        if (callee.property.type !== 'Identifier' || callee.property.name !== 'catch')
-            return false;
+        const serviceName = callee.object.name;
+        if (!(serviceName in this.file.importedServices)) return;
 
-        return true;
-    }
-
-    function isCatchWithAppHandleErrorMember(path: NodePath<types.CallExpression>): boolean {
-
-        if (!isCatchCall(path))
-            return false;
-
-        if (path.node.arguments.length !== 1)
-            return false;
-
-        const handler = path.node.arguments[0];
-        if (handler.type !== 'MemberExpression')
-            return false;
-
-        if (handler.object.type !== 'Identifier' || handler.object.name !== 'app')
-            return false;
-
-        if (handler.property.type !== 'Identifier' || handler.property.name !== 'handleError')
-            return false;
-
-        return true;
-    }
-
-    function isCatchWithAppHandleErrorArrow(path: NodePath<types.CallExpression>): boolean {
-
-        if (!isCatchCall(path))
-            return false;
-
-        if (path.node.arguments.length !== 1)
-            return false;
-
-        const handler = path.node.arguments[0];
-        if (handler.type !== 'ArrowFunctionExpression')
-            return false;
+        if (!["page", "error", ...routerMethods].includes(callee.property.name))
+          return;
 
         if (
-            handler.params.length !== 1
-            ||
-            handler.params[0].type !== 'Identifier'
+          path.parent.type !== "ExpressionStatement" ||
+          path.parentPath.parent.type !== "Program"
         )
-            return false;
+          return;
 
-        const errorName = handler.params[0].name;
+        this.file.routeDefinitions.push({
+          definition: path.node,
+        });
 
-        if (handler.body.type !== 'CallExpression')
-            return false;
+        path.replaceWithMultiple([]);
+      },
 
-        const call = handler.body;
-        if (call.callee.type !== 'MemberExpression')
-            return false;
+      Program: {
+        exit(path) {
+          if (!this.file.process) return;
 
-        if (call.callee.object.type !== 'Identifier' || call.callee.object.name !== 'app')
-            return false;
+          const wrappedRouteDefs = wrapRouteDefs(this.file);
+          if (wrappedRouteDefs) path.pushContainer("body", [wrappedRouteDefs]);
+        },
+      },
+    },
+  };
 
-        if (call.callee.property.type !== 'Identifier' || call.callee.property.name !== 'handleError')
-            return false;
+  function getFileInfos(filename: string): TFileInfos {
+    const file: TFileInfos = {
+      process: true,
+      side: "back",
+      path: filename,
+      importedServices: {},
+      routeDefinitions: [],
+    };
 
-        if (call.arguments.length !== 1)
-            return false;
+    let relativeFileName: string | undefined;
+    if (filename.startsWith(cli.paths.appRoot))
+      relativeFileName = filename.substring(cli.paths.appRoot.length);
+    if (filename.startsWith(cli.paths.coreRoot))
+      relativeFileName = filename.substring(cli.paths.coreRoot.length);
 
-        const arg = call.arguments[0];
-        if (arg.type !== 'Identifier' || arg.name !== errorName)
-            return false;
-
-        return true;
+    if (relativeFileName === undefined) {
+      file.process = false;
+      return file;
     }
 
-    function isCatchWithAppHandleErrorWrapped(path: NodePath<types.CallExpression>): boolean {
-
-        if (!isCatchCall(path))
-            return false;
-
-        if (path.node.arguments.length !== 1)
-            return false;
-
-        const handler = path.node.arguments[0];
-        if (handler.type !== 'ArrowFunctionExpression')
-            return false;
-
-        if (
-            handler.params.length !== 1
-            ||
-            handler.params[0].type !== 'Identifier'
-        )
-            return false;
-
-        const errorName = handler.params[0].name;
-
-        if (handler.body.type !== 'BlockStatement')
-            return false;
-
-        const statements = handler.body.body;
-        if (statements.length < 2)
-            return false;
-
-        const first = statements[0];
-        if (!(
-            first.type === 'ExpressionStatement'
-            &&
-            first.expression.type === 'CallExpression'
-            &&
-            first.expression.callee.type === 'MemberExpression'
-            &&
-            first.expression.callee.object.type === 'Identifier'
-            &&
-            first.expression.callee.object.name === 'console'
-            &&
-            first.expression.callee.property.type === 'Identifier'
-            &&
-            first.expression.callee.property.name === 'log'
-            &&
-            first.expression.arguments.length === 2
-            &&
-            first.expression.arguments[0].type === 'StringLiteral'
-            &&
-            first.expression.arguments[0].value === 'Error catched'
-            &&
-            first.expression.arguments[1].type === 'Identifier'
-            &&
-            first.expression.arguments[1].name === errorName
-        ))
-            return false;
-
-        const second = statements[1];
-        if (!(
-            second.type === 'ExpressionStatement'
-            &&
-            second.expression.type === 'CallExpression'
-            &&
-            second.expression.callee.type === 'MemberExpression'
-            &&
-            second.expression.callee.object.type === 'Identifier'
-            &&
-            second.expression.callee.object.name === 'app'
-            &&
-            second.expression.callee.property.type === 'Identifier'
-            &&
-            second.expression.callee.property.name === 'handleError'
-            &&
-            second.expression.arguments.length === 1
-            &&
-            second.expression.arguments[0].type === 'Identifier'
-            &&
-            second.expression.arguments[0].name === errorName
-        ))
-            return false;
-
-        return true;
+    if (relativeFileName.startsWith("/client/pages")) {
+      file.side = "front";
+    } else if (relativeFileName.startsWith("/server/routes")) {
+      file.side = "back";
+    } else {
+      file.process = false;
     }
 
-    function ensureApiExposedInRootFunction(
-        path: NodePath<types.CallExpression>,
-        pluginState: TPluginState
-    ) {
-        const needsApi = !path.scope.hasBinding('api');
-        const needsApp = !path.scope.hasBinding('app');
-        if (!needsApi && !needsApp)
-            return;
+    return file;
+  }
 
-        const rootFunctionPath = getRootFunctionPath(path);
-        if (!rootFunctionPath)
-            return;
+  function enrichRouteOptions(
+    routeArgs: types.CallExpression["arguments"],
+    filename: string,
+  ): types.CallExpression["arguments"] | "ALREADY_PROCESSED" {
+    let routeOptions: types.ObjectExpression | undefined;
+    let setup: types.Expression | undefined;
+    let renderer: types.Expression;
 
-        // Root function should be at the program body level (not nested in another function / expression)
-        if (rootFunctionPath.getFunctionParent())
-            return;
-        if (!isProgramBodyLevelFunction(rootFunctionPath))
-            return;
+    if (routeArgs.length === 1) [renderer] = routeArgs;
+    else if (routeArgs.length === 2) {
+      if (routeArgs[0].type === "ObjectExpression")
+        [routeOptions, renderer] = routeArgs as [
+          types.ObjectExpression,
+          types.Expression,
+        ];
+      else
+        [setup, renderer] = routeArgs as [types.Expression, types.Expression];
+    } else
+      [routeOptions, setup, renderer] = routeArgs as [
+        types.ObjectExpression,
+        types.Expression,
+        types.Expression,
+      ];
 
-        const existingContextObjectPattern = findUseContextDestructuringObjectPattern(rootFunctionPath);
-        if (existingContextObjectPattern) {
+    const { filepath, chunkId } = cli.paths.getPageChunk(app, filename);
+    debug &&
+      console.log(
+        `[routes]`,
+        filename.replace(cli.paths.appRoot + "/client/pages", ""),
+      );
 
-            const existingKeys = new Set(
-                existingContextObjectPattern.properties
-                    .filter((p): p is types.ObjectProperty =>
-                        p.type === 'ObjectProperty'
-                        && p.key.type === 'Identifier'
-                    )
-                    .map(p => (p.key as types.Identifier).name)
-            );
+    const newProperties = [
+      t.objectProperty(t.identifier("id"), t.stringLiteral(chunkId)),
+      t.objectProperty(t.identifier("filepath"), t.stringLiteral(filepath)),
+    ];
 
-            if (needsApi && !existingKeys.has('api')) {
-                existingContextObjectPattern.properties.push(
-                    t.objectProperty(t.identifier('api'), t.identifier('api'), false, true),
-                );
-            }
-
-            if (needsApp && !existingKeys.has('app')) {
-                existingContextObjectPattern.properties.push(
-                    t.objectProperty(t.identifier('app'), t.identifier('app'), false, true),
-                );
-            }
-
-            pluginState.needsUseContextImport = true;
-            return;
-        }
-
-        if (pluginState.apiInjectedRootFunctions.has(rootFunctionPath.node))
-            return;
-
-        const exposeApiDeclaration = t.variableDeclaration('const', [
-            t.variableDeclarator(
-                t.objectPattern([
-                    ...(needsApi ? [t.objectProperty(t.identifier('api'), t.identifier('api'), false, true)] : []),
-                    ...(needsApp ? [t.objectProperty(t.identifier('app'), t.identifier('app'), false, true)] : []),
-                ]),
-                t.callExpression(t.identifier('useContext'), [])
-            )
-        ]);
-
-        const body = rootFunctionPath.node.body;
-        if (body.type === 'BlockStatement') {
-            body.body.unshift(exposeApiDeclaration);
-        } else {
-            rootFunctionPath.node.body = t.blockStatement([
-                exposeApiDeclaration,
-                t.returnStatement(body)
-            ]);
-        }
-
-        pluginState.apiInjectedRootFunctions.add(rootFunctionPath.node);
-        pluginState.needsUseContextImport = true;
+    if (!routeOptions?.properties) {
+      return setup
+        ? [t.objectExpression(newProperties), setup, renderer]
+        : [t.objectExpression(newProperties), renderer];
     }
 
-    function findUseContextDestructuringObjectPattern(
-        rootFunctionPath: NodePath<types.Function | types.ArrowFunctionExpression>
-    ): types.ObjectPattern | undefined {
+    const wasAlreadyProcessed = routeOptions.properties.some(
+      (property) =>
+        property.type === "ObjectProperty" &&
+        property.key.type === "Identifier" &&
+        property.key.name === "id",
+    );
 
-        const body = rootFunctionPath.node.body;
-        if (body.type !== 'BlockStatement')
-            return;
-
-        for (const stmt of body.body) {
-            if (stmt.type !== 'VariableDeclaration' || stmt.kind !== 'const')
-                continue;
-
-            for (const declarator of stmt.declarations) {
-                if (declarator.id.type !== 'ObjectPattern')
-                    continue;
-                if (!declarator.init || declarator.init.type !== 'CallExpression')
-                    continue;
-                if (declarator.init.callee.type !== 'Identifier' || declarator.init.callee.name !== 'useContext')
-                    continue;
-                if (declarator.init.arguments.length !== 0)
-                    continue;
-                return declarator.id;
-            }
-        }
+    if (wasAlreadyProcessed) {
+      debug && console.log(`[routes]`, filename, "Already Processed");
+      return "ALREADY_PROCESSED";
     }
 
-    function getRootFunctionPath(path: NodePath): NodePath<types.Function | types.ArrowFunctionExpression> | undefined {
-
-        let functionPath = path.getFunctionParent();
-        if (!functionPath)
-            return;
-
-        // Only support plain functions / arrow functions (no class/object methods)
-        if (!(
-            functionPath.isFunctionDeclaration()
-            || functionPath.isFunctionExpression()
-            || functionPath.isArrowFunctionExpression()
-        ))
-            return;
-
-        let parentFunction = functionPath.getFunctionParent();
-        while (parentFunction) {
-
-            if (!(
-                parentFunction.isFunctionDeclaration()
-                || parentFunction.isFunctionExpression()
-                || parentFunction.isArrowFunctionExpression()
-            ))
-                break;
-
-            functionPath = parentFunction;
-            parentFunction = functionPath.getFunctionParent();
-        }
-
-        return functionPath;
-    }
-
-    function isProgramBodyLevelFunction(path: NodePath): boolean {
-
-        let currentPath: NodePath | null = path;
-        while (currentPath) {
-
-            const parent = currentPath.parentPath;
-            if (!parent)
-                return false;
-
-            // function Foo() {}
-            if (parent.isProgram())
-                return true;
-
-            // export default function Foo() {} / export default () => {}
-            if (
-                parent.isExportDefaultDeclaration()
-                &&
-                parent.parentPath?.isProgram()
-            )
-                return true;
-
-            // export const Foo = () => {}
-            if (
-                parent.isExportNamedDeclaration()
-                &&
-                parent.parentPath?.isProgram()
-            )
-                return true;
-
-            // const Foo = () => {} (top-level) / export const Foo = () => {}
-            if (parent.isVariableDeclarator()) {
-
-                const declaration = parent.parentPath;
-                if (!declaration?.isVariableDeclaration())
-                    return false;
-
-                const declarationParent = declaration.parentPath;
-                if (!declarationParent)
-                    return false;
-
-                if (declarationParent.isProgram())
-                    return true;
-
-                if (
-                    declarationParent.isExportNamedDeclaration()
-                    &&
-                    declarationParent.parentPath?.isProgram()
-                )
-                    return true;
-            }
-
-            // Support top-level component wrappers such as React.forwardRef(...) and React.memo(...)
-            if (
-                parent.isCallExpression()
-                &&
-                isSupportedComponentWrapperCall(parent, currentPath)
-            ) {
-                currentPath = parent;
-                continue;
-            }
-
-            return false;
-        }
-
-        return false;
-    }
-
-    function isSupportedComponentWrapperCall(
-        callPath: NodePath<types.CallExpression>,
-        wrappedPath: NodePath
-    ): boolean {
-
-        if (callPath.node.arguments[0] !== wrappedPath.node)
-            return false;
-
-        const callee = callPath.node.callee;
-        if (callee.type === 'Identifier')
-            return ['forwardRef', 'memo'].includes(callee.name);
-
-        if (
-            callee.type === 'MemberExpression'
-            &&
-            !callee.computed
-            &&
-            callee.property.type === 'Identifier'
-        )
-            return ['forwardRef', 'memo'].includes(callee.property.name);
-
-        return false;
-    }
-
-    function ensureUseContextImport(path: NodePath<types.Program>, pluginState: TPluginState) {
-
-        if (!pluginState.needsUseContextImport)
-            return;
-
-        const body = path.node.body;
-
-        // Already imported as a value import
-        for (const stmt of body) {
-            if (
-                stmt.type === 'ImportDeclaration'
-                &&
-                stmt.source.value === '@/client/context'
-                &&
-                stmt.importKind !== 'type'
-                &&
-                stmt.specifiers.some(s =>
-                    s.type === 'ImportDefaultSpecifier' && s.local.name === 'useContext'
-                )
-            )
-                return;
-        }
-
-        // Try to reuse an existing value import from the same module
-        for (const stmt of body) {
-            if (
-                stmt.type !== 'ImportDeclaration'
-                ||
-                stmt.source.value !== '@/client/context'
-                ||
-                stmt.importKind === 'type'
-            )
-                continue;
-
-            const hasDefaultImport = stmt.specifiers.some(s => s.type === 'ImportDefaultSpecifier');
-            if (!hasDefaultImport) {
-                stmt.specifiers.unshift(
-                    t.importDefaultSpecifier(t.identifier('useContext'))
-                );
-                return;
-            }
-        }
-
-        // Otherwise, add a new import (placed after existing imports)
-        const importDeclaration = t.importDeclaration(
-            [t.importDefaultSpecifier(t.identifier('useContext'))],
-            t.stringLiteral('@/client/context')
-        );
-
-        let insertIndex = 0;
-        while (insertIndex < body.length && body[insertIndex].type === 'ImportDeclaration')
-            insertIndex++;
-
-        body.splice(insertIndex, 0, importDeclaration);
-    }
-
-    function getFileInfos( filename: string ): TFileInfos {
-
-        const file: TFileInfos = {
-            process: true,
-            side: 'back',
-            path: filename,
-            importedServices: {},
-            routeDefinitions: []
-        }
-
-        // Relative path
-        let relativeFileName: string | undefined;
-        if (filename.startsWith( cli.paths.appRoot ))
-            relativeFileName = filename.substring( cli.paths.appRoot.length );
-        if (filename.startsWith( cli.paths.coreRoot ))
-            relativeFileName = filename.substring( cli.paths.coreRoot.length );
-        
-        // The file isn't a route definition
-        if (relativeFileName === undefined) {
-            file.process = false;
-            return file;
-        }
-        
-        // Differenciate back / front
-        if (relativeFileName.startsWith('/client/pages') || relativeFileName.startsWith('/client/components') || relativeFileName.startsWith('/client/hooks')) {
-            file.side = 'front';
-        } else if (relativeFileName.startsWith('/server/routes')) {
-            file.side = 'back';
-        } else 
-            file.process = false;
-
-        return file
-    }
-
-    function transformDataFetchers( 
-        path: NodePath<types.CallExpression>, 
-        routerDefContext: TPluginState, 
-        routeDef: TRouteDefinition 
-    ) {
-        path.traverse({
-            // api.load => move data fetchers to route.options.data
-            // So the router is able to load data before rendering the component
-            CallExpression(path) {
-
-                const callee = path.node.callee
-
-                // Detect api.fetch
-                if (!(
-                    callee.type === 'MemberExpression'
-                    &&
-                    callee.object.type === 'Identifier'
-                    &&
-                    callee.property.type === 'Identifier'
-                    &&
-                    callee.object.name === 'api' 
-                    && 
-                    callee.property.name === 'fetch'
-                ))
-                    return;
-
-                /*  Reference data fetchers
-                    {
-                        stats: api.get(...)
-                    }
-                */
-                routeDef.dataFetchers.push(
-                    ...path.node.arguments[0].properties.map(p => {
-
-                        // Server side: Pass request context as 2nd argument
-                        // companies: Companies.create( <params>, context )
-                        if (
-                            side === 'server'
-                            &&
-                            p.type === 'ObjectProperty'
-                            &&
-                            p.key.type === 'Identifier'
-                            &&
-                            p.value.type === 'CallExpression'
-                            && 
-                            // TODO: reliable way to know if it's a service
-                            !(
-                                p.value.callee.type === 'MemberExpression'
-                                &&
-                                p.value.callee.object.type === 'Identifier'
-                                &&
-                                p.value.callee.object.name === 'api'
-                            )
-                        ) {
-                            
-                            // Pass request context as 2nd argument
-                            p.value.arguments = p.value.arguments.length === 0
-                                ? [ t.objectExpression([]), t.identifier('context') ]
-                                : [ p.value.arguments[0], t.identifier('context') ];
-
-                        }
-
-                        return p;
-
-                    })
-                );
-
-                /*  Replace the: 
-                        const { stats } = api.fetch({
-                            stats: api.get(...)
-                        })
-
-                    by:
-                        const { stats } = context.data.stats;
-                */
-                path.replaceWith(
-                    t.memberExpression(
-                        t.identifier( routeDef.contextName || 'context' ),
-                        t.identifier('data'),
-                    )
-                );
-            }
-        }, routerDefContext);
-    }
-
-    function enrichRouteOptions( 
-        routeDef: TRouteDefinition,
-        routeArgs: types.CallExpression["arguments"],
-        filename: string
-    ): types.CallExpression["arguments"] | 'ALREADY_PROCESSED' {
-
-        // Extract client route definition arguments
-        let routeOptions: types.ObjectExpression | undefined;
-        let renderer: types.ArrowFunctionExpression;
-        if (routeArgs.length === 1)
-            ([ renderer ] = routeArgs);
-        else
-            ([ routeOptions, renderer ] = routeArgs);
-
-        // Generate page chunk id
-        const { filepath, chunkId } = cli.paths.getPageChunk(app, filename);
-        debug && console.log(`[routes]`, filename.replace(cli.paths.appRoot + '/client/pages', ''));
-
-        // Create new options to add in route.options
-        const newProperties = [
-            t.objectProperty(
-                t.identifier('id'),
-                t.stringLiteral(chunkId)
-            ),
-            t.objectProperty(
-                t.identifier('filepath'),
-                t.stringLiteral(filepath)
-            ),
+    return setup
+      ? [
+          t.objectExpression([...routeOptions.properties, ...newProperties]),
+          setup,
+          renderer,
         ]
+      : [
+          t.objectExpression([...routeOptions.properties, ...newProperties]),
+          renderer,
+        ];
+  }
 
-        // Add data fetchers
-        if (routeDef.dataFetchers.length !== 0) {
+  function addUniqueObjectPatternProperty(
+    properties: types.ObjectProperty[],
+    importedName: string,
+    localName: string = importedName,
+  ) {
+    const hasProperty = properties.some(
+      (property) =>
+        property.key.type === "Identifier" &&
+        property.key.name === importedName &&
+        property.value.type === "Identifier" &&
+        property.value.name === localName,
+    );
 
-            const rendererContext = t.cloneNode( renderer.params[0] );
-            // If not already present, add context to the 1st argument (a object spread)
-            if (!rendererContext.properties.some( p => p.key.name === 'context' ))
-                rendererContext.properties.push(
-                    t.objectProperty(
-                        t.identifier('context'),
-                        t.identifier('context')
-                    )
-                )
+    if (hasProperty) return;
 
-            // (contollerParams) => { stats: api.get(...) }
-            const dataFetchersFunc = t.arrowFunctionExpression(
-                [rendererContext],
-                t.objectExpression(
-                    routeDef.dataFetchers.map( df => t.cloneNode( df ))
-                )
-            )
+    properties.push(
+      t.objectProperty(
+        t.identifier(importedName),
+        t.identifier(localName),
+        false,
+        importedName === localName,
+      ),
+    );
+  }
 
-            // Add the data fetchers to options.data
-            newProperties.push(
-                t.objectProperty(
-                    t.identifier('data'),
-                    dataFetchersFunc
-                )
-            );
+  function wrapRouteDefs(file: TFileInfos) {
+    if (file.routeDefinitions.length === 0) return;
 
-            // Expose the context variable in the renderer
-            exposeContextProperty( renderer, routeDef );
-        }
+    const definitions: types.BlockStatement["body"] = [];
 
-        if (routeOptions?.properties === undefined)
-            return [
-                t.objectExpression(newProperties),
-                renderer
-            ]
+    if (file.side === "front") {
+      if (file.routeDefinitions.length > 1) {
+        throw new Error(`Frontend route definition files (/client/pages/**/**.ts) can contain only one route definition.
+                    ${file.routeDefinitions.length} were given in ${file.path}.`);
+      }
 
-        // Test if the route options were not already processed
-        const wasAlreadyProcessed = routeOptions.properties.some( o =>
-            o.type === 'ObjectProperty'
-            &&
-            o.key.type === 'Identifier'
-            &&
-            o.key.name === 'id'
-        )
+      const routeDef = file.routeDefinitions[0];
+      const callee = routeDef.definition.callee as types.MemberExpression;
+      const [routePath, ...routeArgs] = routeDef.definition.arguments;
 
-        if (wasAlreadyProcessed) {
-            // Cancel processing
-            debug && console.log(`[routes]`, filename, 'Already Processed');
-            return 'ALREADY_PROCESSED';
-        }
+      let nextRouteArgs = routeArgs;
+      if (
+        callee.property.type === "Identifier" &&
+        ["page", "error"].includes(callee.property.name)
+      ) {
+        const enrichedRouteArgs = enrichRouteOptions(routeArgs, file.path);
+        if (enrichedRouteArgs === "ALREADY_PROCESSED") return;
 
-        // Create the new options object
-        return [
-            t.objectExpression([
-                ...routeOptions.properties,
-                ...newProperties
+        nextRouteArgs = enrichedRouteArgs;
+      }
+
+      definitions.push(
+        t.returnStatement(
+          t.callExpression(
+            t.memberExpression(
+              t.identifier((callee.object as types.Identifier).name),
+              callee.property,
+            ),
+            [routePath, ...nextRouteArgs],
+          ),
+        ),
+      );
+    } else {
+      definitions.push(
+        ...file.routeDefinitions.map((definition) =>
+          t.expressionStatement(definition.definition),
+        ),
+      );
+    }
+
+    const destructuredServices: types.ObjectProperty[] = [];
+    for (const [localName, importedName] of Object.entries(
+      file.importedServices,
+    ))
+      addUniqueObjectPatternProperty(
+        destructuredServices,
+        importedName,
+        localName,
+      );
+
+    return t.exportNamedDeclaration(
+      t.variableDeclaration("const", [
+        t.variableDeclarator(
+          t.identifier("__register"),
+          t.arrowFunctionExpression(
+            [t.identifier("app")],
+            t.blockStatement([
+              t.variableDeclaration("const", [
+                t.variableDeclarator(
+                  t.objectPattern(destructuredServices),
+                  t.identifier("app"),
+                ),
+              ]),
+              ...definitions,
             ]),
-            renderer
-        ]
-    }
+          ),
+        ),
+      ]),
+    );
+  }
 
-    function exposeContextProperty( 
-        renderer: types.ArrowFunctionExpression, 
-        routeDef: TRouteDefinition 
-    ) {
-        const contextParam = renderer.params[0];
-        if (contextParam?.type === 'ObjectPattern') {
-            
-            for (const property of contextParam.properties) {
-                if (
-                    property.type === 'ObjectProperty' 
-                    && 
-                    property.key.type === 'Identifier' 
-                    && 
-                    property.key.name === 'context'
-                    &&
-                    property.value.type === 'Identifier'
-                ) {
-
-                    routeDef.contextName = property.value.name;
-                    break;
-                }
-            }
-
-            if (!routeDef.contextName) {
-                routeDef.contextName = 'context';
-                contextParam.properties.push(
-                    t.objectProperty( t.identifier('context'), t.identifier( routeDef.contextName ) )
-                );
-            }
-
-        } else if (contextParam?.type === 'Identifier') {
-            console.log("routeDef.contextName", routeDef.contextName);
-            routeDef.contextName = contextParam.name;
-        }
-    }
-
-    function wrapRouteDefs( file: TFileInfos ) {
-
-        const importedServicesList = Object.entries(file.importedServices);
-        if (importedServicesList.length === 0)
-            return;
-
-        const definitions: types.BlockStatement["body"] = [];
-        if (file.side === 'front') {
-
-            // Limit to one route def per file
-            const routesDefCount = file.routeDefinitions.length;
-            if (routesDefCount === 0)
-                return;
-            else if (routesDefCount > 1)
-                throw new Error(`Frontend route definition files (/client/pages/**/**.ts) can contain only one route definition. 
-                    ${routesDefCount} were given in ${file.path}.`);
-
-            const routeDef = file.routeDefinitions[0];
-
-            // Client route definition: Add chunk id
-            let [routePath, ...routeArgs] = routeDef.definition.arguments;
-            const callee = routeDef.definition.callee;
-
-            if (callee.object.name === 'Router') {
-
-                // Inject chunk id in options (2nd arg)
-                const newRouteArgs = enrichRouteOptions(routeDef, routeArgs, file.path);
-                if (newRouteArgs === 'ALREADY_PROCESSED')
-                    return;
-
-                routeArgs = newRouteArgs;
-            }
-
-            // Force babel to create new fresh nodes
-            // If we directy use statementParent, it will not be included in the final compiler code
-            definitions.push( 
-                t.returnStatement(
-                t.callExpression(
-                    t.memberExpression(
-                        t.identifier( callee.object.name ),
-                            callee.property,
-                        ),
-                        [routePath, ...routeArgs]
-                    )
-                )
-            )
-
-        } else {
-
-            definitions.push(
-                // Without spread = react jxx need additionnal loader
-                ...file.routeDefinitions.map( def => 
-                    t.expressionStatement(def.definition)
-                ),
-            )
-        }
-
-        /*
-            ({ Router, app: { Events } }}) => {
-                ...
-            }
-        */
-            const appSpread: types.ObjectProperty[] = []
-            const servicesSpread: types.ObjectProperty[] = [
-                t.objectProperty(
-                    t.identifier('app'),
-                    t.identifier('app'),
-                ),
-                t.objectProperty(
-                    t.identifier('context'),
-                    t.identifier('context'),
-                )
-            ]
-            for (const [local, imported] of importedServicesList) {
-                if (imported === 'app') 
-                    appSpread.push(
-                        t.objectProperty(
-                            t.identifier(local),
-                            t.identifier(local),
-                        )
-                    )
-                else
-                    servicesSpread.push(
-                        t.objectProperty(
-                            t.identifier(local),
-                            t.identifier(imported),
-                        )
-                    )   
-            }
-            
-            // export const __register = ({ Router, app }) => { ... }
-            const exportDeclaration = t.exportNamedDeclaration( 
-                t.variableDeclaration('const', [
-                    t.variableDeclarator(
-                        t.identifier('__register'),
-                        t.arrowFunctionExpression(
-                            [
-                                t.objectPattern(servicesSpread)
-                            ], 
-                            t.blockStatement([
-                                // const { Events } = app;
-                                t.variableDeclaration('const', [
-                                    t.variableDeclarator(
-                                        t.objectPattern(appSpread),
-                                        t.identifier('app')
-                                    )
-                                ]),
-                                // Router.post(....)
-                                ...definitions,
-                            ])
-                        )
-                    )
-                ])
-            );
-                    
-
-        // (file.path.includes('clients/prospect/search') && side === 'client') 
-        // && console.log( file.path, generate(exportDeclaration).code );
-
-        return exportDeclaration;
-    }
-
-    return plugin;
+  return plugin;
 }

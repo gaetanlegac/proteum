@@ -1,4 +1,4 @@
-import AppContainer from './app/container';
-import Application from '@/server/.generated/app';
+import AppContainer from "./app/container";
+import Application from "@/server/.generated/app";
 
-AppContainer.start( Application );
+AppContainer.start(Application);

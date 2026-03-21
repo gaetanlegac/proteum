@@ -9,7 +9,7 @@ import cli from '..';
 import Compiler from '../compiler';
 import type { TCompileMode } from '../compiler/common';
 
-const allowedBuildArgs = new Set(['dev', 'prod', 'analyze', 'cache']);
+const allowedBuildArgs = new Set(['dev', 'prod', 'cache']);
 
 /*----------------------------------
 - COMMAND
@@ -22,7 +22,7 @@ function resolveBuildMode(): TCompileMode {
 
     const invalidArgs = enabledArgs.filter(arg => !allowedBuildArgs.has(arg));
     if (invalidArgs.length > 0)
-        throw new Error(`Unknown build argument(s): ${invalidArgs.join(', ')}. Allowed values: dev, prod, analyze, cache.`);
+        throw new Error(`Unknown build argument(s): ${invalidArgs.join(', ')}. Allowed values: dev, prod, cache.`);
 
     const requestedModes = enabledArgs.filter((arg): arg is TCompileMode =>
         arg === 'dev' || arg === 'prod'
