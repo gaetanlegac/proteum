@@ -14,9 +14,6 @@
 
         // Equivalent webpack: resolve.symblinks = false
         "preserveSymlinks": true,
-        // Décorateurs
-        "experimentalDecorators": true,
-
         // React
         "jsx": "react-jsx",
         "jsxImportSource": "preact",

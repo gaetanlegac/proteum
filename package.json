@@ -58,7 +58,6 @@
 		"iso-639-1": "^2.1.9",
 		"jsonwebtoken": "^8.5.1",
 		"less-loader": "^10.0.1",
-		"load-script": "^2.0.0",
 		"locale": "^0.1.0",
 		"markdown-it": "^13.0.1",
 		"md5": "^2.3.0",
@@ -68,7 +67,6 @@
 		"mysql2": "^2.3.0",
 		"node-cmd": "^5.0.0",
 		"null-loader": "^4.0.1",
-		"object-sizeof": "^1.6.3",
 		"path-to-regexp": "^6.2.0",
 		"postcss-loader": "^8.2.0",
 		"preact": "^10.27.1",
@@ -93,7 +91,6 @@
 		"validator": "^13.7.0",
 		"webpack": "^5.104.1",
 		"webpack-assets-manifest": "^5.0.6",
-		"ws": "^8.2.2",
 		"yaml": "^1.10.2",
 		"yargs-parser": "^21.1.1",
 		"youch": "^3.3.3",
@@ -117,7 +114,6 @@
 		"@types/sharp": "^0.31.1",
 		"@types/universal-analytics": "^0.4.5",
 		"@types/webpack-env": "^1.16.2",
-		"@types/ws": "^7.4.7",
 		"@types/yargs-parser": "^21.0.0",
 		"schema-dts": "^1.1.2"
 	}

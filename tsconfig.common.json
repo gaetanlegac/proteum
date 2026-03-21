@@ -15,9 +15,6 @@
 
         // Equivalent webpack: resolve.symblinks = false
         "preserveSymlinks": true,
-        // Décorateurs
-        "experimentalDecorators": true,
-
         "inlineSourceMap": true,
 
         // React
