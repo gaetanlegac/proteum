@@ -68,6 +68,8 @@ export class App {
 
     public routerPortOverride?: number;
 
+    public devEventPort?: number;
+
     public packageJson: {[key: string]: any};
 
     public buildId: number = Date.now();

@@ -52,6 +52,12 @@ type TClientRouteLoader = {
   preload: boolean;
 };
 
+type TRecentCompilationResult = {
+  succeeded: boolean;
+  hash?: string;
+  modifiedFiles?: string[];
+};
+
 const normalizePath = (value: string) => value.replace(/\\/g, "/");
 
 /*----------------------------------
@@ -59,7 +65,8 @@ const normalizePath = (value: string) => value.replace(/\\/g, "/");
 ----------------------------------*/
 export default class Compiler {
   public compiling: { [compiler: string]: Promise<void> } = {};
-  private recentCompilationResults: { [compiler: string]: boolean } = {};
+  private recentCompilationResults: { [compiler: string]: TRecentCompilationResult } = {};
+  private recentModifiedFiles: { [compiler: string]: string[] } = {};
   private refreshingGeneratedArtifacts?: Promise<void>;
 
   public constructor(
@@ -1147,6 +1154,10 @@ declare module '@models/types' {
       compiler.hooks.compile.tap(name, (compilation) => {
         this.callbacks.before && this.callbacks.before(compiler);
 
+        this.recentModifiedFiles[name] = [
+          ...(compiler.modifiedFiles ? [...compiler.modifiedFiles] : []),
+        ].map((filepath) => normalizePath(path.resolve(filepath)));
+
         this.compiling[name] = new Promise((resolve) => (finished = resolve));
 
         timeStart = new Date();
@@ -1157,7 +1168,11 @@ declare module '@models/types' {
                 n'a pas été achevée */
       compiler.hooks.done.tap(name, (stats) => {
         const compilationSucceeded = !stats.hasErrors();
-        this.recentCompilationResults[name] = compilationSucceeded;
+        this.recentCompilationResults[name] = {
+          succeeded: compilationSucceeded,
+          hash: typeof stats.hash === "string" ? stats.hash : undefined,
+          modifiedFiles: this.recentModifiedFiles[name] || [],
+        };
 
         // Shiow status
         const timeEnd = new Date();

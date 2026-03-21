@@ -37,6 +37,11 @@ import type { App } from "../../app";
 const debug = false;
 const ssrScriptExtensions = [".ssr.ts", ".ssr.tsx"];
 
+const getDevGeneratedRuntimeEntries = (app: App) => ({
+  __proteum_dev_routes: [app.paths.server.generated + "/routes.ts"],
+  __proteum_dev_controllers: [app.paths.server.generated + "/controllers.ts"],
+});
+
 /*----------------------------------
 - CONFIG
 ----------------------------------*/
@@ -74,6 +79,7 @@ export default function createCompiler(
     target: "node",
     entry: {
       server: [cli.paths.coreRoot + "/server/index.ts"],
+      ...(dev ? getDevGeneratedRuntimeEntries(app) : {}),
     },
 
     output: {

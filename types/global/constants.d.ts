@@ -10,3 +10,4 @@ declare const BUILD_ID: number;
 declare const APP_PATH: string;
 declare const APP_NAME: string;
 declare const APP_OUTPUT_DIR: string;
+declare const PROTEUM_DEV_EVENT_PORT: number | null;

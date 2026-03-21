@@ -6,9 +6,6 @@
 import React from "react";
 import renderToString from "preact-render-to-string";
 const safeStringify = require("fast-safe-stringify"); // remplace les références circulairs par un [Circular]
-const manifest = require("./client-manifest.json") as {
-  entries?: Record<string, { assets?: string[]; css?: string[]; js?: string[] }>;
-};
 
 // Core
 import type {
@@ -16,6 +13,7 @@ import type {
   Response as ServerResponse,
 } from "@server/services/router";
 import type Page from ".";
+import { getClientBuildManifest } from "./clientManifest";
 
 /*----------------------------------
 - TYPES
@@ -283,6 +281,7 @@ export default class DocumentRenderer<TRouter extends Router> {
   }
 
   private clientEntryAssets(kind: "assets" | "css" | "js" = "assets"): string[] {
+    const manifest = getClientBuildManifest();
     const entry = manifest.entries?.client;
     const assets = entry?.[kind];
 

@@ -9,19 +9,39 @@ import { spawn, ChildProcess } from 'child_process';
 // Cor elibs
 import cli from '..';
 import Keyboard from '../utils/keyboard';
+import {
+    isServerHotReloadResult,
+    serverHotReloadMessageType,
+    TServerHotReloadRequest,
+} from '../../common/dev/serverHotReload';
 
 // Configs
 import Compiler from '../compiler';
+import { createDevEventServer } from './devEvents';
 
 // Core
 import { app, App } from '../app';
 
 const ignoredWatchPathPatterns = /(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)/;
+const hotReloadableServerPathPatterns = [
+    /^client\/pages\//,
+    /^client\/components\//,
+    /^client\/islands\//,
+    /^server\/routes\//,
+    /^server\/services\/.+\.controller\.[jt]sx?$/,
+];
+const hotReloadableRoots = [
+    () => app.paths.root,
+    () => cli.paths.core.root,
+];
 
 /*----------------------------------
 - COMMANDE
 ----------------------------------*/
 export const run = () => new Promise<void>(async () => {
+    const devEventServer = await createDevEventServer(app.env.router.port + 1);
+    app.devEventPort = devEventServer.port;
+    console.info(`Proteum dev event server ready on http://localhost:${devEventServer.port}/__proteum_hmr`);
 
     const compiler = new Compiler('dev', {
         before: (compiler) => {
@@ -75,27 +95,48 @@ export const run = () => new Promise<void>(async () => {
         }
 
         const recentCompilationResults = compiler.consumeRecentCompilationResults();
+        const serverResult = recentCompilationResults.server;
+        const clientResult = recentCompilationResults.client;
 
-        if (recentCompilationResults.server === true) {
-            console.log("Watch callback. Reloading app because server bundle changed ...");
-            startApp(app);
-            return;
+        let restartedServer = false;
+
+        if (serverResult?.succeeded === true) {
+            const changedFilesList = serverResult.modifiedFiles || [];
+            const canHotReloadServer = isServerHotReloadEligible(changedFilesList);
+
+            if (canHotReloadServer && requestServerHotReload(changedFilesList)) {
+                console.log("Watch callback. Server route bundle changed; hot-swapping generated routes without restarting app.");
+            } else {
+                console.log("Watch callback. Reloading app because server bundle changed ...");
+                startApp(app);
+                restartedServer = true;
+                devEventServer.broadcast({
+                    type: 'reload',
+                    reason: 'server',
+                });
+            }
         }
 
-        if (recentCompilationResults.server === false) {
+        if (serverResult?.succeeded === false) {
             console.log("Watch callback. Server compilation failed; keeping current app instance.");
-            return;
         }
 
-        if (recentCompilationResults.client === true) {
+        if (!restartedServer && clientResult?.succeeded === true) {
             console.log("Watch callback. Client assets updated; server restart skipped.");
+            devEventServer.broadcast({
+                type: 'reload',
+                reason: 'client',
+            });
             return;
         }
 
-        if (recentCompilationResults.client === false) {
+        if (!restartedServer && clientResult?.succeeded === false) {
             console.log("Watch callback. Client compilation failed; server restart skipped.");
             return;
         }
+
+        if (restartedServer || serverResult?.succeeded === true || serverResult?.succeeded === false)
+            return;
 
         console.log("Watch callback. No compiler changes were tracked.");
 
@@ -108,11 +149,16 @@ export const run = () => new Promise<void>(async () => {
 
         console.log(`Reloading app ...`);
         startApp(app);
+        devEventServer.broadcast({
+            type: 'reload',
+            reason: 'manual',
+        });
 
     });
 
     Keyboard.input('ctrl+c', () => {
         stopApp("CTRL+C Pressed");
+        void devEventServer.close();
     });
 });
 
@@ -127,11 +173,24 @@ async function startApp( app: App ) {
     stopApp('Restart asked');
 
     console.info(`Launching new server ...`);
-    cp = spawn('node', ['' + app.outputPath('dev') + '/server.js', '--preserve-symlinks'], {
+    cp = spawn('node', ['--preserve-symlinks', '' + app.outputPath('dev') + '/server.js'], {
 
         // sdin, sdout, sderr
-        stdio: ['inherit', 'inherit', 'inherit']
+        stdio: ['inherit', 'inherit', 'inherit', 'ipc']
 
+    });
+
+    cp.on('message', (message: unknown) => {
+        if (!isServerHotReloadResult(message))
+            return;
+
+        if (message.type === serverHotReloadMessageType.succeeded) {
+            console.log("Server hot reload applied without restarting app.");
+            return;
+        }
+
+        console.error("Server hot reload failed. Restarting app with a fresh process.", message.error || '');
+        startApp(app);
     });
 }
 
@@ -139,8 +198,43 @@ function stopApp( reason: string ) {
     if (cp !== undefined) {
         console.info(`Killing current server instance (ID: ${cp.pid}) for the following reason:`, reason);
         cp.kill();
+        cp = undefined;
     }
 
+}
+
+function requestServerHotReload(changedFiles: string[]) {
+    if (!cp || !cp.connected)
+        return false;
+
+    const message: TServerHotReloadRequest = {
+        type: serverHotReloadMessageType.request,
+        changedFiles,
+    };
+
+    cp.send(message);
+    return true;
+}
+
+function isServerHotReloadEligible(changedFiles: string[]) {
+    if (changedFiles.length === 0)
+        return false;
+
+    return changedFiles.every((changedFile) => {
+        const normalizedChangedFile = normalizeWatchPath(changedFile);
+
+        return hotReloadableRoots.some((getRootPath) => {
+            const normalizedRootPath = normalizeWatchPath(getRootPath());
+            if (
+                normalizedChangedFile !== normalizedRootPath &&
+                !normalizedChangedFile.startsWith(normalizedRootPath + '/')
+            )
+                return false;
+
+            const relativePath = normalizedChangedFile.substring(normalizedRootPath.length + 1);
+            return hotReloadableServerPathPatterns.some((pattern) => pattern.test(relativePath));
+        });
+    });
 }
 
 function normalizeWatchPath(watchPath: string) {

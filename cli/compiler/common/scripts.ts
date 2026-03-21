@@ -22,7 +22,8 @@ const shouldExcludeNodeModule = (filePath: string) => {
 
 const getSwcTarget = (side: TAppSide) => (side === "client" ? "es2022" : "es2021");
 
-module.exports = ({ side, dev }: TScriptRuleOptions): RuleSetRule[] => [
+module.exports = ({ side, dev }: TScriptRuleOptions): RuleSetRule[] => {
+  return [
   {
     loader: "builtin:swc-loader",
     type: "javascript/auto",
@@ -50,3 +51,4 @@ module.exports = ({ side, dev }: TScriptRuleOptions): RuleSetRule[] => [
     },
   },
 ];
+};

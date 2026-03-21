@@ -15,14 +15,10 @@ import type {
   TClientOrServerContext,
 } from "@common/router";
 import PageResponse, { TFrontRenderer } from "@common/router/response/page";
+import { getClientBuildManifest } from "./clientManifest";
 
 // Composants UI
 import App from "@client/app/component";
-
-// Caches
-const manifest = require("./client-manifest.json") as {
-  chunks?: Record<string, { assets?: string[]; css?: string[]; js?: string[] }>;
-};
 
 /*----------------------------------
 - TYPES
@@ -89,6 +85,7 @@ export default class ServerPage<
 
   // Define which chunks (script / style) to load
   private addChunks() {
+    const manifest = getClientBuildManifest();
     const pageChunks = [this.route.options["id"]];
     for (const chunk of pageChunks) {
       if (!chunk) continue;

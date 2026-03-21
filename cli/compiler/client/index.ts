@@ -25,8 +25,13 @@ import type { App } from "../../app";
 const debug = false;
 const ssrScriptPattern = /\.ssr\.(ts|tsx)$/;
 const normalizedCoreRoot = cli.paths.core.root.replace(/\\/g, "/");
+const hmrClientEntry = path.join(cli.paths.core.root, "client", "dev", "hmr.ts");
 
 const normalizeModulePath = (value?: string) => (value || "").replace(/\\/g, "/");
+const resolveFromAppOrCore = (app: App, request: string) =>
+  require.resolve(request, {
+    paths: [app.paths.root, cli.paths.core.root],
+  });
 
 const getModulePath = (module: Module) => {
   const resource =
@@ -95,6 +100,18 @@ export default function createCompiler(
   delete aliases["@/server"];
   const rspackAliases = toRspackAliases(aliases);
   rspackAliases["@/client/router$"] = cli.paths.core.root + "/client/router.ts";
+  rspackAliases["preact/jsx-runtime$"] = resolveFromAppOrCore(
+    app,
+    "preact/jsx-runtime",
+  );
+  rspackAliases["react/jsx-runtime$"] = resolveFromAppOrCore(
+    app,
+    "preact/jsx-runtime",
+  );
+  rspackAliases["react/jsx-dev-runtime$"] = resolveFromAppOrCore(
+    app,
+    "preact/jsx-dev-runtime",
+  );
 
   debug && console.log("client aliases", rspackAliases);
   const config: Configuration = {
@@ -103,7 +120,9 @@ export default function createCompiler(
     name: "client",
     target: "web",
     entry: {
-      client: [cli.paths.core.root + "/client/index.ts"],
+      client: dev
+        ? [hmrClientEntry, cli.paths.core.root + "/client/index.ts"]
+        : [cli.paths.core.root + "/client/index.ts"],
     },
 
     output: {

@@ -58,6 +58,7 @@ import ServerResponse, {
 import Page from "./response/page";
 import HTTP, { Config as HttpServiceConfig } from "./http";
 import DocumentRenderer from "./response/page/document";
+import { loadGeneratedRuntimeBundle } from "./generatedRuntime";
 
 /*----------------------------------
 - TYPES
@@ -80,6 +81,28 @@ export type TApiRegisterArgs<TRouter extends TServerRouter> =
 type TGeneratedRouteModule = {
   filepath: string;
   register?: TRouteModule["__register"];
+};
+
+type TGeneratedControllerDefinition = {
+  path: string;
+  Controller: new (request: TRouterContext<TServerRouter>) => {
+    [method: string]: () => any;
+  };
+  method: string;
+};
+
+type TGeneratedDefinitionsSnapshot = {
+  routes: TRoute[];
+  errors: { [code: number]: TErrorRoute };
+  controllers: { [path: string]: TRoute };
+  ssrRoutes: TSsrUnresolvedRoute[];
+  cache: {
+    [pageId: string]: {
+      rendered: any;
+      expire: number | undefined;
+      options: TRouteOptions["static"];
+    };
+  };
 };
 
 export type TServerController<TRouter extends TServerRouter> = (
@@ -179,6 +202,8 @@ export default class ServerRouter<
     };
   } = {};
 
+  private staticRoutesRefreshInterval?: NodeJS.Timeout;
+
   /*----------------------------------
     - SERVICE
     ----------------------------------*/
@@ -204,12 +229,9 @@ export default class ServerRouter<
       this.app.register(service);
     }
 
-    this.registerControllers(
-      require("@/server/.generated/controllers").default || [],
-    );
+    this.registerControllers(this.loadGeneratedControllerDefinitions());
 
-    // Use require to avoid circular references
-    this.registerRoutes(require("@/server/.generated/routes").default || []);
+    this.registerRoutes(this.loadGeneratedRouteModules());
 
     // Start HTTP server
     await this.http.start();
@@ -247,6 +269,34 @@ export default class ServerRouter<
   }
 
   public async shutdown() {}
+
+  public async reloadGeneratedDefinitions(changedFiles: string[] = []) {
+    const changeSummary =
+      changedFiles.length > 0 ? `\n${changedFiles.join("\n")}` : "";
+    console.info(
+      `[router] Hot reloading generated definitions ...${changeSummary}`,
+    );
+
+    const controllerDefinitions = this.loadGeneratedControllerDefinitions();
+    const routeModules = this.loadGeneratedRouteModules();
+    const previousState = this.snapshotGeneratedDefinitions();
+
+    this.resetGeneratedDefinitions();
+
+    try {
+      this.registerControllers(controllerDefinitions);
+      this.registerRoutes(routeModules);
+      this.initStaticRoutes();
+
+      console.info("[router] Generated definitions hot reloaded.");
+    } catch (error) {
+      console.error(
+        "[router] Failed to hot reload generated definitions. Restoring previous router state.",
+      );
+      this.restoreGeneratedDefinitions(previousState);
+      throw error;
+    }
+  }
 
   /*----------------------------------
     - ACTIONS
@@ -296,6 +346,8 @@ export default class ServerRouter<
   }
 
   private initStaticRoutes() {
+    this.clearStaticRoutesRefreshInterval();
+
     for (const route of this.routes) {
       if (!route.options.static) continue;
 
@@ -307,7 +359,7 @@ export default class ServerRouter<
     }
 
     // Every hours, refresh static pages
-    setInterval(
+    this.staticRoutesRefreshInterval = setInterval(
       () => {
         this.refreshStaticPages();
       },
@@ -346,13 +398,7 @@ export default class ServerRouter<
   }
 
   private registerControllers(
-    definitions: {
-      path: string;
-      Controller: new (request: TRouterContext<this>) => {
-        [method: string]: () => any;
-      };
-      method: string;
-    }[],
+    definitions: TGeneratedControllerDefinition[],
   ) {
     for (const definition of definitions) {
       const route: TRoute = {
@@ -492,6 +538,61 @@ export default class ServerRouter<
     this.routes.push(route);
 
     return this;
+  }
+
+  private clearStaticRoutesRefreshInterval() {
+    if (this.staticRoutesRefreshInterval) {
+      clearInterval(this.staticRoutesRefreshInterval);
+      this.staticRoutesRefreshInterval = undefined;
+    }
+  }
+
+  private resetGeneratedDefinitions() {
+    this.clearStaticRoutesRefreshInterval();
+    this.routes = [];
+    this.errors = {};
+    this.controllers = {};
+    this.ssrRoutes = [];
+    this.cache = {};
+  }
+
+  private snapshotGeneratedDefinitions(): TGeneratedDefinitionsSnapshot {
+    return {
+      routes: [...this.routes],
+      errors: { ...this.errors },
+      controllers: { ...this.controllers },
+      ssrRoutes: [...this.ssrRoutes],
+      cache: { ...this.cache },
+    };
+  }
+
+  private restoreGeneratedDefinitions(
+    snapshot: TGeneratedDefinitionsSnapshot,
+  ) {
+    this.routes = snapshot.routes;
+    this.errors = snapshot.errors;
+    this.controllers = snapshot.controllers;
+    this.ssrRoutes = snapshot.ssrRoutes;
+    this.cache = snapshot.cache;
+    this.initStaticRoutes();
+  }
+
+  private loadGeneratedControllerDefinitions() {
+    return (
+      loadGeneratedRuntimeBundle<TGeneratedControllerDefinition[]>(
+        "controllers",
+      ) ||
+      require("@/server/.generated/controllers").default ||
+      []
+    );
+  }
+
+  private loadGeneratedRouteModules() {
+    return (
+      loadGeneratedRuntimeBundle<TGeneratedRouteModule[]>("routes") ||
+      require("@/server/.generated/routes").default ||
+      []
+    );
   }
 
   private async afterRegister() {
