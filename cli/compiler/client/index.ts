@@ -32,6 +32,42 @@ import type { App } from "../../app";
 
 const debug = false;
 const ssrScriptPattern = /\.ssr\.(ts|tsx)$/;
+const normalizedCoreRoot = cli.paths.core.root.replace(/\\/g, "/");
+
+const normalizeModulePath = (value?: string) => (value || "").replace(/\\/g, "/");
+
+const getModulePath = (module: webpack.Module) => {
+  const resource =
+    typeof module.nameForCondition === "function"
+      ? module.nameForCondition()
+      : undefined;
+  const fallbackModule = module as webpack.Module & {
+    resource?: string;
+    context?: string;
+  };
+
+  return normalizeModulePath(
+    resource || fallbackModule.resource || fallbackModule.context,
+  );
+};
+
+const isExternalVendorModule = (module: webpack.Module) => {
+  const modulePath = getModulePath(module);
+
+  return (
+    modulePath.includes("/node_modules/") &&
+    !modulePath.includes("/node_modules/proteum/")
+  );
+};
+
+const isCoreSourceModule = (module: webpack.Module) => {
+  const modulePath = getModulePath(module);
+
+  return (
+    modulePath.startsWith(normalizedCoreRoot + "/") ||
+    modulePath.includes("/node_modules/proteum/")
+  );
+};
 
 /*----------------------------------
 - CONFIG
@@ -248,29 +284,45 @@ export default function createCompiler(
       // La décomposition des chunks doit toujours être la même car le rendu des pages dépend de cette organisation
 
       // https://webpack.js.org/plugins/split-chunks-plugin/#configuration
+      runtimeChunk: {
+        name: "runtime",
+      },
       splitChunks: {
-        // This indicates which chunks will be selected for optimization
-        chunks: "async",
-        // Minimum size, in bytes, for a chunk to be generated.
-        // Pour les imports async (ex: pages), on crée systématiquemen un chunk séparé
-        //      Afin que le css d'une page ne soit appliqué qu'à la page concernée
+        // Keep the initial shell lean while still preserving async route isolation.
+        chunks: "all",
+        minSize: 20_000,
+        minRemainingSize: 0,
+        maxInitialRequests: 30,
+        maxAsyncRequests: 30,
         cacheGroups: {
-          defaultVendors: {
-            test: (module) => {
-              // Check if the module is in node_modules but not in node_modules/proteum
-              return (
-                /[\\/]node_modules[\\/]/.test(module.context) &&
-                !/[\\/]node_modules[\\/]proteum[\\/]/.test(module.context)
-              );
-            },
-            priority: -10,
+          framework: {
+            test: isCoreSourceModule,
+            chunks: "initial",
+            name: "framework",
+            priority: 40,
+            reuseExistingChunk: true,
+            enforce: true,
+          },
+          initialVendors: {
+            test: isExternalVendorModule,
+            chunks: "initial",
+            name: "vendors",
+            priority: 30,
+            reuseExistingChunk: true,
+            enforce: true,
+          },
+          asyncVendors: {
+            test: isExternalVendorModule,
+            chunks: "async",
+            priority: 20,
             reuseExistingChunk: true,
           },
           default: {
             minChunks: 2,
-            priority: -20,
+            priority: 10,
             reuseExistingChunk: true,
           },
+          defaultVendors: false,
         },
       },
 

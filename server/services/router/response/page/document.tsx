@@ -6,6 +6,7 @@
 import React from "react";
 import renderToString from "preact-render-to-string";
 const safeStringify = require("fast-safe-stringify"); // remplace les références circulairs par un [Circular]
+const chunks = require("./chunk-manifest.json");
 
 // Core
 import type {
@@ -60,8 +61,7 @@ export default class DocumentRenderer<TRouter extends Router> {
                   (this.app.env.profile === "dev" ? "window.dev = true;" : ""),
               }}
             />
-            <link rel="preload" href="/public/client.js" as="script" />
-            <script defer type="text/javascript" src="/public/client.js" />
+            {this.clientScripts()}
           </head>
           <body></body>
         </html>,
@@ -199,10 +199,43 @@ export default class DocumentRenderer<TRouter extends Router> {
   }
 
   private clientStyles() {
+    const styles = this.clientEntryAssets().filter((asset) =>
+      asset.endsWith(".css"),
+    );
+
     return (
       <>
-        <link rel="preload" href="/public/client.css" as="style" />
-        <link rel="stylesheet" type="text/css" href="/public/client.css" />
+        {styles.map((style) => {
+          const href = this.clientAssetUrl(style);
+
+          return (
+            <React.Fragment key={style}>
+              <link rel="preload" href={href} as="style" />
+              <link rel="stylesheet" type="text/css" href={href} />
+            </React.Fragment>
+          );
+        })}
+      </>
+    );
+  }
+
+  private clientScripts() {
+    const scripts = this.clientEntryAssets().filter((asset) =>
+      asset.endsWith(".js"),
+    );
+
+    return (
+      <>
+        {scripts.map((script) => {
+          const src = this.clientAssetUrl(script, true);
+
+          return (
+            <React.Fragment key={script}>
+              <link rel="preload" href={src} as="script" />
+              <script defer type="text/javascript" src={src} />
+            </React.Fragment>
+          );
+        })}
       </>
     );
   }
@@ -224,16 +257,7 @@ export default class DocumentRenderer<TRouter extends Router> {
           }}
         />
 
-        <link
-          rel="preload"
-          href={"/public/client.js?v=" + BUILD_ID}
-          as="script"
-        />
-        <script
-          defer
-          type="text/javascript"
-          src={"/public/client.js?v=" + BUILD_ID}
-        />
+        {this.clientScripts()}
 
         {page.scripts.map((script) =>
           "url" in script ? (
@@ -258,5 +282,13 @@ export default class DocumentRenderer<TRouter extends Router> {
         )}
       </>
     );
+  }
+
+  private clientEntryAssets(): string[] {
+    return Array.isArray(chunks.client) ? chunks.client : [];
+  }
+
+  private clientAssetUrl(asset: string, withBuildId = false) {
+    return `/public/${asset}${withBuildId ? `?v=${BUILD_ID}` : ""}`;
   }
 }
