@@ -122,7 +122,7 @@ export default class ConfigParser {
     public env(): TEnvConfig {
         // We assume that when we run 5htp dev, we're in local
         // Otherwise, we're in production environment (docker)
-        console.log('[app] Using environment:', process.env.NODE_ENV);
+        debug && console.info('[app] Using environment:', process.env.NODE_ENV);
         const envFileName = this.appDir + '/env.yaml';
         const envFile = this.loadYaml(envFileName);
         const routerPortOverride = getRouterPortOverride();

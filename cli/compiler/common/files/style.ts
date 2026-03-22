@@ -3,13 +3,12 @@ import { rspack } from '@rspack/core';
 
 import type { App } from '../../../app';
 
-module.exports = (app: App, dev: boolean, client: boolean) => {
+module.exports = (app: App, dev: boolean, _client: boolean) => {
     const enableSourceMaps = dev;
-    const useStyleLoader = client && dev;
 
     return [
-        // Apply PostCSS plugins including autoprefixer
-        useStyleLoader ? { loader: 'style-loader' } : { loader: rspack.CssExtractRspackPlugin.loader },
+        // Keep CSS delivery identical in dev and prod: extract files so SSR links stylesheets in both modes.
+        { loader: rspack.CssExtractRspackPlugin.loader },
 
         // Process external/third-party styles
         { exclude: [app.paths.root], loader: 'css-loader', options: { sourceMap: enableSourceMaps } },

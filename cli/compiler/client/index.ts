@@ -199,7 +199,8 @@ export default function createCompiler(
         plugins: [
             ...(commonConfig.plugins || []),
 
-            ...(dev ? [] : [new rspack.CssExtractRspackPlugin({})]),
+            // Extract CSS in dev too so SSR emits the same stylesheet links as production.
+            new rspack.CssExtractRspackPlugin({}),
 
             ...createClientBundleAnalysisPlugins(app, outputTarget),
         ],
