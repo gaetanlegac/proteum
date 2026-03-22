@@ -11,7 +11,14 @@ import ts from 'typescript';
 - TYPES
 ----------------------------------*/
 
-export type TControllerMethodMeta = { name: string; inputCallsCount: number; routePath: string };
+export type TControllerSourceLocation = { line: number; column: number };
+
+export type TControllerMethodMeta = {
+    name: string;
+    inputCallsCount: number;
+    routePath: string;
+    sourceLocation: TControllerSourceLocation;
+};
 
 export type TControllerFileMeta = {
     importPath: string;
@@ -101,6 +108,12 @@ const parseSourceFile = (filepath: string, code: string) =>
         true,
         filepath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
     );
+
+const getNodeLocation = (sourceFile: ts.SourceFile, node: ts.Node): TControllerSourceLocation => {
+    const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+
+    return { line: line + 1, column: character + 1 };
+};
 
 const hasModifier = (node: ts.Node, kind: ts.SyntaxKind) =>
     !!node.modifiers?.some((modifier) => modifier.kind === kind);
@@ -208,6 +221,7 @@ export const indexControllers = (searchDirs: TControllerSearchDir[]) => {
                     name: methodName,
                     inputCallsCount,
                     routePath: [routeBasePath, methodName].filter(Boolean).join('/'),
+                    sourceLocation: getNodeLocation(sourceFile, member.name),
                 });
             }
 

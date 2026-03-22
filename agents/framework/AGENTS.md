@@ -39,7 +39,7 @@ The main rule for new work is:
 - Do not use `@request` runtime globals.
 - Do not use `@app` on the client.
 - Do not use `api.fetch(...)` inside page route files for SSR data loading.
-- Do not edit `.generated` files by hand.
+- Do not edit generated files under `.proteum` by hand.
 
 # Source Of Truth Files
 
@@ -58,16 +58,24 @@ The framework actually reads these files and folders:
 
 Files Proteum generates and owns:
 
-- `client/.generated/routes*`
-- `client/.generated/layouts*`
-- `client/.generated/context.ts`
-- `client/.generated/models.ts`
-- `client/.generated/services.d.ts`
-- `common/.generated/controllers.ts`
-- `common/.generated/models.ts`
-- `server/.generated/app.ts`
-- `server/.generated/routes*`
-- `server/.generated/models.ts`
+- `.proteum/manifest.json`
+- `.proteum/client/routes*`
+- `.proteum/client/layouts*`
+- `.proteum/client/context.ts`
+- `.proteum/client/models.ts`
+- `.proteum/client/services.d.ts`
+- `.proteum/common/controllers.ts`
+- `.proteum/common/models.ts`
+- `.proteum/server/app.ts`
+- `.proteum/server/routes*`
+- `.proteum/server/models.ts`
+
+The `.proteum` directory should be ignored by git.
+
+Generated files now live physically under `.proteum/client/*`, `.proteum/common/*`, and `.proteum/server/*`.
+Project code should reference the generated surface through `@generated/client/*`, `@generated/common/*`, and `@generated/server/*`.
+Keep `@/client/context` mapped to `.proteum/client/context.ts`.
+The legacy `@/client/.generated/*`, `@/common/.generated/*`, and `@/server/.generated/*` aliases may exist temporarily as migration shims, but new code should not use them.
 
 # Project Structure
 
@@ -109,9 +117,54 @@ The reference apps use these Proteum commands:
 - `proteum dev`
 - `npx proteum build prod`
 - `npx proteum refresh`
+- `npx proteum doctor`
+- `npx proteum explain`
 - `npx proteum typecheck`
 - `npx proteum lint`
 - `npx proteum check`
+
+## `proteum explain`
+
+Proteum now generates a machine-readable manifest at `.proteum/manifest.json` during refresh/build/dev/explain flows.
+
+Use `proteum explain` as the first inspection command when an agent needs to understand a project without re-deriving framework conventions from source.
+
+Useful commands:
+
+- `npx proteum explain`
+- `npx proteum explain --json`
+- `npx proteum explain routes --json`
+- `npx proteum explain services`
+- `npx proteum explain controllers`
+- `npx proteum explain env`
+
+What the manifest exposes:
+
+- app root and installed Proteum root
+- identity file path and identity summary
+- env file path plus loaded and required top-level keys
+- top-level services and router plugins with source file ownership and scope
+- generated controller endpoints with client accessor and HTTP path
+- client pages, error pages, and manual server routes with explicit route expressions
+- route and controller source locations
+- static route-target resolution state: literal, statically-resolved expression, or dynamic expression
+- client layout ownership and chunk ids
+- manifest-backed diagnostics for duplicate routes, invalid option keys, and controller/server-route collisions
+
+## `proteum doctor`
+
+Use `npx proteum doctor` to inspect manifest diagnostics in a human-readable form.
+
+Use:
+
+- `npx proteum doctor`
+- `npx proteum doctor --json`
+- `npx proteum doctor --strict`
+
+Current strict-mode behavior:
+
+- exits non-zero if any manifest warning or error exists
+- intended for CI and agent guardrails
 
 ## `identity.yaml`
 
@@ -470,15 +523,11 @@ Everything else returned from `setup` is treated as page data.
 Example:
 
 ```ts
-Router.page(
-    '/pricing',
-    ({ Plans }) => ({
-        _auth: false,
-        _layout: false,
-        plans: Plans.getPlans(),
-    }),
-    ({ plans }) => <PricingPage plans={plans} />,
-);
+Router.page('/pricing', ({ Plans }) => ({
+    _auth: false,
+    _layout: false,
+    plans: Plans.getPlans(),
+}), ({ plans }) => <PricingPage plans={plans} />);
 ```
 
 ## Data loading rules
@@ -488,14 +537,10 @@ Use page `setup` for SSR data.
 Good:
 
 ```ts
-Router.page(
-    '/app/projects/:projectId',
-    ({ Founder }) => ({
-        _auth: 'USER',
-        projectsResponse: Founder.projects.getProjects(),
-    }),
-    ({ projectsResponse }) => <ProjectsPage projects={projectsResponse.projects} />,
-);
+Router.page('/app/projects/:projectId', ({ Founder }) => ({
+    _auth: 'USER',
+    projectsResponse: Founder.projects.getProjects(),
+}), ({ projectsResponse }) => <ProjectsPage projects={projectsResponse.projects} />);
 ```
 
 Bad:
@@ -747,8 +792,8 @@ Source-to-generated mapping:
 
 - `client/pages/**` -> generated route modules and layout modules
 - `server/routes/**` -> generated server route modules
-- `server/services/**/*.controller.ts` -> `common/.generated/controllers.ts` and server controller registry
-- `server/services/**/service.json` + `server/config/*.ts` -> `server/.generated/app.ts`
+- `server/services/**/*.controller.ts` -> `.proteum/common/controllers.ts` and server controller registry
+- `server/services/**/service.json` + `server/config/*.ts` -> `.proteum/server/app.ts`
 
 LLM rule:
 

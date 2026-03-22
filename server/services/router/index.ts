@@ -490,7 +490,7 @@ export default class ServerRouter<
     private loadGeneratedControllerDefinitions() {
         return (
             loadGeneratedRuntimeBundle<TGeneratedControllerDefinition[]>('controllers') ||
-            require('@/server/.generated/controllers').default ||
+            require('@generated/server/controllers').default ||
             []
         );
     }
@@ -498,7 +498,7 @@ export default class ServerRouter<
     private loadGeneratedRouteModules() {
         return (
             loadGeneratedRuntimeBundle<TGeneratedRouteModule[]>('routes') ||
-            require('@/server/.generated/routes').default ||
+            require('@generated/server/routes').default ||
             []
         );
     }

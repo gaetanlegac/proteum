@@ -15,8 +15,8 @@ import type ClientResponse from '@client/services/router/response';
 import ClientRequest from '@client/services/router/request';
 import ClientPage from '@client/services/router/response/page';
 import { history } from '@client/services/router/request/history';
-import createControllers from '@/common/.generated/controllers';
-import type { TControllers } from '@/common/.generated/controllers';
+import createControllers from '@generated/common/controllers';
+import type { TControllers } from '@generated/common/controllers';
 
 /*----------------------------------
 - TYPES

@@ -11,7 +11,7 @@ import type { TDataProvider, TPageRenderContext } from './response/page';
 
 // App
 import internalLayout from '@client/pages/_layout';
-import generatedLayouts, { layoutOrder } from '@/client/.generated/layouts';
+import generatedLayouts, { layoutOrder } from '@generated/client/layouts';
 
 /*----------------------------------
 - CONST

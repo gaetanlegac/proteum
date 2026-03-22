@@ -7,7 +7,7 @@ This file is the source of truth for codex coding style instructions in Proteum-
 - **The code should be at the highest level of industry, as the product will be used by GAFAMs and will be maintained by a team of 10 developers.**
 - Write clean, consistent, readable code with a tab size of 4.
 - Keep functions and methods short.
-- Everytime possible, create reusable functions and components instead of repeating.
+- Every time possible, create reusable functions and components instead of repeating.
 
 ## Formatting
 
@@ -16,10 +16,11 @@ This file is the source of truth for codex coding style instructions in Proteum-
 - Keep short arrow functions and short returned object literals compact when they are easy to scan.
 - Keep JSX multiline only when it is clearly more readable; otherwise keep short JSX compact.
 - Avoid staircase formatting and unnecessary blank lines inside short callbacks.
+- Keep `Router.page(...)` and `Router.error(...)` registrations in the compact inline-call shape when possible, for example `Router.page('/path', setup, render);`.
 
 ## File organization
 
-- Always keep one class or react component per file.
+- Always keep one class or React component per file.
 - Prefer a deep tree structure that groups files by business concern instead of long file names.
 - The default `*.ts` / `*.tsx` file is the browser implementation; use `*.ssr.ts` / `*.ssr.tsx` only for SSR-safe fallbacks.
 - When implementing a feature that relies on a curated list of items, keep one canonical catalog or registry file and make all other code import it.

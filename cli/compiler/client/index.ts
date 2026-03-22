@@ -133,12 +133,15 @@ export default function createCompiler(
                     include: [
                         app.paths.root + '/client',
                         cli.paths.core.root + '/client',
+                        app.paths.client.generated,
 
                         app.paths.root + '/common',
                         cli.paths.core.root + '/common',
+                        app.paths.common.generated,
 
                         app.paths.root + '/server',
                         cli.paths.core.root + '/server',
+                        app.paths.server.generated,
                     ],
                     loader: path.join(
                         cli.paths.core.root,
@@ -154,14 +157,16 @@ export default function createCompiler(
                     include: [
                         app.paths.root + '/client',
                         cli.paths.core.root + '/client',
+                        app.paths.client.generated,
 
                         app.paths.root + '/common',
                         cli.paths.core.root + '/common',
+                        app.paths.common.generated,
 
                         // Prisma 7 generates browser-safe TypeScript entrypoints under var/prisma.
                         app.paths.root + '/var/prisma',
 
-                        app.paths.root + '/server/.generated/models.ts',
+                        app.paths.server.generated + '/models.ts',
                     ],
                     rules: require('../common/scripts')({ app, side: 'client', dev }),
                 },

@@ -44,7 +44,7 @@ import ClientPage from './response/page';
 type AppPropsContext = Parameters<typeof App>[0]['context'];
 
 // Routes (import __register)
-import appRoutes from '@/client/.generated/routes';
+import appRoutes from '@generated/client/routes';
 
 /*----------------------------------
 - CONFIG

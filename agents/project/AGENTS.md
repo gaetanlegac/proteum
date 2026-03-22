@@ -26,11 +26,22 @@ For Proteum-wide project scaffolding, routing, SSR, controller, service, generat
 framework guide in the Proteum repository at `agents/framework/AGENTS.md`.
 From a normal Proteum project install, read it at `./node_modules/proteum/agents/framework/AGENTS.md`.
 
+Start framework inspection with:
+
+- `./.proteum/manifest.json`
+- `npx proteum explain`
+- `npx proteum doctor`
+
+Generated files live under `./.proteum` and should not be edited by hand.
+Project code should use the generated aliases `@generated/client/*`, `@generated/common/*`, and `@generated/server/*`.
+Client context is typically imported from `@/client/context`.
+
 # Files organization
 
-- Always keep one class / react component per file
+- Always keep one class / React component per file
 - Prefer a deep tree structure that groups files by business concern instead of long file names
-- The default `*.ts` / `*.tsx` file is the browser implementation; use `*.ssr.ts` / `*.ssr.tsx` only for SSR-safe fallbacks
+- The default `*.ts` / `*.tsx` file is the normal implementation; use `*.ssr.ts` / `*.ssr.tsx` only when the project
+needs an SSR-specific variant
 
 ## Centralize feature catalogs (Single Source of Truth)
 
@@ -49,7 +60,7 @@ When implementing a feature that relies on a **curated list of items**, keep **o
 - `Router.page(path, setup, render)` for pages with SSR config/data.
 - `setup` receives the normal page context plus the generated controller tree spread into it.
 - `render` receives the normal page context plus the resolved setup data and the same controller tree spread into it.
-- Components and hooks use `useContext()` to access controller instances and client runtime services.
+- Components and hooks use the app client context hook, usually imported from `@/client/context`.
 
 ## Server runtime access
 
@@ -71,21 +82,20 @@ When implementing a feature that relies on a **curated list of items**, keep **o
 
 ## Workflow
 
-- Everytime I input error messages without any instructions, don't implement fixes.
-Instead, ivestigate the potential causes of the errors, and for each:
-    1. Evaluate / quantify the probabiliies
+- Every time I input error messages without any instructions, don't implement fixes.
+Instead, investigate the potential causes of the errors, and for each:
+    1. Evaluate / quantify the probabilities
     2. Give why and
     3. Suggest how to fix it
 - When you have finished your work, summarize in one top-level short sentence the changes you made since the beginning of the conversation. Output as "Commit message".
 
-## Never edit the following files
+## High-impact files
 
-- Prisma files (except schema.prisma)
-- tsconfigs
-- env
-- Any file / folder that is a symbolic link
+- Do not edit generated files under `.proteum` by hand.
+- Treat `tsconfig*.json`, `env*.yaml`, Prisma-generated files, and symbolic links as high-impact.
+- Edit them only when the task actually requires it, and keep those changes minimal and explicit.
 
-If you need to edit them, just suggest it in the chat.
+If a high-impact file change is not required for the task, leave it alone.
 
 ## Don't run any of these commands
 

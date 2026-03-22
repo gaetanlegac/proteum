@@ -1,5 +1,5 @@
 import AppContainer from './app/container';
-import Application from '@/server/.generated/app';
+import Application from '@generated/server/app';
 import { isServerHotReloadRequest, serverHotReloadMessageType } from '@common/dev/serverHotReload';
 
 const application = AppContainer.start(Application);

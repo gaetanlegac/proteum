@@ -65,13 +65,14 @@ export class App {
         public: path.join(cli.paths.appRoot, 'public'),
         pages: path.join(cli.paths.appRoot, 'client', 'pages'),
         cache: path.join(cli.paths.appRoot, '.cache'),
+        proteum: path.join(cli.paths.appRoot, '.proteum'),
 
-        client: { generated: path.join(cli.paths.appRoot, 'client', '.generated') },
+        client: { generated: path.join(cli.paths.appRoot, '.proteum', 'client') },
         server: {
-            generated: path.join(cli.paths.appRoot, 'server', '.generated'),
+            generated: path.join(cli.paths.appRoot, '.proteum', 'server'),
             configs: path.join(cli.paths.appRoot, 'server', 'app'),
         },
-        common: { generated: path.join(cli.paths.appRoot, 'common', '.generated') },
+        common: { generated: path.join(cli.paths.appRoot, '.proteum', 'common') },
 
         withAlias: (filename: string, side: TAppSide) => this.aliases[side].apply(filename),
 

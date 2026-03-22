@@ -6,4 +6,5 @@ module.exports = {
     semi: true,
     trailingComma: 'all',
     objectWrap: 'preserve',
+    plugins: [require.resolve('./prettier/router-registration-plugin.cjs')],
 };

@@ -1,7 +1,7 @@
 {
 	"name": "proteum",
 	"description": "LLM-first Opinionated Typescript Framework for full stack web applications.",
-	"version": "2.0.0-2",
+	"version": "2.0.1",
 	"author": "Gaetan Le Gac (https://github.com/gaetanlegac)",
 	"repository": "git://github.com/gaetanlegac/proteum.git",
 	"license": "MIT",
@@ -26,6 +26,7 @@
 		"aws-sdk": "^2.1415.0",
 		"bowser": "^2.11.0",
 		"cli-highlight": "^2.1.11",
+		"clipanion": "^4.0.0-rc.4",
 		"compression": "^1.7.4",
 		"cookie-parser": "^1.4.5",
 		"cors": "^2.8.5",
@@ -83,12 +84,11 @@
 		"typescript-eslint": "^8.57.1",
 		"uuid": "^8.3.2",
 		"validator": "^13.7.0",
+		"webpack-bundle-analyzer": "^5.2.0",
 		"yaml": "^1.10.2",
-		"yargs-parser": "^21.1.1",
 		"youch": "^3.3.3",
 		"youch-terminal": "^2.2.3",
-		"zod": "^4.1.5",
-		"webpack-bundle-analyzer": "^5.2.0"
+		"zod": "^4.1.5"
 	},
 	"devDependencies": {
 		"@types/cookie": "^0.4.1",
@@ -104,7 +104,6 @@
 		"@types/prompts": "^2.0.14",
 		"@types/sharp": "^0.31.1",
 		"@types/universal-analytics": "^0.4.5",
-		"@types/yargs-parser": "^21.0.0",
 		"schema-dts": "^1.1.2"
 	}
 }

@@ -8,6 +8,7 @@ import fs from 'fs-extra';
 import serialize from 'serialize-javascript';
 import { rspack, type Compiler as RspackCompiler } from '@rspack/core';
 import ts from 'typescript';
+import yaml from 'yaml';
 
 // Core
 import app from '../app';
@@ -22,8 +23,23 @@ import {
     type TControllerServiceRoot,
 } from './common/controllers';
 import { writeClientManifest } from './common/clientManifest';
-import { getGeneratedRouteModuleFilepath, writeGeneratedRouteModule } from './common/generatedRouteModules';
+import {
+    getGeneratedRouteModuleFilepath,
+    indexRouteDefinitions,
+    writeGeneratedRouteModule,
+} from './common/generatedRouteModules';
+import {
+    writeProteumManifest,
+    type TProteumManifestDiagnostic,
+    type TProteumManifest,
+    type TProteumManifestController,
+    type TProteumManifestLayout,
+    type TProteumManifestRoute,
+    type TProteumManifestScope,
+    type TProteumManifestService,
+} from './common/proteumManifest';
 import writeIfChanged from './writeIfChanged';
+import { reservedRouteSetupKeys, routeSetupOptionKeys } from '../../common/router/pageSetup';
 
 type TCompilerCallback = (compiler: RspackCompiler) => void;
 
@@ -34,6 +50,9 @@ type TServiceMetas = {
     dependences: string;
     importationPath: string;
     priority: number;
+    sourceDir: string;
+    metasFilepath: string;
+    scope: TProteumManifestScope;
 };
 
 type TRegisteredService = {
@@ -49,6 +68,10 @@ type TClientRouteLoader = { filepath: string; chunkId: string; preload: boolean 
 type TRecentCompilationResult = { succeeded: boolean; hash?: string; modifiedFiles?: string[] };
 
 const normalizePath = (value: string) => value.replace(/\\/g, '/');
+const normalizeAbsolutePath = (value: string) => normalizePath(path.resolve(value));
+const getManifestScopeFromImportPath = (importPath: string): TProteumManifestScope =>
+    importPath.startsWith('@server/services/') ? 'framework' : 'app';
+const envRequiredTopLevelKeys = ['name', 'profile', 'router', 'console'];
 
 /*----------------------------------
 - FONCTION
@@ -277,6 +300,13 @@ export default class Compiler {
     }
 
     private cleanupObsoleteGeneratedArtifacts() {
+        fs.removeSync(path.join(app.paths.root, 'client', '.generated'));
+        fs.removeSync(path.join(app.paths.root, 'common', '.generated'));
+        fs.removeSync(path.join(app.paths.root, 'server', '.generated'));
+        fs.removeSync(path.join(app.paths.root, 'common', 'generated.d.ts'));
+        fs.removeSync(path.join(app.paths.root, '.proteum', 'client', '.generated'));
+        fs.removeSync(path.join(app.paths.root, '.proteum', 'common', '.generated'));
+        fs.removeSync(path.join(app.paths.root, '.proteum', 'server', '.generated'));
         fs.removeSync(path.join(app.paths.client.generated, 'index.ts'));
     }
 
@@ -301,9 +331,59 @@ export default class Compiler {
         return getGeneratedRouteModuleFilepath(app.paths.server.generated, app.paths.root, filepath);
     }
 
+    private buildClientRouteManifestEntry(filepath: string): TProteumManifestRoute {
+        const [definition] = indexRouteDefinitions({ side: 'client', sourceFilepath: filepath });
+        const pageChunk = cli.paths.getPageChunk(app, filepath);
+
+        return {
+            kind: definition.methodName === 'error' ? 'client-error' : 'client-page',
+            methodName: definition.methodName,
+            serviceLocalName: definition.serviceLocalName,
+            filepath: normalizeAbsolutePath(filepath),
+            sourceLocation: definition.sourceLocation,
+            targetResolution: definition.targetResolution,
+            path: definition.path,
+            pathRaw: definition.pathRaw,
+            code: definition.code,
+            codeRaw: definition.codeRaw,
+            optionKeys: definition.optionKeys,
+            normalizedOptionKeys: definition.normalizedOptionKeys,
+            invalidOptionKeys: definition.invalidOptionKeys,
+            reservedOptionKeys: definition.reservedOptionKeys,
+            optionsRaw: definition.optionsRaw,
+            hasSetup: definition.hasSetup,
+            chunkId: pageChunk.chunkId,
+            chunkFilepath: normalizePath(pageChunk.filepath),
+            scope: 'app',
+        };
+    }
+
+    private buildServerRouteManifestEntries(filepath: string) {
+        return indexRouteDefinitions({ side: 'server', sourceFilepath: filepath }).map<TProteumManifestRoute>((definition) => ({
+            kind: 'server-route',
+            methodName: definition.methodName,
+            serviceLocalName: definition.serviceLocalName,
+            filepath: normalizeAbsolutePath(filepath),
+            sourceLocation: definition.sourceLocation,
+            targetResolution: definition.targetResolution,
+            path: definition.path,
+            pathRaw: definition.pathRaw,
+            code: definition.code,
+            codeRaw: definition.codeRaw,
+            optionKeys: definition.optionKeys,
+            normalizedOptionKeys: definition.normalizedOptionKeys,
+            invalidOptionKeys: definition.invalidOptionKeys,
+            reservedOptionKeys: definition.reservedOptionKeys,
+            optionsRaw: definition.optionsRaw,
+            hasSetup: definition.hasSetup,
+            scope: 'app',
+        }));
+    }
+
     private generateClientRouteWrapperModules() {
         const clientRouteFiles = this.findClientRouteFiles(app.paths.pages).sort((a, b) => a.localeCompare(b));
         const routeSourceFilepaths = new Set(clientRouteFiles.map((filepath) => normalizePath(path.resolve(filepath))));
+        const routes = clientRouteFiles.map((filepath) => this.buildClientRouteManifestEntry(filepath));
 
         for (const filepath of clientRouteFiles) {
             const pageChunk = cli.paths.getPageChunk(app, filepath);
@@ -326,6 +406,8 @@ export default class Compiler {
                 routeSourceFilepaths,
             });
         }
+
+        return routes;
     }
 
     private generateServerRouteWrapperModules() {
@@ -333,6 +415,7 @@ export default class Compiler {
             a.localeCompare(b),
         );
         const routeSourceFilepaths = new Set(serverRouteFiles.map((filepath) => normalizePath(path.resolve(filepath))));
+        const routes = serverRouteFiles.flatMap((filepath) => this.buildServerRouteManifestEntries(filepath));
 
         for (const filepath of serverRouteFiles) {
             writeGeneratedRouteModule({
@@ -343,6 +426,8 @@ export default class Compiler {
                 routeSourceFilepaths,
             });
         }
+
+        return routes;
     }
 
     private generateClientRoutesModule() {
@@ -404,13 +489,19 @@ export default routes;
         const layoutsFile = path.join(app.paths.client.generated, 'layouts.ts');
 
         const layouts = this.findLayoutFiles(app.paths.pages)
-            .map((filepath) => {
+            .map<TProteumManifestLayout>((filepath) => {
                 const { chunkId } = cli.paths.getLayoutChunk(app, filepath);
                 const importPath = this.getGeneratedImportPath(app.paths.client.generated, filepath);
                 const relativePath = normalizePath(path.relative(app.paths.root, filepath));
                 const depth = relativePath.split('/').filter(Boolean).length;
 
-                return { filepath: relativePath, chunkId, depth, importPath };
+                return {
+                    filepath: normalizeAbsolutePath(filepath),
+                    chunkId,
+                    depth,
+                    importPath,
+                    scope: 'app',
+                };
             })
             .sort((a, b) => {
                 if (b.depth !== a.depth) return b.depth - a.depth;
@@ -447,6 +538,8 @@ export default layouts;
 `;
 
         writeIfChanged(layoutsFile, content);
+
+        return layouts;
     }
 
     private generateServerRoutesModule() {
@@ -516,11 +609,13 @@ export default routeModules;
 
     private generateRoutingModules() {
         this.cleanupObsoleteGeneratedArtifacts();
-        this.generateClientRouteWrapperModules();
-        this.generateServerRouteWrapperModules();
+        const clientRoutes = this.generateClientRouteWrapperModules();
+        const serverRoutes = this.generateServerRouteWrapperModules();
         this.generateServerRoutesModule();
         this.generateClientRoutesModule();
-        this.generateClientLayoutsModule();
+        const layouts = this.generateClientLayoutsModule();
+
+        return { clientRoutes, serverRoutes, layouts };
     }
 
     private indexControllers() {
@@ -555,6 +650,22 @@ export default routeModules;
 
     private generateControllerModules() {
         const controllers = this.indexControllers();
+        const manifestControllers = controllers.flatMap<TProteumManifestController>((controller) =>
+            controller.methods.map((method) => ({
+                className: controller.className,
+                importPath: controller.importPath,
+                filepath: normalizeAbsolutePath(controller.filepath),
+                sourceLocation: method.sourceLocation,
+                routeBasePath: controller.routeBasePath,
+                methodName: method.name,
+                inputCallsCount: method.inputCallsCount,
+                hasInput: method.inputCallsCount > 0,
+                routePath: method.routePath,
+                httpPath: '/api/' + method.routePath,
+                clientAccessor: method.routePath.split('/').join('.'),
+                scope: getManifestScopeFromImportPath(controller.importPath),
+            })),
+        );
         const clientTree = generateControllerClientTree(controllers);
 
         const getControllerLeafMeta = (leaf: string) => {
@@ -625,8 +736,8 @@ export default createControllers;
 
         writeIfChanged(
             path.join(app.paths.client.generated, 'controllers.ts'),
-            `export { createControllers, default } from '@/common/.generated/controllers';
-export type { TControllers } from '@/common/.generated/controllers';
+            `export { createControllers, default } from '@generated/common/controllers';
+export type { TControllers } from '@generated/common/controllers';
 `,
         );
 
@@ -669,6 +780,8 @@ ${controllerEntries.join('\n')}
 export default controllers;
 `,
         );
+
+        return manifestControllers;
     }
 
     private indexServices() {
@@ -694,7 +807,14 @@ export default controllers;
 
                 const serviceMetas = require(metasFile);
 
-                servicesAvailable[serviceMetas.id] = { importationPath, priority: searchDir.priority, ...serviceMetas };
+                servicesAvailable[serviceMetas.id] = {
+                    importationPath,
+                    priority: searchDir.priority,
+                    sourceDir: normalizeAbsolutePath(serviceDir),
+                    metasFilepath: normalizeAbsolutePath(metasFile),
+                    scope: searchDir.path.startsWith('@server/services/') ? 'framework' : 'app',
+                    ...serviceMetas,
+                };
             }
         }
 
@@ -774,8 +894,54 @@ export default controllers;
             };
         };
 
-        const servicesCode = Object.values(app.registered).map((s) => refService(s.name, s, 0));
+        const resolveManifestService = (
+            registeredName: string,
+            serviceConfig: any,
+            parent: string,
+        ): TProteumManifestService => {
+            if (serviceConfig.refTo !== undefined) {
+                return {
+                    kind: 'ref',
+                    registeredName,
+                    parent,
+                    priority: 0,
+                    refTo: serviceConfig.refTo,
+                    scope: 'app',
+                };
+            }
+
+            const serviceMetas = servicesAvailable[serviceConfig.id];
+            if (serviceMetas === undefined)
+                throw new Error(
+                    `Service ${serviceConfig.id} not found. Referenced services: ${Object.keys(servicesAvailable).join('\n')}`,
+                );
+
+            return {
+                kind: 'service',
+                id: serviceMetas.id,
+                registeredName,
+                metaName: serviceMetas.name,
+                parent,
+                priority: serviceConfig.config?.priority || serviceMetas.priority || 0,
+                importPath: serviceMetas.importationPath,
+                sourceDir: serviceMetas.sourceDir,
+                metasFilepath: serviceMetas.metasFilepath,
+                scope: serviceMetas.scope,
+            };
+        };
+
+        const registeredServices = Object.values(app.registered as Record<string, any>);
+        const servicesCode = registeredServices.map((service) => refService(service.name, service, 0));
         const sortedServices = servicesCode.sort((a, b) => a.priority - b.priority);
+        const appServices = registeredServices
+            .map<TProteumManifestService>((service) => resolveManifestService(service.name, service, 'app'))
+            .sort((a, b) => a.registeredName.localeCompare(b.registeredName));
+        const routerConfig = (app.registered as Record<string, any>)['Router']?.config;
+        const routerPlugins = Object.entries(routerConfig?.plugins || {})
+            .map<TProteumManifestService>(([registeredName, serviceConfig]) =>
+                resolveManifestService(registeredName, serviceConfig, 'Router.plugins'),
+            )
+            .sort((a, b) => a.registeredName.localeCompare(b.registeredName));
 
         // Define the app class identifier
         const appClassIdentifier = app.identity.identifier;
@@ -791,15 +957,15 @@ type ${instanceIdentifier} = ReturnType<typeof ${factoryIdentifier}>;`;
             })
             .join('\n\n');
 
-        // @/client/.generated/services.d.ts
+        // .proteum/client/services.d.ts
         writeIfChanged(
             path.join(app.paths.client.generated, 'services.d.ts'),
-            `declare type ${appClassIdentifier} = import("@/server/.generated/app").default;
+            `declare type ${appClassIdentifier} = import("@generated/server/app").default;
 
 declare module "@app" {
 
     import { ${appClassIdentifier} as ${appClassIdentifier}Client } from "@/client";
-    import ${appClassIdentifier}Server from "@/server/.generated/app";
+    import ${appClassIdentifier}Server from "@generated/server/app";
   
     export const Router: ${appClassIdentifier}Client['Router'];
 
@@ -814,7 +980,7 @@ declare module "@app" {
 }
     
 declare module '@models/types' {
-    export * from '@/client/.generated/models';
+    export * from '@generated/client/models';
 }
 
 declare module '@common/errors' {
@@ -837,14 +1003,14 @@ declare namespace preact.JSX {
 `,
         );
 
-        // @/client/.generated/models.ts
+        // .proteum/client/models.ts
         writeIfChanged(
             path.join(app.paths.client.generated, 'models.ts'),
             `export * from '@/var/prisma/browser';
 `,
         );
 
-        // @/client/.generated/context.ts
+        // .proteum/client/context.ts
         writeIfChanged(
             path.join(app.paths.client.generated, 'context.ts'),
             `// TODO: move it into core (but how to make sure usecontext returns ${appClassIdentifier}'s context ?)
@@ -858,31 +1024,24 @@ export const ReactClientContext = React.createContext<ClientContext>({} as Clien
 export default (): ClientContext => React.useContext<ClientContext>(ReactClientContext);`,
         );
 
-        // @/common/.generated/services.d.ts
+        // .proteum/common/services.d.ts
         writeIfChanged(
             path.join(app.paths.common.generated, 'services.d.ts'),
-            `declare type ${appClassIdentifier} = import("@/server/.generated/app").default;
+            `declare type ${appClassIdentifier} = import("@generated/server/app").default;
 
 declare module '@models/types' {
-    export * from '@/common/.generated/models';
+    export * from '@generated/common/models';
 }`,
         );
 
-        // @/common/.generated/models.ts
+        // .proteum/common/models.ts
         writeIfChanged(
             path.join(app.paths.common.generated, 'models.ts'),
             `export * from '@/var/prisma/browser';
 `,
         );
 
-        // @/common/generated.d.ts
-        writeIfChanged(
-            path.join(app.paths.root, 'common', 'generated.d.ts'),
-            `/// <reference path="./.generated/services.d.ts" />
-`,
-        );
-
-        // @/server/.generated/app.ts
+        // .proteum/server/app.ts
         writeIfChanged(
             path.join(app.paths.server.generated, 'app.ts'),
             `
@@ -929,19 +1088,19 @@ export default class ${appClassIdentifier} extends Application<ServicesContainer
 `,
         );
 
-        // @/server/.generated/models.ts
+        // .proteum/server/models.ts
         writeIfChanged(
             path.join(app.paths.server.generated, 'models.ts'),
             `export * from '@/var/prisma/client';
 `,
         );
 
-        // @/server/.generated/services.d.ts
+        // .proteum/server/services.d.ts
         writeIfChanged(
             path.join(app.paths.server.generated, 'services.d.ts'),
             `type InstalledServices = Record<string, import('@server/app/service').AnyService>;
 
-declare type ${appClassIdentifier} = import("@/server/.generated/app").default;
+declare type ${appClassIdentifier} = import("@generated/server/app").default;
 
 declare module '@cli/app' {
 
@@ -1023,9 +1182,271 @@ declare module '@common/errors' {
 }
     
 declare module '@models/types' {
-    export * from '@/server/.generated/models';
+    export * from '@generated/server/models';
 }`,
         );
+
+        return { app: appServices, routerPlugins };
+    }
+
+    private getEnvTopLevelKeys() {
+        const envFilepath = path.join(app.paths.root, 'env.yaml');
+
+        if (!fs.existsSync(envFilepath)) return [];
+
+        const rawEnv = yaml.parse(fs.readFileSync(envFilepath, 'utf8'));
+
+        if (!rawEnv || typeof rawEnv !== 'object' || Array.isArray(rawEnv)) return [];
+
+        return Object.keys(rawEnv).sort((a, b) => a.localeCompare(b));
+    }
+
+    private collectManifestDiagnostics({
+        controllers,
+        routes,
+    }: {
+        controllers: TProteumManifestController[];
+        routes: TProteumManifest['routes'];
+    }) {
+        const diagnostics: TProteumManifestDiagnostic[] = [];
+
+        const pushDiagnostic = (diagnostic: TProteumManifestDiagnostic) => {
+            diagnostics.push(diagnostic);
+        };
+
+        const createDuplicateDiagnostics = <TEntry extends { filepath: string; sourceLocation?: { line: number; column: number } }>(
+            entries: TEntry[],
+            {
+                code,
+                level,
+                message,
+            }: {
+                code: string;
+                level: TProteumManifestDiagnostic['level'];
+                message: (entry: TEntry, others: TEntry[]) => string;
+            },
+        ) => {
+            if (entries.length < 2) return;
+
+            for (const entry of entries) {
+                pushDiagnostic({
+                    level,
+                    code,
+                    message: message(
+                        entry,
+                        entries.filter((candidate) => candidate !== entry),
+                    ),
+                    filepath: entry.filepath,
+                    sourceLocation: entry.sourceLocation,
+                    relatedFilepaths: entries
+                        .filter((candidate) => candidate !== entry)
+                        .map((candidate) => candidate.filepath),
+                });
+            }
+        };
+
+        const trackDuplicates = <TEntry extends { filepath: string; sourceLocation?: { line: number; column: number } }>(
+            entries: TEntry[],
+            getKey: (entry: TEntry) => string | undefined,
+            config: {
+                code: string;
+                level: TProteumManifestDiagnostic['level'];
+                message: (entry: TEntry, others: TEntry[]) => string;
+            },
+        ) => {
+            const groups = new Map<string, TEntry[]>();
+
+            for (const entry of entries) {
+                const key = getKey(entry);
+                if (!key) continue;
+
+                const group = groups.get(key) || [];
+                group.push(entry);
+                groups.set(key, group);
+            }
+
+            for (const group of groups.values()) {
+                createDuplicateDiagnostics(group, config);
+            }
+        };
+
+        for (const route of [...routes.client, ...routes.server]) {
+            if (route.targetResolution === 'dynamic-expression') {
+                pushDiagnostic({
+                    level: 'warning',
+                    code: 'route.dynamic-target',
+                    message:
+                        route.kind === 'client-error'
+                            ? `Proteum could not resolve this error code statically. Prefer a numeric literal or a const-only expression.`
+                            : `Proteum could not resolve this route path statically. Prefer a string literal or a const-only expression.`,
+                    filepath: route.filepath,
+                    sourceLocation: route.sourceLocation,
+                });
+            }
+
+            for (const optionKey of route.invalidOptionKeys) {
+                pushDiagnostic({
+                    level: 'error',
+                    code: 'route.invalid-option-key',
+                    message: `"${optionKey}" is not a supported Router option key.`,
+                    filepath: route.filepath,
+                    sourceLocation: route.sourceLocation,
+                });
+            }
+
+            for (const optionKey of route.reservedOptionKeys) {
+                pushDiagnostic({
+                    level: 'error',
+                    code: 'route.reserved-option-key',
+                    message: `"${optionKey}" is a reserved Router option key and cannot be set explicitly.`,
+                    filepath: route.filepath,
+                    sourceLocation: route.sourceLocation,
+                });
+            }
+        }
+
+        trackDuplicates(
+            routes.client.filter((route) => route.kind === 'client-page'),
+            (route) => route.path,
+            {
+                code: 'route.duplicate-client-path',
+                level: 'warning',
+                message: (route, others) =>
+                    `Duplicate client page path "${(route as TProteumManifestRoute).path}" also registered in ${others
+                        .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                        .join(', ')}.`,
+            },
+        );
+
+        trackDuplicates(
+            routes.client.filter((route) => route.kind === 'client-error'),
+            (route) => (typeof route.code === 'number' ? String(route.code) : undefined),
+            {
+                code: 'route.duplicate-client-error',
+                level: 'warning',
+                message: (route, others) =>
+                    `Duplicate client error code "${(route as TProteumManifestRoute).code}" also registered in ${others
+                        .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                        .join(', ')}.`,
+            },
+        );
+
+        trackDuplicates(
+            routes.server,
+            (route) => (route.path ? `${route.methodName}:${route.path}` : undefined),
+            {
+                code: 'route.duplicate-server-route',
+                level: 'warning',
+                message: (route, others) =>
+                    `Duplicate server route "${(route as TProteumManifestRoute).methodName.toUpperCase()} ${(route as TProteumManifestRoute).path}" also registered in ${others
+                        .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                        .join(', ')}.`,
+            },
+        );
+
+        trackDuplicates(
+            controllers,
+            (controller) => controller.clientAccessor,
+            {
+                code: 'controller.duplicate-client-accessor',
+                level: 'error',
+                message: (controller, others) =>
+                    `Duplicate controller accessor "${controller.clientAccessor}" also registered in ${others
+                        .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                        .join(', ')}.`,
+            },
+        );
+
+        trackDuplicates(
+            controllers,
+            (controller) => controller.httpPath,
+            {
+                code: 'controller.duplicate-http-path',
+                level: 'error',
+                message: (controller, others) =>
+                    `Duplicate controller HTTP path "${controller.httpPath}" also registered in ${others
+                        .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                        .join(', ')}.`,
+            },
+        );
+
+        const postServerRoutesByPath = new Map(
+            routes.server
+                .filter((route) => route.methodName === 'post' && !!route.path)
+                .map((route) => [route.path as string, route]),
+        );
+
+        for (const controller of controllers) {
+            const matchingRoute = postServerRoutesByPath.get(controller.httpPath);
+
+            if (!matchingRoute) continue;
+
+            pushDiagnostic({
+                level: 'error',
+                code: 'controller.server-route-collision',
+                message: `Controller path "${controller.httpPath}" collides with an explicit POST server route.`,
+                filepath: controller.filepath,
+                sourceLocation: controller.sourceLocation,
+                relatedFilepaths: [matchingRoute.filepath],
+            });
+        }
+
+        return diagnostics.sort((a, b) => {
+            if (a.level !== b.level) return a.level === 'error' ? -1 : 1;
+            if (a.filepath !== b.filepath) return a.filepath.localeCompare(b.filepath);
+            if ((a.sourceLocation?.line || 0) !== (b.sourceLocation?.line || 0))
+                return (a.sourceLocation?.line || 0) - (b.sourceLocation?.line || 0);
+            return a.code.localeCompare(b.code);
+        });
+    }
+
+    private writeCurrentProteumManifest({
+        services,
+        controllers,
+        routes,
+        layouts,
+    }: {
+        services: TProteumManifest['services'];
+        controllers: TProteumManifestController[];
+        routes: TProteumManifest['routes'];
+        layouts: TProteumManifestLayout[];
+    }) {
+        const manifest: TProteumManifest = {
+            version: 1,
+            app: {
+                root: normalizeAbsolutePath(app.paths.root),
+                coreRoot: normalizeAbsolutePath(cli.paths.core.root),
+                identityFilepath: normalizeAbsolutePath(path.join(app.paths.root, 'identity.yaml')),
+                identity: {
+                    name: app.identity.name,
+                    identifier: app.identity.identifier,
+                    description: app.identity.description,
+                    language: app.identity.language,
+                    locale: app.identity.locale,
+                    title: app.identity.web?.title,
+                    titleSuffix: app.identity.web?.titleSuffix,
+                    fullTitle: app.identity.web?.fullTitle,
+                    webDescription: app.identity.web?.description,
+                    version: app.identity.web?.version,
+                },
+            },
+            conventions: {
+                routeSetupOptionKeys: [...routeSetupOptionKeys],
+                reservedRouteSetupKeys: [...reservedRouteSetupKeys],
+            },
+            env: {
+                sourceFilepath: normalizeAbsolutePath(path.join(app.paths.root, 'env.yaml')),
+                loadedTopLevelKeys: this.getEnvTopLevelKeys(),
+                requiredTopLevelKeys: [...envRequiredTopLevelKeys],
+            },
+            services,
+            controllers,
+            routes,
+            layouts,
+            diagnostics: this.collectManifestDiagnostics({ controllers, routes }),
+        };
+
+        writeProteumManifest(app.paths.root, manifest);
     }
 
     private async warmupApp() {
@@ -1035,9 +1456,16 @@ declare module '@models/types' {
     private async refreshGeneratedArtifacts() {
         if (!this.refreshingGeneratedArtifacts) {
             this.refreshingGeneratedArtifacts = (async () => {
-                this.indexServices();
-                this.generateControllerModules();
-                this.generateRoutingModules();
+                const services = this.indexServices();
+                const controllers = this.generateControllerModules();
+                const { clientRoutes, serverRoutes, layouts } = this.generateRoutingModules();
+
+                this.writeCurrentProteumManifest({
+                    services,
+                    controllers,
+                    routes: { client: clientRoutes, server: serverRoutes },
+                    layouts,
+                });
             })().finally(() => {
                 this.refreshingGeneratedArtifacts = undefined;
             });

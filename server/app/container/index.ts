@@ -38,8 +38,8 @@ export class ApplicationContainer<TServicesIndex extends StartedServicesIndex = 
         public: path.join(process.cwd(), '/public'),
         var: path.join(process.cwd(), '/var'),
 
-        client: { generated: path.join(process.cwd(), 'src', 'client', '.generated') },
-        server: { generated: path.join(process.cwd(), 'src', 'server', '.generated') },
+        client: { generated: path.join(process.cwd(), '.proteum', 'client') },
+        server: { generated: path.join(process.cwd(), '.proteum', 'server') },
     };
 
     /*----------------------------------

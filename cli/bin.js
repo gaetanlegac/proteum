@@ -21,7 +21,7 @@ const path = require('path');
 if (!process.env.TS_NODE_IGNORE) {
     process.env.TS_NODE_IGNORE = [
         // Default ts-node ignore rule (works when deps are nested under `../node_modules/...`)
-        '(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)',
+        '(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)|(\.proteum\/)',
         // Extra rule for deps hoisted next to Proteum (ex: `../../tailwindcss/...`)
         '^\\.\\./\\.\\./(?!\\./|\\.\\./)[^/]+/',
     ].join(',');
@@ -32,4 +32,9 @@ process.env.TS_NODE_TRANSPILE_ONLY = '1';
 
 require('ts-node/register/transpile-only');
 
-require('./index.ts');
+const { runCli } = require('./index.ts');
+
+Promise.resolve(runCli()).catch((error) => {
+    console.error(error);
+    process.exit(1);
+});

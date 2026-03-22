@@ -2,14 +2,39 @@ import fs from 'fs-extra';
 import path from 'path';
 import ts from 'typescript';
 
+import { getRouteSetupOptionKey } from '../../../common/router/pageSetup';
 import writeIfChanged from '../writeIfChanged';
 
 type TRouteSide = 'client' | 'server';
 type TRouteRuntime = 'client' | 'server';
+export type TIndexedSourceLocation = { line: number; column: number };
+export type TIndexedRouteTargetResolution = 'literal' | 'static-expression' | 'dynamic-expression';
 
 type TImportedService = { importedName: string; localName: string };
 
-type TRouteDefinition = { args: ts.NodeArray<ts.Expression>; methodName: string; serviceLocalName: string };
+type TRouteDefinition = {
+    args: ts.NodeArray<ts.Expression>;
+    methodName: string;
+    serviceLocalName: string;
+    callExpression: ts.CallExpression;
+};
+
+export type TIndexedRouteDefinition = {
+    methodName: string;
+    serviceLocalName: string;
+    sourceLocation: TIndexedSourceLocation;
+    targetResolution: TIndexedRouteTargetResolution;
+    path?: string;
+    pathRaw?: string;
+    code?: number;
+    codeRaw?: string;
+    optionKeys: string[];
+    normalizedOptionKeys: string[];
+    invalidOptionKeys: string[];
+    reservedOptionKeys: string[];
+    optionsRaw?: string;
+    hasSetup: boolean;
+};
 
 type TGeneratedClientRouteModuleOptions = { chunkId: string; filepath: string };
 
@@ -38,6 +63,164 @@ const normalizeFilepath = (value: string) => path.resolve(value).replace(/\\/g, 
 
 const getNodeText = (sourceFile: ts.SourceFile, node: ts.Node) =>
     sourceFile.text.slice(node.getStart(sourceFile), node.getEnd());
+
+const getNodeLocation = (sourceFile: ts.SourceFile, node: ts.Node): TIndexedSourceLocation => {
+    const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+
+    return { line: line + 1, column: character + 1 };
+};
+
+const getLiteralStringValue = (node: ts.Expression) => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+    return undefined;
+};
+
+const getLiteralNumberValue = (node: ts.Expression) => {
+    if (!ts.isNumericLiteral(node)) return undefined;
+
+    const value = Number(node.text);
+
+    return Number.isFinite(value) ? value : undefined;
+};
+
+const getObjectLiteralPropertyKey = (name: ts.PropertyName) => {
+    if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+    if (ts.isComputedPropertyName(name)) return undefined;
+    return undefined;
+};
+
+const getObjectLiteralPropertyKeys = (node: ts.ObjectLiteralExpression) =>
+    node.properties.flatMap((property) => {
+        if (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) {
+            const key = getObjectLiteralPropertyKey(property.name);
+            return key ? [key] : [];
+        }
+
+        if (ts.isMethodDeclaration(property) || ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property)) {
+            const key = getObjectLiteralPropertyKey(property.name);
+            return key ? [key] : [];
+        }
+
+        return [];
+    });
+
+const tryEvaluateStaticExpression = (
+    node: ts.Expression,
+    bindingInitializers: Map<string, ts.Expression>,
+    resolvedBindings: Map<string, string | number | undefined>,
+    activeBindings = new Set<string>(),
+): string | number | undefined => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+
+    if (ts.isNumericLiteral(node)) {
+        const value = Number(node.text);
+        return Number.isFinite(value) ? value : undefined;
+    }
+
+    if (ts.isParenthesizedExpression(node)) {
+        return tryEvaluateStaticExpression(node.expression, bindingInitializers, resolvedBindings, activeBindings);
+    }
+
+    if (ts.isIdentifier(node)) {
+        if (resolvedBindings.has(node.text)) return resolvedBindings.get(node.text);
+
+        const initializer = bindingInitializers.get(node.text);
+        if (!initializer || activeBindings.has(node.text)) return undefined;
+
+        activeBindings.add(node.text);
+        const value = tryEvaluateStaticExpression(initializer, bindingInitializers, resolvedBindings, activeBindings);
+        activeBindings.delete(node.text);
+        resolvedBindings.set(node.text, value);
+
+        return value;
+    }
+
+    if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
+        const operand = tryEvaluateStaticExpression(node.operand, bindingInitializers, resolvedBindings, activeBindings);
+        return typeof operand === 'number' ? -operand : undefined;
+    }
+
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+        const left = tryEvaluateStaticExpression(node.left, bindingInitializers, resolvedBindings, activeBindings);
+        const right = tryEvaluateStaticExpression(node.right, bindingInitializers, resolvedBindings, activeBindings);
+
+        if (left === undefined || right === undefined) return undefined;
+
+        if (typeof left === 'string' || typeof right === 'string') return String(left) + String(right);
+        if (typeof left === 'number' && typeof right === 'number') return left + right;
+
+        return undefined;
+    }
+
+    if (ts.isTemplateExpression(node)) {
+        let output = node.head.text;
+
+        for (const span of node.templateSpans) {
+            const value = tryEvaluateStaticExpression(span.expression, bindingInitializers, resolvedBindings, activeBindings);
+            if (value === undefined) return undefined;
+
+            output += String(value) + span.literal.text;
+        }
+
+        return output;
+    }
+
+    return undefined;
+};
+
+const collectStaticBindings = (sourceFile: ts.SourceFile) => {
+    const bindingInitializers = new Map<string, ts.Expression>();
+    const resolvedBindings = new Map<string, string | number | undefined>();
+
+    for (const statement of sourceFile.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        if (!(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+
+        for (const declaration of statement.declarationList.declarations) {
+            if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+
+            bindingInitializers.set(declaration.name.text, declaration.initializer);
+        }
+    }
+
+    for (const bindingName of bindingInitializers.keys()) {
+        if (resolvedBindings.has(bindingName)) continue;
+
+        const initializer = bindingInitializers.get(bindingName);
+        if (!initializer) continue;
+
+        resolvedBindings.set(
+            bindingName,
+            tryEvaluateStaticExpression(initializer, bindingInitializers, resolvedBindings, new Set([bindingName])),
+        );
+    }
+
+    return resolvedBindings;
+};
+
+const getRouteOptionMetadata = (node: ts.ObjectLiteralExpression | undefined) => {
+    const optionKeys = node ? getObjectLiteralPropertyKeys(node) : [];
+    const normalizedOptionKeys: string[] = [];
+    const invalidOptionKeys: string[] = [];
+    const reservedOptionKeys: string[] = [];
+
+    for (const optionKey of optionKeys) {
+        try {
+            const normalizedOptionKey = getRouteSetupOptionKey(optionKey);
+
+            if (normalizedOptionKey) {
+                normalizedOptionKeys.push(normalizedOptionKey);
+                continue;
+            }
+
+            invalidOptionKeys.push(optionKey);
+        } catch (error) {
+            reservedOptionKeys.push(optionKey);
+        }
+    }
+
+    return { optionKeys, normalizedOptionKeys, invalidOptionKeys, reservedOptionKeys };
+};
 
 const routeModuleExtensions = ['.ts', '.tsx', '.js', '.jsx'];
 
@@ -151,6 +334,7 @@ const collectRouteDefinitions = (
             args: statement.expression.arguments,
             methodName: callee.name.text,
             serviceLocalName: callee.expression.text,
+            callExpression: statement.expression,
         });
 
         stripRanges.push({ start: statement.getStart(sourceFile), end: statement.getEnd() });
@@ -248,40 +432,63 @@ const buildDestructuring = (importedServices: TImportedService[]) => {
     return `const { ${parts.join(', ')} } = app;`;
 };
 
-const buildClientRegisterArgs = (
-    sourceFile: ts.SourceFile,
-    definition: TRouteDefinition,
-    clientRoute: TGeneratedClientRouteModuleOptions,
-) => {
+const getClientRouteSignature = (sourceFile: ts.SourceFile, definition: TRouteDefinition) => {
     const [, ...routeArgs] = [...definition.args];
-    const injectedOptions = `{ id: ${JSON.stringify(clientRoute.chunkId)}, filepath: ${JSON.stringify(clientRoute.filepath)} }`;
 
     if (routeArgs.length === 1) {
-        return [injectedOptions, getNodeText(sourceFile, routeArgs[0])];
+        return { hasSetup: false, renderArg: routeArgs[0] };
     }
 
     if (routeArgs.length === 2) {
         if (ts.isObjectLiteralExpression(routeArgs[0])) {
-            return [
-                `{ ...(${getNodeText(sourceFile, routeArgs[0])}), id: ${JSON.stringify(clientRoute.chunkId)}, filepath: ${JSON.stringify(clientRoute.filepath)} }`,
-                getNodeText(sourceFile, routeArgs[1]),
-            ];
+            return { hasSetup: false, optionsArg: routeArgs[0], renderArg: routeArgs[1] };
         }
 
-        return [injectedOptions, getNodeText(sourceFile, routeArgs[0]), getNodeText(sourceFile, routeArgs[1])];
+        return { hasSetup: true, setupArg: routeArgs[0], renderArg: routeArgs[1] };
     }
 
     if (routeArgs.length === 3 && ts.isObjectLiteralExpression(routeArgs[0])) {
-        return [
-            `{ ...(${getNodeText(sourceFile, routeArgs[0])}), id: ${JSON.stringify(clientRoute.chunkId)}, filepath: ${JSON.stringify(clientRoute.filepath)} }`,
-            getNodeText(sourceFile, routeArgs[1]),
-            getNodeText(sourceFile, routeArgs[2]),
-        ];
+        return {
+            hasSetup: true,
+            optionsArg: routeArgs[0],
+            setupArg: routeArgs[1],
+            renderArg: routeArgs[2],
+        };
     }
 
     throw new Error(
         `Unsupported client route signature in ${sourceFile.fileName}. Expected Router.page/error with 2-4 arguments.`,
     );
+};
+
+const buildClientRegisterArgs = (
+    sourceFile: ts.SourceFile,
+    definition: TRouteDefinition,
+    clientRoute: TGeneratedClientRouteModuleOptions,
+) => {
+    const { optionsArg, setupArg, renderArg } = getClientRouteSignature(sourceFile, definition);
+    const injectedOptions = `{ id: ${JSON.stringify(clientRoute.chunkId)}, filepath: ${JSON.stringify(clientRoute.filepath)} }`;
+
+    if (!optionsArg && !setupArg) {
+        return [injectedOptions, getNodeText(sourceFile, renderArg)];
+    }
+
+    if (optionsArg && !setupArg) {
+        return [
+            `{ ...(${getNodeText(sourceFile, optionsArg)}), id: ${JSON.stringify(clientRoute.chunkId)}, filepath: ${JSON.stringify(clientRoute.filepath)} }`,
+            getNodeText(sourceFile, renderArg),
+        ];
+    }
+
+    if (!optionsArg && setupArg) {
+        return [injectedOptions, getNodeText(sourceFile, setupArg), getNodeText(sourceFile, renderArg)];
+    }
+
+    return [
+        `{ ...(${getNodeText(sourceFile, optionsArg!)}), id: ${JSON.stringify(clientRoute.chunkId)}, filepath: ${JSON.stringify(clientRoute.filepath)} }`,
+        getNodeText(sourceFile, setupArg!),
+        getNodeText(sourceFile, renderArg),
+    ];
 };
 
 const buildRegisterStatements = (
@@ -321,6 +528,113 @@ const buildRegisterStatements = (
 export const getGeneratedRouteModuleFilepath = (generatedRoot: string, sourceRoot: string, sourceFilepath: string) =>
     path.join(generatedRoot, 'route-modules', path.relative(sourceRoot, sourceFilepath));
 
+export const indexRouteDefinitions = ({ side, sourceFilepath }: { side: TRouteSide; sourceFilepath: string }) => {
+    const code = fs.readFileSync(sourceFilepath, 'utf8');
+    const sourceFile = parseSourceFile(sourceFilepath, code);
+    const stripRanges: Array<{ start: number; end: number }> = [];
+    const importedServices = collectImportedServices(sourceFile, side, stripRanges);
+    const definitions = collectRouteDefinitions(sourceFile, importedServices, stripRanges);
+    const staticBindings = collectStaticBindings(sourceFile);
+
+    if (definitions.length === 0) {
+        throw new Error(`No route definitions were found in ${sourceFilepath}.`);
+    }
+
+    if (side === 'client' && definitions.length !== 1) {
+        throw new Error(
+            `Frontend route definition files can contain only one route definition. ${definitions.length} were found in ${sourceFilepath}.`,
+        );
+    }
+
+    return definitions.map<TIndexedRouteDefinition>((definition) => {
+        const sourceLocation = getNodeLocation(sourceFile, definition.callExpression);
+        const resolveStaticValue = (node: ts.Expression) => tryEvaluateStaticExpression(node, new Map(), staticBindings);
+
+        if (side === 'client') {
+            const targetArg = definition.args[0];
+            const clientSignature = getClientRouteSignature(sourceFile, definition);
+            const optionMetadata = getRouteOptionMetadata(clientSignature.optionsArg);
+            const resolvedStaticValue = resolveStaticValue(targetArg);
+
+            return definition.methodName === 'error'
+                ? {
+                      methodName: definition.methodName,
+                      serviceLocalName: definition.serviceLocalName,
+                      sourceLocation,
+                      targetResolution:
+                          getLiteralNumberValue(targetArg) !== undefined
+                              ? 'literal'
+                              : typeof resolvedStaticValue === 'number'
+                                ? 'static-expression'
+                                : 'dynamic-expression',
+                      code:
+                          getLiteralNumberValue(targetArg) ??
+                          (typeof resolvedStaticValue === 'number' ? resolvedStaticValue : undefined),
+                      codeRaw: getNodeText(sourceFile, targetArg),
+                      optionKeys: optionMetadata.optionKeys,
+                      normalizedOptionKeys: optionMetadata.normalizedOptionKeys,
+                      invalidOptionKeys: optionMetadata.invalidOptionKeys,
+                      reservedOptionKeys: optionMetadata.reservedOptionKeys,
+                      optionsRaw: clientSignature.optionsArg
+                          ? getNodeText(sourceFile, clientSignature.optionsArg)
+                          : undefined,
+                      hasSetup: clientSignature.hasSetup,
+                  }
+                : {
+                      methodName: definition.methodName,
+                      serviceLocalName: definition.serviceLocalName,
+                      sourceLocation,
+                      targetResolution:
+                          getLiteralStringValue(targetArg) !== undefined
+                              ? 'literal'
+                              : typeof resolvedStaticValue === 'string'
+                                ? 'static-expression'
+                                : 'dynamic-expression',
+                      path:
+                          getLiteralStringValue(targetArg) ??
+                          (typeof resolvedStaticValue === 'string' ? resolvedStaticValue : undefined),
+                      pathRaw: getNodeText(sourceFile, targetArg),
+                      optionKeys: optionMetadata.optionKeys,
+                      normalizedOptionKeys: optionMetadata.normalizedOptionKeys,
+                      invalidOptionKeys: optionMetadata.invalidOptionKeys,
+                      reservedOptionKeys: optionMetadata.reservedOptionKeys,
+                      optionsRaw: clientSignature.optionsArg
+                          ? getNodeText(sourceFile, clientSignature.optionsArg)
+                          : undefined,
+                      hasSetup: clientSignature.hasSetup,
+                  };
+        }
+
+        const targetArg = definition.args[0];
+        const optionsArg =
+            definition.args.length >= 3 && ts.isObjectLiteralExpression(definition.args[1])
+                ? definition.args[1]
+                : undefined;
+        const optionMetadata = getRouteOptionMetadata(optionsArg);
+        const resolvedPath = getLiteralStringValue(targetArg) ?? resolveStaticValue(targetArg);
+
+        return {
+            methodName: definition.methodName,
+            serviceLocalName: definition.serviceLocalName,
+            sourceLocation,
+            targetResolution:
+                getLiteralStringValue(targetArg) !== undefined
+                    ? 'literal'
+                    : typeof resolvedPath === 'string'
+                      ? 'static-expression'
+                      : 'dynamic-expression',
+            path: typeof resolvedPath === 'string' ? resolvedPath : undefined,
+            pathRaw: getNodeText(sourceFile, targetArg),
+            optionKeys: optionMetadata.optionKeys,
+            normalizedOptionKeys: optionMetadata.normalizedOptionKeys,
+            invalidOptionKeys: optionMetadata.invalidOptionKeys,
+            reservedOptionKeys: optionMetadata.reservedOptionKeys,
+            optionsRaw: optionsArg ? getNodeText(sourceFile, optionsArg) : undefined,
+            hasSetup: false,
+        };
+    });
+};
+
 export const writeGeneratedRouteModule = ({
     outputFilepath,
     runtime,
@@ -346,7 +660,7 @@ export const writeGeneratedRouteModule = ({
         sourceFilepath,
     );
     const registerStatements = buildRegisterStatements(sourceFile, side, definitions, clientRoute);
-    const runtimeAppImportPath = runtime === 'client' ? '@/client/index' : '@/server/.generated/app';
+    const runtimeAppImportPath = runtime === 'client' ? '@/client/index' : '@generated/server/app';
 
     const content = `/*----------------------------------
 - GENERATED FILE

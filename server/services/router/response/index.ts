@@ -19,8 +19,8 @@ import { NotFound, Forbidden, Anomaly } from '@common/errors';
 import BaseResponse, { TResponseData } from '@common/router/response';
 import { splitRouteSetupResult } from '@common/router/pageSetup';
 import Page from './page';
-import createControllers from '@/common/.generated/controllers';
-import type { TControllers } from '@/common/.generated/controllers';
+import createControllers from '@generated/common/controllers';
+import type { TControllers } from '@generated/common/controllers';
 
 // To move into a new npm module: json-mask
 import jsonMask from './mask';

@@ -144,9 +144,11 @@ export default function createCompiler(
                     include: [
                         app.paths.root + '/client',
                         cli.paths.core.root + '/client',
+                        app.paths.client.generated,
 
                         app.paths.root + '/common',
                         cli.paths.core.root + '/common',
+                        app.paths.common.generated,
 
                         // Prisma 7 generates TypeScript entrypoints under var/prisma.
                         app.paths.root + '/var/prisma',
@@ -154,6 +156,7 @@ export default function createCompiler(
                         // Dossiers server uniquement pour le bundle server
                         app.paths.root + '/server',
                         cli.paths.core.root + '/server',
+                        app.paths.server.generated,
 
                         // Complle 5HTP modules so they can refer to the framework instance and aliases
                         // Temp disabled because compile issue on vercel

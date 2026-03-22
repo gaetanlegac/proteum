@@ -4,7 +4,7 @@
 
 // Npm
 import dotenv from 'dotenv';
-import { PrismaClient } from '@/server/.generated/models';
+import { PrismaClient } from '@generated/server/models';
 import mysql from 'mysql2/promise';
 const safeStringify = require('fast-safe-stringify'); // remplace les références circulairs par un [Circular]
 

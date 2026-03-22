@@ -28,7 +28,7 @@ import { app, App } from '../app';
 ----------------------------------*/
 
 // Watch rules shared by the dev compiler and hot reload gate.
-const ignoredWatchPathPatterns = /(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)/;
+const ignoredWatchPathPatterns = /(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)|(\.proteum\/)/;
 const hotReloadableServerPathPatterns = [
     /^client\/pages\//,
     /^client\/components\//,

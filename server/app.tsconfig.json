@@ -5,7 +5,14 @@
         "baseUrl": "..",
         "paths": {
 
-            "@/server/models": ["./server/.generated/models.ts"],
+            "@/server/models": ["./.proteum/server/models.ts"],
+            "@/client/context": ["./.proteum/client/context.ts"],
+            "@generated/client/*": ["./.proteum/client/*"],
+            "@generated/common/*": ["./.proteum/common/*"],
+            "@generated/server/*": ["./.proteum/server/*"],
+            "@/client/.generated/*": ["./.proteum/client/*"],
+            "@/common/.generated/*": ["./.proteum/common/*"],
+            "@/server/.generated/*": ["./.proteum/server/*"],
 
             "@client/*": ["../node_modules/proteum/client/*"],
             "@common/*": ["../node_modules/proteum/common/*"],
