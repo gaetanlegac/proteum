@@ -9,24 +9,35 @@ import { TPostData } from '@common/router/request/api';
 - TYPES
 ----------------------------------*/
 
-function mergeObjects(object1, object2) {
-    return [object1, object2].reduce(function (carry, objectToMerge) {
-        Object.keys(objectToMerge).forEach(function (objectKey) {
-            carry[objectKey] = objectToMerge[objectKey];
+type TMultipartPrimitive = PrimitiveValue | null | undefined;
+type TMultipartValue =
+    | TMultipartPrimitive
+    | Blob
+    | Date
+    | FileList
+    | TMultipartValue[]
+    | { [key: string]: TMultipartValue };
+
+type TMultipartObject = { [key: string]: TMultipartValue };
+
+function mergeObjects<TObject extends object>(object1: TObject, object2: Partial<TObject>): TObject {
+    return [object1, object2].reduce<TObject>((carry, objectToMerge) => {
+        Object.keys(objectToMerge).forEach((objectKey) => {
+            carry[objectKey as keyof TObject] = objectToMerge[objectKey as keyof TObject] as TObject[keyof TObject];
         });
         return carry;
-    }, {});
+    }, { ...object1 });
 }
 
-function isArray(val) {
-    return {}.toString.call(val) === '[object Array]';
+function isArray(val: unknown): val is TMultipartValue[] {
+    return Array.isArray(val);
 }
 
-function isJsonObject(val) {
+function isJsonObject(val: unknown): val is TMultipartObject {
     return !isArray(val) && typeof val === 'object' && !!val && !(val instanceof Blob) && !(val instanceof Date);
 }
 
-function isAppendFunctionPresent(formData) {
+function isAppendFunctionPresent(formData: FormData) {
     return typeof formData.append === 'function';
 }
 
@@ -34,19 +45,51 @@ function isGlobalFormDataPresent() {
     return typeof FormData === 'function';
 }
 
-function getDefaultFormData() {
-    if (isGlobalFormDataPresent()) {
-        return new FormData();
+function getDefaultFormData(): FormData {
+    if (isGlobalFormDataPresent()) return new FormData();
+
+    throw new Error('FormData is not available in the current environment.');
+}
+
+function appendValue(formData: FormData, key: string, value: TMultipartValue, options: TOptions) {
+    if (value instanceof FileList) {
+        for (let index = 0; index < value.length; index++) {
+            const file = value.item(index);
+            if (file) formData.append(`${key}[${index}]`, file, file.name);
+        }
+        return;
+    }
+
+    if (value instanceof Blob) {
+        const filename = value instanceof File ? value.name : undefined;
+        if (filename) formData.append(key, value, filename);
+        else formData.append(key, value);
+        return;
+    }
+
+    if (value instanceof Date) {
+        formData.append(key, value.toISOString());
+        return;
+    }
+
+    if (((value === null && options.includeNullValues) || value !== null) && value !== undefined) {
+        formData.append(key, String(value));
     }
 }
 
-function convertRecursively(jsonObject: {}, options: TOptions, formData: FormData, parentKey: string) {
-    var index = 0;
+function convertRecursively(
+    jsonObject: TMultipartObject | TMultipartValue[],
+    options: TOptions,
+    formData: FormData,
+    parentKey: string,
+) {
+    let index = 0;
 
-    for (var key in jsonObject) {
+    for (const key in jsonObject) {
         if (jsonObject.hasOwnProperty(key)) {
-            var propName = parentKey || key;
-            var value = options.mapping(jsonObject[key]);
+            let propName = parentKey || key;
+            const rawValue = isArray(jsonObject) ? jsonObject[Number(key)] : jsonObject[key];
+            const value = options.mapping(rawValue);
 
             if (parentKey && isJsonObject(jsonObject)) {
                 propName = parentKey + '[' + key + ']';
@@ -62,16 +105,8 @@ function convertRecursively(jsonObject: {}, options: TOptions, formData: FormDat
 
             if (isArray(value) || isJsonObject(value)) {
                 convertRecursively(value, options, formData, propName);
-            } else if (value instanceof FileList) {
-                for (var j = 0; j < value.length; j++) {
-                    formData.append(propName + '[' + j + ']', value.item(j));
-                }
-            } else if (value instanceof Blob) {
-                formData.append(propName, value, value.name);
-            } else if (value instanceof Date) {
-                formData.append(propName, value.toISOString());
-            } else if (((value === null && options.includeNullValues) || value !== null) && value !== undefined) {
-                formData.append(propName, value);
+            } else {
+                appendValue(formData, propName, value, options);
             }
         }
         index++;
@@ -92,7 +127,7 @@ type TOptions = {
     initialFormData: FormData;
     showLeafArrayIndexes: boolean;
     includeNullValues: boolean;
-    mapping: (value: any) => any;
+    mapping: (value: TMultipartValue) => TMultipartValue;
 };
 
 export const toMultipart = (jsonObject: TPostData, options?: TOptions) => {
@@ -104,19 +139,19 @@ export const toMultipart = (jsonObject: TPostData, options?: TOptions) => {
         throw 'This environment does not have global form data. options.initialFormData must be specified.';
     }
 
-    var defaultOptions = {
+    const defaultOptions: TOptions = {
         initialFormData: getDefaultFormData(),
         showLeafArrayIndexes: true,
         includeNullValues: false,
         mapping: function (value) {
             if (typeof value === 'boolean') {
-                return +value ? '1' : '0';
+                return value ? '1' : '0';
             }
             return value;
         },
     };
 
-    var mergedOptions = mergeObjects(defaultOptions, options || {});
+    const mergedOptions = mergeObjects(defaultOptions, options || {});
 
-    return convertRecursively(jsonObject, mergedOptions, mergedOptions.initialFormData);
+    return convertRecursively(jsonObject as TMultipartObject, mergedOptions, mergedOptions.initialFormData, '');
 };

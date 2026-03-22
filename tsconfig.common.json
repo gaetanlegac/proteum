@@ -8,6 +8,10 @@
         "skipLibCheck": true,
         "allowJs": true,
         "strict": false,
+        "noImplicitAny": true,
+        "noImplicitThis": true,
+        "strictBindCallApply": true,
+        "useUnknownInCatchVariables": true,
         "downlevelIteration": true,
         // Force case sensitive import filenames on Window and Mac
         // https://briandesousa.net/?p=870 

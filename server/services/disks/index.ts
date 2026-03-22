@@ -3,7 +3,7 @@
 ----------------------------------*/
 
 // Core
-import type { Application } from '@server/app';
+import type { Application } from '@server/app/index';
 import Service, { AnyService, TRegisteredServicesIndex, TServiceArgs } from '@server/app/service';
 
 // Specific
@@ -29,10 +29,10 @@ export type Services = { [diskId: string]: Driver };
 ----------------------------------*/
 export default class DisksManager<
     MountpointList extends Services,
-    TConfig extends Config,
+    TConfig extends Config & { default: keyof MountpointList & string; drivers: MountpointList },
     TApplication extends Application,
 > extends Service<TConfig, Hooks, TApplication, TApplication> {
-    public default!: Driver;
+    public default!: MountpointList[keyof MountpointList & string];
 
     /*----------------------------------
     - LIFECYCLE
@@ -62,8 +62,11 @@ export default class DisksManager<
     - LIFECYCLE
     ----------------------------------*/
 
-    public get(diskName?: 'default' | keyof MountpointList): Driver {
-        const disk = diskName == 'default' || diskName === undefined ? this.default : this.config.drivers[diskName];
+    public get(diskName?: 'default' | keyof MountpointList) {
+        const disk =
+            diskName === 'default' || diskName === undefined
+                ? this.default
+                : this.config.drivers[diskName as keyof MountpointList];
 
         if (disk === undefined) throw new Error(`Disk "${diskName as string}" not found.`);
 

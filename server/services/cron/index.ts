@@ -3,7 +3,7 @@
 ----------------------------------*/
 
 // Core
-import type { Application } from '@server/app';
+import type { Application } from '@server/app/index';
 import Service from '@server/app/service';
 import { NotFound } from '@common/errors';
 import context from '@server/context';

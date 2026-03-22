@@ -55,9 +55,7 @@ const resolveCoreRoot = (appRoot: string) => {
 const normalizeImportPath = (value: string) => value.replace(/\\/g, '/');
 
 const filenameToImportName = (value: string) =>
-    normalizeImportPath(value)
-        .replace(/\.[^/.]+$/, '')
-        .replace(/[^A-Za-z0-9_]+/g, '_');
+    normalizeImportPath(value).replace(/[^A-Za-z0-9_]+/g, '_');
 
 /*----------------------------------
 - LIB
@@ -83,7 +81,10 @@ export default class Paths {
 
         // Extraction élements du chemin
         const decomp = filename.split('/');
-        let [nomFichier, extension] = (decomp.pop() as string).split('.');
+        const nomComplet = decomp.pop() as string;
+        const lastDotIndex = nomComplet.lastIndexOf('.');
+        const nomFichier = lastDotIndex === -1 ? nomComplet : nomComplet.substring(0, lastDotIndex);
+        const extension = lastDotIndex === -1 ? '' : nomComplet.substring(lastDotIndex + 1);
         const shortenExtension = opts.shortenExtensions && opts.shortenExtensions.includes(extension);
 
         // Vire l'index

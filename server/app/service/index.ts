@@ -3,11 +3,11 @@
 ----------------------------------*/
 
 // Specific
-import type { Application } from '..';
+import type { Application } from '../index';
 import type { Command } from '../commands';
 import type { TServiceMetas } from './container';
 import context from '@server/context';
-import type { TRouterContext, TAnyRouter } from '../../services/router/response';
+import type { TRouterContext, TAnyRouter } from '../../services/router';
 
 export { schema } from '../../services/router/request/validation/zod';
 export type { z } from '../../services/router/request/validation/zod';
@@ -16,7 +16,7 @@ export type { z } from '../../services/router/request/validation/zod';
 - TYPES: OPTIONS
 ----------------------------------*/
 
-export type AnyService<TSubServices extends StartedServicesIndex = StartedServicesIndex> = Service<{}, {}, Application>;
+export type AnyService = Service<{}, {}, Application, any>;
 
 export type { TRegisteredServicesIndex, TRegisteredService } from './container';
 
@@ -34,9 +34,37 @@ export type THooksIndex<THooks extends THooksList> = { [name in keyof THooks]?: 
 
 export type StartedServicesIndex = { [serviceId: string]: AnyService };
 
-export type TServiceArgs<TService extends AnyService> = [
-    parent: AnyService | 'self',
-    config: null | undefined | TService['config'],
+type TServiceRouter<TApplication extends Application> = TApplication extends { Router: infer TRouter }
+    ? TRouter extends TAnyRouter
+        ? TRouter
+        : TAnyRouter
+    : TAnyRouter;
+
+export type TServiceRequestContext<TApplication extends Application = Application> = TRouterContext<
+    TServiceRouter<TApplication>
+>;
+
+export type TServiceModelsClient<TApplication extends Application = Application> = TApplication extends {
+    Models: { client: infer TModels };
+}
+    ? TModels
+    : TApplication extends {
+            models: { client: infer TModels };
+        }
+      ? TModels
+      : never;
+
+export type TSetupConfig<TConfig> = TConfig extends (...args: any[]) => any
+    ? TConfig
+    : TConfig extends Array<infer TItem>
+      ? Array<TSetupConfig<TItem>>
+      : TConfig extends object
+        ? ({ [K in keyof TConfig]?: TSetupConfig<TConfig[K]> } & Record<string, unknown>)
+        : TConfig;
+
+export type TServiceArgs<TService extends { config: any; app: any; parent: any }> = [
+    parent: TService['parent'] | 'self',
+    config: null | undefined | TSetupConfig<TService['config']>,
     app: TService['app'] | 'self',
 ];
 
@@ -46,16 +74,22 @@ export type TServiceArgs<TService extends AnyService> = [
 
 const LogPrefix = '[service]';
 
+const resolveSelfReference = <TSelf extends object, TValue extends object>(
+    value: TValue | 'self',
+    self: TSelf,
+): TValue | (TSelf & TValue) => (value === 'self' ? (self as TSelf & TValue) : value);
+
 /*----------------------------------
 - CLASS
 ----------------------------------*/
 export default abstract class Service<
     TConfig extends {},
     THooks extends THooksList,
-    TApplication extends Application,
-    TParent extends AnyService,
+    TApplication extends Application = Application,
+    TParent extends object = AnyService,
 > {
     public started?: Promise<void>;
+    public starting?: Promise<void>;
     public status: 'stopped' | 'starting' | 'running' | 'paused' = 'starting';
 
     public commands?: Command[];
@@ -66,13 +100,16 @@ export default abstract class Service<
     public app: TApplication;
     public config: TConfig = {} as TConfig;
 
-    public constructor(...[parent, config, app]: TServiceArgs<AnyService>) {
-        this.parent = parent;
-        if (this.parent === 'self') this.parent = this as unknown as TParent;
+    public constructor(
+        parent: TParent | 'self',
+        config: null | undefined | TSetupConfig<TConfig>,
+        app: TApplication | 'self',
+    ) {
+        this.parent = resolveSelfReference(parent, this) as TParent;
 
-        this.app = app === 'self' ? (this as unknown as TApplication) : app;
+        this.app = resolveSelfReference(app, this) as TApplication;
 
-        this.config = config || {};
+        this.config = (config || {}) as TConfig;
     }
 
     public getServiceInstance() {
@@ -83,12 +120,21 @@ export default abstract class Service<
         return this.app;
     }
 
-    public get models() {
-        return this.app.Models?.client;
+    public get models(): TServiceModelsClient<TApplication> {
+        const app = this.app as {
+            models?: { client?: TServiceModelsClient<TApplication> };
+            Models?: { client?: TServiceModelsClient<TApplication> };
+        };
+        const models = app.models?.client ?? app.Models?.client;
+
+        if (!models)
+            throw new Error(`${this.constructor.name} tried to access models but no Models service is registered.`);
+
+        return models;
     }
 
-    protected get request(): TRouterContext<TAnyRouter> {
-        const store = context.getStore() as { requestContext?: TRouterContext<TAnyRouter> } | undefined;
+    protected get request(): TServiceRequestContext<TApplication> {
+        const store = context.getStore() as { requestContext?: TServiceRequestContext<TApplication> } | undefined;
         const requestContext = store?.requestContext;
 
         if (!requestContext)
@@ -103,9 +149,9 @@ export default abstract class Service<
     - LIFECYCLE
     ----------------------------------*/
 
-    protected async ready(): Promise<void> {}
+    protected async ready(): Promise<any> {}
 
-    protected async shutdown(): Promise<void> {}
+    protected async shutdown(): Promise<any> {}
 
     /*----------------------------------
     - SUBSERVICES
@@ -115,8 +161,11 @@ export default abstract class Service<
         serviceId: string,
         useOptions: { optional?: boolean } = {},
     ): TService | undefined {
-        const registeredService = this.app.registered[serviceId];
-        if (registeredService !== undefined) return this.app[registeredService.name];
+        const app = this.app as {
+            registered?: Record<string, { name: string }>;
+        } & Record<string, unknown>;
+        const registeredService = app.registered?.[serviceId];
+        if (registeredService !== undefined) return app[registeredService.name] as TService;
 
         if (useOptions.optional === false) throw new Error(`Service ${registeredService} not registered.`);
 

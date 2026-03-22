@@ -21,7 +21,7 @@ import * as csp from 'express-csp-header';
 
 // Core
 import Container from '@server/app/container';
-import type Router from '..';
+import type { TServerRouter } from '..';
 
 // Middlewaees (core)
 import { isMutipart, MiddlewareFormData } from './multipart';
@@ -52,7 +52,7 @@ export type Hooks = {};
 /*----------------------------------
 - FUNCTION
 ----------------------------------*/
-export default class HttpServer {
+export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
     public http: http.Server | https.Server;
     public express: express.Express;
 
@@ -60,7 +60,7 @@ export default class HttpServer {
 
     public constructor(
         public config: Config,
-        public router: Router,
+        public router: TRouter,
         public app = router.app,
     ) {
         // Init
@@ -180,7 +180,7 @@ export default class HttpServer {
                 limit: bytes(this.config.upload.maxSize),
                 verify: (req, res, buf, encoding) => {
                     // Store the raw request body so we can access it later
-                    req.rawBody = buf;
+                    (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
                 },
             }),
 

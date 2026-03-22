@@ -6,7 +6,7 @@
 import yargsParser from 'yargs-parser';
 
 // Core
-import type { Application } from '@server/app';
+import type { Application } from './index';
 import Service from '@server/app/service';
 import { NotFound } from '@common/errors';
 
@@ -105,7 +105,7 @@ export default class CommandsManager extends Service<Config, Hooks, Application>
         // TODO: order correctly & validate type according to injected typescript typedefs (command.run.params)
         const argsList = Object.values(args);
 
-        const result = await command.run(argsList);
+        const result = await command.run(...(argsList as Parameters<NonNullable<typeof command.run>>));
 
         return result;
     }

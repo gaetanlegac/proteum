@@ -21,7 +21,7 @@ import type ClientResponse from '../response';
 - ROUTER
 ----------------------------------*/
 // Since we do SSR, the server router can also be passed here
-export default class ClientRequest<TRouter extends ClientRouter = ClientRouter> extends BaseRequest {
+export default class ClientRequest<TRouter extends ClientRouter<any, any> = ClientRouter<any, any>> extends BaseRequest {
     public api: ApiClient;
     public response?: ClientResponse<TRouter>;
 
@@ -48,3 +48,7 @@ export default class ClientRequest<TRouter extends ClientRouter = ClientRouter> 
         this.api = new ApiClient(this.app, this);
     }
 }
+
+export const isClientRequest = <TRouter extends ClientRouter<any, any> = ClientRouter<any, any>>(
+    request: unknown,
+): request is ClientRequest<TRouter> => request instanceof ClientRequest;

@@ -58,7 +58,7 @@ export class ApplicationContainer<TServicesIndex extends StartedServicesIndex = 
     - PUBLIC API
     ----------------------------------*/
 
-    public start(ApplicationClass: typeof Application): Application {
+    public start<TApplication extends Application>(ApplicationClass: new () => TApplication): TApplication {
         // Instanciate Application
         try {
             this.application = new ApplicationClass();
@@ -75,19 +75,22 @@ export class ApplicationContainer<TServicesIndex extends StartedServicesIndex = 
             process.exit(1);
         }
 
-        return this.application;
+        return this.application as TApplication;
     }
 
-    public async handleBug(rejection: Error, message: string, request?: ServerRequest) {
+    public async handleBug(rejection: unknown, message: string, request?: ServerRequest) {
+        const error =
+            rejection instanceof Error ? rejection : new Error(typeof rejection === 'string' ? rejection : message);
+
         if (this.Console) {
             try {
-                this.Console.createBugReport(rejection, request);
+                this.Console.createBugReport(error, request);
             } catch (consoleError) {
-                console.error(message, rejection, 'Failed to transmiss the previous error to console:', consoleError);
+                console.error(message, error, 'Failed to transmiss the previous error to console:', consoleError);
                 process.exit(1);
             }
         } else {
-            console.error(message, rejection);
+            console.error(message, error);
             process.exit(1);
         }
     }

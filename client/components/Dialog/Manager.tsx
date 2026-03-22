@@ -8,7 +8,7 @@ import { ComponentChild } from 'preact';
 
 // Core
 import useContext from '@/client/context';
-import { blurable, deepContains, focusContent } from '@client/utils/dom';
+import { focusContent } from '@client/utils/dom';
 
 // Specific
 import type Application from '../../app';
@@ -23,7 +23,18 @@ import type Application from '../../app';
 
 type TParams = { [cle: string]: unknown };
 
-type ComposantToast = React.FunctionComponent<{ close?: any }> & { data?: object };
+type CardInfos = TParams & {
+    title?: string;
+    content?: ComponentChild;
+    boutons?: ComponentChild;
+    type?: string;
+    close?: (returnedValue?: unknown) => void;
+    isToast?: boolean;
+};
+
+type TDialogRendererProps = CardInfos & { isToast?: boolean };
+
+type ComposantToast = React.ComponentType<TDialogRendererProps> & { data?: object };
 
 type TOptsToast = CardInfos & { content?: ComponentChild; data?: {}; className?: string };
 
@@ -74,6 +85,20 @@ type DialogActions = {
 - SERVICE CONTEXTE
 ----------------------------------*/
 let idA: number = 0;
+
+const isPromiseContent = (value: TDialogContentArg): value is Promise<{ default: ComposantToast }> =>
+    typeof value === 'object' && value !== null && 'then' in value;
+
+const isDialogRenderer = (value: TDialogContentArg): value is ComposantToast => typeof value === 'function';
+
+const DefaultDialogContent = ({ title, content, boutons, type, isToast }: TDialogRendererProps) => (
+    <div class={`dialog-card${type ? ` ${type}` : ''}${isToast ? ' is-toast' : ''}`}>
+        {title ? <header>{title}</header> : null}
+        {content ? <div class="dialog-card__content">{content}</div> : null}
+        {boutons ? <footer>{boutons}</footer> : null}
+    </div>
+);
+
 export const createDialog = (app: Application, isToast: boolean): DialogActions => {
     const show = <TReturnType extends any = true>(...args: TDialogShowArgs): TDialogControls => {
         let onClose: TOnCloseCallback<TReturnType>;
@@ -84,9 +109,14 @@ export const createDialog = (app: Application, isToast: boolean): DialogActions 
         let Content: TDialogContentArg;
         let paramsInit: TParams = {};
         if (typeof args[0] === 'string') {
-            [title, Content, paramsInit] = args;
+            const [nextTitle, nextContent, nextParams] = args as [string, TDialogContentArg, TParams?];
+            title = nextTitle;
+            Content = nextContent;
+            paramsInit = nextParams || {};
         } else {
-            [Content, paramsInit] = args;
+            const [nextContent, nextParams] = args as [TDialogContentArg, TParams?];
+            Content = nextContent;
+            paramsInit = nextParams || {};
         }
 
         // Set instance management function
@@ -94,7 +124,9 @@ export const createDialog = (app: Application, isToast: boolean): DialogActions 
 
         // Close function
         const close = (retour: TReturnType) => {
-            setDialog((q) => q.filter((m) => m.id !== id));
+            setDialog((q) =>
+                (q as Array<ComponentChild & { id?: number }>).filter((m) => m && m.id !== id) as ComponentChild[],
+            );
 
             if (onClose !== undefined) onClose(retour);
         };
@@ -103,20 +135,21 @@ export const createDialog = (app: Application, isToast: boolean): DialogActions 
             onClose = resolve;
 
             let render: ComponentChild;
-            let propsRendu: CardInfos = { ...paramsInit, close: close };
+            let propsRendu: TDialogRendererProps = { ...paramsInit, close: close };
 
             // modal.show( import('./modalSupprimer') )
             //  -> Fetch component
-            if (Content.constructor === Promise) Content = (await Content).default;
+            if (isPromiseContent(Content)) Content = (await Content).default;
 
             // modal.show('Supprimer', import('./modalSupprimer'))
-            //  -> Shortcut for modal.show({ title: 'Suoorimer', content: <Component> })
-            if (title !== undefined) {
-                Content = { title: title, content: Content };
+            //  -> Shortcut for passing a title to the component or default card renderer.
+            if (title !== undefined) propsRendu.title = title;
+
+            if (isDialogRenderer(Content)) {
+                render = <Content {...propsRendu} isToast={isToast} />;
+            } else {
+                render = <DefaultDialogContent {...propsRendu} {...Content} isToast={isToast} />;
             }
-            // modal.show( ToastSupprimer )
-            //  -> Content is a component rendering a Card
-            render = <Content {...propsRendu} isToast={isToast} />;
 
             // Chargeur de données
             /*if (('data' in ComposantCharge) && typeof ComposantCharge.data === 'function') {
@@ -131,7 +164,7 @@ export const createDialog = (app: Application, isToast: boolean): DialogActions 
 
             if (!isToast) render = <div class="modal">{render}</div>;
 
-            render['id'] = id;
+            (render as ComponentChild & { id?: number }).id = id;
 
             setDialog((q) => [...q, render]);
         });
@@ -142,8 +175,8 @@ export const createDialog = (app: Application, isToast: boolean): DialogActions 
     const instance: DialogActions = {
         show: show,
 
-        setToasts: undefined as unknown as DialogActions['setToasts'],
-        setModals: undefined as unknown as DialogActions['setModals'],
+        setToasts: () => undefined,
+        setModals: () => undefined,
 
         loading: (title: string) => show({ title: title, type: 'loading' }),
 
@@ -173,9 +206,9 @@ export default () => {
     const [modals, setModals] = React.useState<ComponentChild[]>([]);
     const [toasts, setToasts] = React.useState<ComponentChild[]>([]);
 
-    if (app.side === 'client') {
-        app.modal.setModals = setModals;
-        app.toast.setToasts = setToasts;
+    if (app.side === 'client' && app.modal && app.toast) {
+        (app.modal as DialogActions).setModals = setModals;
+        (app.toast as DialogActions).setToasts = setToasts;
     }
 
     React.useEffect(() => {
@@ -186,7 +219,7 @@ export default () => {
 
         // Focus
         const lastToast = modals[modals.length - 1];
-        focusContent(lastToast);
+        focusContent(lastToast as HTMLElement);
     });
 
     return (

@@ -5,14 +5,14 @@
 // Npm
 import type { default as sharp, Sharp } from 'sharp';
 import fs from 'fs-extra';
-import got, { Method, Options } from 'got';
+import got, { Method, Options, Response as GotResponse } from 'got';
 
 // Node
 import request from 'request';
 
 // Core: general
-import type { Application } from '@server/app';
-import Service, { AnyService } from '@server/app/service';
+import type { Application } from '@server/app/index';
+import Service from '@server/app/service';
 import { viaHttpCode } from '@common/errors';
 
 // Local
@@ -28,7 +28,7 @@ export type Config = {
     debug?: boolean;
     disk?: string;
 
-    disks: DisksManager;
+    disks: DisksManager<any, any, Application>;
     router?: TAnyRouter;
 };
 
@@ -70,10 +70,10 @@ export default class FetchService extends Service<Config, Hooks, Application, Ap
     ----------------------------------*/
 
     public post(url: string, data: { [k: string]: any }, options: {} = {}) {
-        return this.request('POST', url, data, options);
+        return this.send('POST', url, data, options);
     }
 
-    public async request(method: Method, url: string, data: { [k: string]: any }, options: Options = {}) {
+    public async send(method: Method, url: string, data: { [k: string]: any }, options: Options = {}) {
         // Parse url if router service is provided
         if (this.config.router === undefined)
             throw new Error(`Please bind the Router service to the Fetch service in order to contact APIs.`);
@@ -81,12 +81,13 @@ export default class FetchService extends Service<Config, Hooks, Application, Ap
         url = this.config.router.url(url);
 
         // Send request
-        const res = await got(url, {
+        const res = (await got(url, {
             throwHttpErrors: false,
             headers: { Accept: 'application/json' },
             method,
             ...(method === 'GET' ? { searchParams: data } : { json: data }),
-        });
+            ...options,
+        })) as GotResponse<string>;
 
         // Handle errors
         if (res.statusCode !== 200) {

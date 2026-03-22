@@ -22,7 +22,7 @@ import './index.less';
 /*----------------------------------
 - COMPOSANT
 ----------------------------------*/
-export default function App({ context, menu }: { context: ClientContext; menu: ComponentChild }) {
+export default function App({ context, menu }: { context: ClientContext; menu?: ComponentChild }) {
     const { Router, page, toast } = context;
 
     return (

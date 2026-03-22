@@ -3,8 +3,8 @@
 ----------------------------------*/
 
 // Core
-import type { Application } from '@server/app';
-import Service from '@server/app/service';
+import type { Application } from '@server/app/index';
+import Service, { TSetupConfig } from '@server/app/service';
 
 /*----------------------------------
 - CONFIG
@@ -31,15 +31,17 @@ export type TOutputFileOptions = { encoding: string };
 
 export type TReadFileOptions = { encoding?: 'string' | 'buffer'; withMetas?: boolean };
 
+type TBucketNameFromConfig<TConfig extends TDrivercnfig> = Extract<keyof TConfig['buckets'], string>;
+
 /*----------------------------------
 - CLASS
 ----------------------------------*/
 
 export default abstract class FsDriver<
     Config extends TDrivercnfig = TDrivercnfig,
-    TBucketName = keyof Config['buckets'],
+    TBucketName extends TBucketNameFromConfig<Config> = TBucketNameFromConfig<Config>,
 > extends Service<Config, {}, Application, Application> {
-    public constructor(config: Config, app: Application) {
+    public constructor(config: TSetupConfig<Config>, app: Application) {
         super(app, config, app);
     }
 
@@ -49,9 +51,13 @@ export default abstract class FsDriver<
 
     public abstract readDir(bucketName: TBucketName, dirname?: string): Promise<SourceFile[]>;
 
-    public abstract readFile(bucketName: TBucketName, filename: string, options: TReadFileOptions): Promise<Buffer>;
+    public abstract readFile(
+        bucketName: TBucketName,
+        filename: string,
+        options?: TReadFileOptions,
+    ): Promise<Buffer | string>;
 
-    public abstract createReadStream(bucketName: TBucketName, filename: string);
+    public abstract createReadStream(bucketName: TBucketName, filename: string): unknown;
 
     public abstract exists(bucketName: TBucketName, filename: string): Promise<boolean>;
 

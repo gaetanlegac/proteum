@@ -10,21 +10,21 @@
 
 // Node
 // Npm
+const { v4: uuid } = require('uuid') as { v4: () => string };
 import got from 'got';
 import hInterval from 'human-interval';
 import type express from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import { v4 as uuid } from 'uuid';
 import zod, { ZodError } from 'zod';
 export { default as schema } from 'zod';
 
 // Core
-import type { Application } from '@server/app';
 import Service, { AnyService, TServiceArgs } from '@server/app/service';
 import context from '@server/context';
 import type DisksManager from '@server/services/disks';
 import { CoreError, InputError, NotFound, toJson as errorToJson } from '@common/errors';
 import BaseRouter, {
+    TMatchedRoute,
     TRoute,
     TErrorRoute,
     TRouteModule,
@@ -72,8 +72,8 @@ type TGeneratedControllerDefinition = {
 };
 
 type TGeneratedDefinitionsSnapshot = {
-    routes: TRoute[];
-    errors: { [code: number]: TErrorRoute };
+    routes: TMatchedRoute[];
+    errors: { [code: number]: TErrorRoute<any> };
     controllers: { [path: string]: TRoute };
     ssrRoutes: TSsrUnresolvedRoute[];
     cache: { [pageId: string]: { rendered: any; expire: number | undefined; options: TRouteOptions['static'] } };
@@ -92,11 +92,18 @@ export type HttpHeaders = { [cle: string]: string };
 - SERVICE CONFIG
 ----------------------------------*/
 
-export type TAnyRouter = ServerRouter<Application, TRouterServicesList, Config<TRouterServicesList>>;
+export type TAnyRouter = ServerRouter<
+    AnyService['app'],
+    TRouterServicesList,
+    Config<TRouterServicesList, AnyService['app']>
+>;
 
 const LogPrefix = '[router]';
 
-export type Config<TServices extends TRouterServicesList> = {
+export type Config<
+    TServices extends TRouterServicesList,
+    TApplication extends AnyService['app'] = AnyService['app'],
+> = {
     debug: boolean;
 
     disk?: string; // Disk driver ID
@@ -105,7 +112,7 @@ export type Config<TServices extends TRouterServicesList> = {
 
     http: HttpServiceConfig;
 
-    context: (request: ServerRequest<TServerRouter>, app: Application) => {};
+    context: (request: ServerRequest<TServerRouter>, app: TApplication) => {};
 
     plugins: TServices;
 };
@@ -121,27 +128,31 @@ export type TControllerDefinition = {
     controller: TServerController<TServerRouter>;
 };
 
-export type TServerRouter = ServerRouter<Application, TRouterServicesList, Config<TRouterServicesList>>;
+export type TServerRouter = ServerRouter<
+    AnyService['app'],
+    TRouterServicesList,
+    Config<TRouterServicesList, AnyService['app']>
+>;
 
 /*----------------------------------
 - CLASSE
 ----------------------------------*/
 export default class ServerRouter<
-        TApplication extends Application,
-        TServices extends TRouterServicesList,
-        TConfig extends Config<TServices>,
+        TApplication extends AnyService['app'] = AnyService['app'],
+        TServices extends TRouterServicesList = TRouterServicesList,
+        TConfig extends Config<TServices, TApplication> = Config<TServices, TApplication>,
     >
     extends Service<TConfig, Hooks, TApplication, TApplication>
     implements BaseRouter
 {
-    public disks = this.use<DisksManager>('Core/Disks', { optional: true });
+    public disks = this.use<DisksManager<any, any, TApplication>>('Core/Disks', { optional: true });
 
     // Services
     public http: HTTP;
     public render: DocumentRenderer<this>;
 
     // Indexed
-    public routes: TRoute[] = []; // API + pages front front
+    public routes: TMatchedRoute[] = []; // API + pages front front
     public errors: { [code: number]: TErrorRoute } = {};
     public controllers: { [path: string]: TRoute } = {};
     public ssrRoutes: TSsrUnresolvedRoute[] = [];
@@ -208,7 +219,7 @@ export default class ServerRouter<
         };
 
         // When all the services are ready, initialize static routes
-        this.app.on('ready', () => {
+        this.app.on('ready', async () => {
             this.initStaticRoutes();
         });
     }
@@ -324,7 +335,7 @@ export default class ServerRouter<
 
     private registerControllers(definitions: TGeneratedControllerDefinition[]) {
         for (const definition of definitions) {
-            const route: TRoute = {
+            const route: TRoute<TRouterContext<this>> = {
                 method: 'POST',
                 path: definition.path,
                 controller: (requestContext: TRouterContext<this>) => {
@@ -350,7 +361,7 @@ export default class ServerRouter<
 
         const { regex, keys } = buildRegex(path);
 
-        const route: TRoute = {
+        const route: TMatchedRoute<TRouterContext<this>> = {
             method: 'GET',
             path,
             regex,
@@ -369,14 +380,20 @@ export default class ServerRouter<
         return this;
     }
 
-    public error(code: number, options: TRoute['options'], renderer: TFrontRenderer<{}, { message: string }>) {
-        // Automatic layout form the nearest _layout folder
-        const layout = getLayout('Error ' + code, options);
+    public error(
+        code: number,
+        options: Partial<TRouteOptions>,
+        renderer: TFrontRenderer<{}, { message: string }>,
+    ) {
+        const finalOptions = { ...defaultOptions, ...options };
 
-        const route = {
+        // Automatic layout form the nearest _layout folder
+        const layout = getLayout('Error ' + code, finalOptions);
+
+        const route: TErrorRoute<TRouterContext<this>> = {
             code,
             controller: (context: TRouterContext<this>) => new Page(route, renderer, context, layout),
-            options,
+            options: finalOptions,
         };
 
         this.errors[code] = route;
@@ -421,7 +438,7 @@ export default class ServerRouter<
 
         const { regex, keys } = buildRegex(path);
 
-        const route: TRoute = {
+        const route: TMatchedRoute<TRouterContext<this>> = {
             method: method,
             path: path,
             regex,
@@ -502,7 +519,7 @@ export default class ServerRouter<
         // - Génère les définitions de route pour le client
         this.config.debug && console.info(`Registered routes:`);
         for (const route of this.routes) {
-            const chunkId = route.options['id'];
+            const chunkId = route.options.id;
 
             this.config.debug && console.info('-', route.method, route.path, ' :: ', JSON.stringify(route.options));
 
@@ -512,11 +529,11 @@ export default class ServerRouter<
         this.config.debug && console.info(`Registered error pages:`);
         for (const code in this.errors) {
             const route = this.errors[code];
-            const chunkId = route.options['id'];
+            const chunkId = route.options.id;
 
             this.config.debug && console.info('-', code, ' :: ', JSON.stringify(route.options));
 
-            this.ssrRoutes.push({ code: parseInt(code), chunk: chunkId });
+            if (chunkId) this.ssrRoutes.push({ code: parseInt(code), chunk: chunkId });
         }
 
         this.config.debug && console.info(`Registered layouts:`);
@@ -541,6 +558,9 @@ export default class ServerRouter<
         // Create request
         let requestId = uuid();
         const cachedPage = req.headers['bypasscache'] ? undefined : this.cache[req.path];
+        const headers: HttpHeaders = Object.fromEntries(
+            Object.entries(req.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : value || '']),
+        );
 
         const request = new ServerRequest(
             requestId,
@@ -549,7 +569,7 @@ export default class ServerRouter<
             req.path, // url sans params
             // Exclusion de req.files, car le middleware multipart les a normalisé dans req.body
             { ...req.query, ...req.body },
-            req.headers,
+            headers,
 
             res,
             this,
@@ -608,7 +628,9 @@ export default class ServerRouter<
                 );
 
             const requestService = routerService.requestService(request);
-            if (requestService !== null) contextServices[serviceName] = requestService;
+            if (requestService !== null)
+                contextServices[serviceName as keyof TRouterContextServices<this>] =
+                    requestService as TRouterContextServices<this>[keyof TRouterContextServices<this>];
         }
 
         return contextServices;
@@ -639,10 +661,10 @@ export default class ServerRouter<
                         await this.runHook('resolve', request);
 
                         // Controller route
-                        let route = this.controllers[request.path];
-                        if (route !== undefined) {
+                        const controllerRoute = this.controllers[request.path];
+                        if (controllerRoute !== undefined) {
                             // Create response
-                            await this.resolvedRoute(route, response, timeStart);
+                            await response.runController(controllerRoute);
                             if (response.wasProvided) return resolve(response);
                         }
 
@@ -650,7 +672,7 @@ export default class ServerRouter<
                         if (contextStore) contextStore.user = request.user?.email;
 
                         // Classic routes
-                        for (route of this.routes) {
+                        for (const route of this.routes) {
                             if (isStatic && !route.options.whenStatic) continue;
 
                             // Match Method
@@ -668,21 +690,29 @@ export default class ServerRouter<
 
                         reject(new NotFound());
                     } catch (error) {
+                        const typedError =
+                            error instanceof Error
+                                ? error
+                                : new Error(typeof error === 'string' ? error : 'Unknown router error');
+
                         if (this.app.env.profile === 'dev') {
-                            console.log('API batch error:', request.method, request.path, error);
+                            console.log('API batch error:', request.method, request.path, typedError);
                             const errOrigin = request.method + ' ' + request.path;
-                            if (error.details === undefined) error.details = { origin: errOrigin };
-                            else error.details.origin = errOrigin;
+                            if ('details' in typedError) {
+                                const routerError = typedError as Error & { details?: { origin?: string } };
+                                if (routerError.details === undefined) routerError.details = { origin: errOrigin };
+                                else routerError.details.origin = errOrigin;
+                            }
                         }
 
                         this.printTakenTime(timeStart);
-                        reject(error);
+                        reject(typedError);
                     }
                 },
             );
         });
 
-    private async resolvedRoute(route: TRoute, response: ServerResponse<this>, timeStart: number) {
+    private async resolvedRoute(route: TMatchedRoute, response: ServerResponse<this>, timeStart: number) {
         route = await response.resolveRouteOptions(route);
 
         // Run on resolution hooks. Ex: authentication check
@@ -717,7 +747,10 @@ export default class ServerRouter<
 
         const responseData: TObjetDonnees = {};
         for (const id in fetchers) {
-            const { method, path, data } = fetchers[id];
+            const fetcher = fetchers[id];
+            if (!fetcher || !('method' in fetcher)) continue;
+
+            const { method, path, data } = fetcher;
 
             const response = await this.resolve(request.children(method, path, data));
 
@@ -732,25 +765,28 @@ export default class ServerRouter<
         request.res.json(responseData);
     }
 
-    private async handleError(e: Error | CoreError | ZodError, request: ServerRequest<ServerRouter>) {
+    private async handleError(e: unknown, request: ServerRequest<this>) {
+        let error: Error | CoreError;
         if (e instanceof ZodError)
-            e = new InputError(e.issues.map((e) => e.path.join('.') + ': ' + e.message).join(', '));
+            error = new InputError(e.issues.map((issue) => issue.path.join('.') + ': ' + issue.message).join(', '));
+        else if (e instanceof Error) error = e;
+        else error = new Error(typeof e === 'string' ? e : 'Unknown error');
 
-        const code = 'http' in e ? e.http : 500;
+        const code = 'http' in error ? error.http : 500;
 
         const response = new ServerResponse(request).status(code);
 
         // Rapport / debug
         if (code === 500) {
             // Print the error here so the stacktrace appears in the bug report logs
-            console.log(LogPrefix, 'Error catched from the router:', e);
+            console.log(LogPrefix, 'Error catched from the router:', error);
 
             // Report error
-            await this.app.runHook('error', e, request);
+            await this.app.runHook('error', error, request);
 
             // Don't exose technical errors to users
             if (this.app.env.profile === 'prod')
-                e = new Error(
+                error = new Error(
                     'We encountered an internal error, and our team has just been notified. Sorry for the inconvenience.',
                 );
         } else {
@@ -758,7 +794,7 @@ export default class ServerRouter<
             /*if (this.app.env.profile === "dev")
                 console.warn(e);*/
 
-            await this.app.runHook('error.' + code, e, request);
+            await this.app.runHook('error.' + code, error, request);
         }
 
         // Return error based on the request format
@@ -766,12 +802,12 @@ export default class ServerRouter<
             const route = this.errors[code];
             if (route === undefined) throw new Error(`No route for error code ${code}`);
 
-            const jsonError = errorToJson(e);
+            const jsonError = errorToJson(error);
             await response.setRoute(route).runController(route, { error: jsonError });
         } else if (request.accepts('json')) {
-            const jsonError = errorToJson(e);
+            const jsonError = errorToJson(error);
             await response.json(jsonError);
-        } else await response.text(e.message);
+        } else await response.text(error.message);
 
         return response;
     }

@@ -14,9 +14,14 @@ export type TFetcherList = { [id: string]: TFetcher<any> | Promise<any> | undefi
 
 export type TFetcher<TData extends any = unknown> = {
     // For async calls: api.post(...).then((data) => ...)
-    then: (callback: (data: TData) => void) => Promise<TData>;
-    catch: (callback: (data: any) => false | void) => Promise<TData>;
-    finally: (callback: () => void) => Promise<TData>;
+    then: <TResult1 = TData, TResult2 = never>(
+        onfulfilled?: ((value: TData) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+    ) => Promise<TResult1 | TResult2>;
+    catch: <TResult = never>(
+        onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null,
+    ) => Promise<TData | TResult>;
+    finally: (onfinally?: (() => void) | null) => Promise<TData>;
     run: () => Promise<TData>;
 
     method: HttpMethod;
@@ -52,9 +57,9 @@ export default abstract class ApiClient {
     - TOP LEVEL
     ----------------------------------*/
 
-    public abstract set(newData: TObjetDonnees);
+    public abstract set(newData: TObjetDonnees): void;
 
-    public abstract reload(ids?: string | string[], params?: TObjetDonnees);
+    public abstract reload(ids?: string | string[], params?: TObjetDonnees): void;
 
     /*----------------------------------
     - LOW LEVEL

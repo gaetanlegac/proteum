@@ -147,21 +147,16 @@ export default class Filtre {
             if (donneeBranche === undefined) donneeBranche = donnee[nomBranche];
 
             // Filtrage de la valeur de la propriété
-            retour[nomBranche] = this.filtrer(
-                donneeBranche,
-                schema !== undefined ? schema[nomBranche] : undefined,
+            const objectSchema = typeof schema === 'object' && schema !== null ? schema : undefined;
 
-                cheminA,
-
-                schema as TObjet,
-            );
+            retour[nomBranche] = this.filtrer(donneeBranche, objectSchema?.[nomBranche], cheminA, schema as TObjet);
         }
 
         return retour;
     }
 
     // Traitement des données aux extrémités (auxquelles font référence les true)
-    private valeur(donnee: any, schema: TSelecteur, chemin: string[]) {
+    private valeur(donnee: any, schema: TSelecteur | undefined, chemin: string[]) {
         // Si sélecteur wildcard
         const wildcard = typeof schema === 'object' && schema['*'] === true;
 

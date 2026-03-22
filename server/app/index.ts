@@ -9,7 +9,7 @@ import CommandsManager from './commands';
 import ServicesContainer, { ServicesContainer as ServicesContainerClass, TServiceMetas } from './service/container';
 
 // Built-in
-import type { default as Router, Request as ServerRequest } from '@server/services/router';
+import type { TServerRouter, Request as ServerRequest } from '@server/services/router';
 import { Anomaly } from '@common/errors';
 import { TBasicUser } from '@server/services/auth';
 
@@ -25,7 +25,7 @@ type Config = {};
 type Hooks = {
     ready: { args: [] };
     cleanup: { args: [] };
-    error: { args: [error: Error, request?: ServerRequest<Router>] };
+    error: { args: [error: Error, request?: ServerRequest<TServerRouter>] };
 };
 
 export const Service = ServicesContainer;
@@ -75,7 +75,7 @@ export abstract class Application<
     ----------------------------------*/
 
     public constructor() {
-        const self = 'self' as unknown as Application;
+        const self = 'self' as const;
 
         // Application itself doesnt have configuration
         // Configuration must be handled by application services
@@ -105,7 +105,7 @@ export abstract class Application<
     - COMMANDS
     ----------------------------------*/
 
-    private commandsManager = new CommandsManager(this, { debug: true }, {}, this);
+    private commandsManager = new CommandsManager(this, { debug: true }, this);
 
     public command(...args: Parameters<CommandsManager['command']>) {
         return this.commandsManager.command(...args);
@@ -145,7 +145,7 @@ export abstract class Application<
             try {
                 const service = this.registered[serviceId];
                 const instance = service.start();
-                this[service.name] = instance.getServiceInstance();
+                (this as Record<string, unknown>)[service.name] = instance.getServiceInstance();
             } catch (error) {
                 console.error('Error while starting service', serviceId, error);
                 throw error;
@@ -157,7 +157,7 @@ export abstract class Application<
         return service.ready();
     }
 
-    protected async ready() {
+    public async ready() {
         const startingServices: Promise<any>[] = [];
 
         // Print services
@@ -174,7 +174,7 @@ export abstract class Application<
             // Subservices
             for (const propKey in service) {
                 if (propKey === 'app') continue;
-                const propValue = service[propKey];
+                    const propValue = (service as Record<string, any>)[propKey];
 
                 // Check if service
                 const isService =
@@ -191,7 +191,7 @@ export abstract class Application<
 
         for (const serviceId in this.registered) {
             const registeredService = this.registered[serviceId];
-            const service = this[registeredService.name];
+            const service = (this as Record<string, any>)[registeredService.name];
 
             // TODO: move to router
             //  Application.on('service.ready')

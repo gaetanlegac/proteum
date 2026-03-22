@@ -3,7 +3,7 @@
 ----------------------------------*/
 
 // Libs
-import compilerSelecteurs, { TObjetSelecteurs } from './selecteurs';
+import compilerSelecteurs, { TObjetSelecteurs, TSelecteur } from './selecteurs';
 import Filter from './Filter';
 
 // Filtres spécifiques métier
@@ -31,7 +31,7 @@ export default (donnee: any, selecteurs?: string | TObjetSelecteurs) => {
     }
 
     // Correction sélecteurs
-    let selecteursCompiles: TObjetSelecteurs | undefined;
+    let selecteursCompiles: TSelecteur | undefined;
     if (selecteurs === undefined) selecteursCompiles = undefined;
     else if (typeof selecteurs === 'string')
         selecteursCompiles = compilerSelecteurs(selecteurs); // Déjà un objet, pas besoin de compiler

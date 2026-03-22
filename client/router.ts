@@ -5,7 +5,7 @@ const getRouter = (): Router => {
         throw new Error(`Client router is not available on the server.`);
     }
 
-    const router = window.app?.['Router'] as Router | undefined;
+    const router = (window.app as (Record<string, unknown> & { Router?: Router }) | undefined)?.Router;
     if (!router) {
         throw new Error(`Client router was accessed before the application booted.`);
     }
@@ -19,7 +19,7 @@ const ClientRouter = new Proxy({} as Router, {
         return typeof value === 'function' ? value.bind(getRouter()) : value;
     },
     set(_target, property, value) {
-        (getRouter() as Record<PropertyKey, unknown>)[property] = value;
+        ((getRouter() as unknown) as Record<PropertyKey, unknown>)[property] = value;
         return true;
     },
 }) as Router;

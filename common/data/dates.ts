@@ -67,7 +67,7 @@ export const timeSince = (date: Date | number | string): TDateInfo | null => {
     const isPast = now > timestamp;
 
     return {
-        text: date, //timeAgo.format(date),
+        text: String(date), //timeAgo.format(date),
         isPast,
         delta: deltaSeconds,
     };
@@ -86,8 +86,8 @@ export const tempsRelatif = (time: number, nbChiffresInit?: number) => {
         const secondes = Math.floor(time % 60);
 
         return [heures, minutes, secondes]
-            .filter((nb: number | false, i: number) => nb > 0 || 4 - i <= nbChiffres)
-            .map((nb: number) => (nb < 10 ? '0' + nb : nb))
+            .filter((nb, i) => nb > 0 || 4 - i <= nbChiffres)
+            .map((nb) => (nb < 10 ? '0' + nb : nb))
             .join(':');
     }
 };

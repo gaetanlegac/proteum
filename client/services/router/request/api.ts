@@ -27,6 +27,9 @@ const debug = false;
 
 export type Config = {};
 
+const isFileValue = (value: unknown): value is File =>
+    typeof File !== 'undefined' && typeof value === 'object' && value instanceof File;
+
 /*----------------------------------
 - FUNCTION
 ----------------------------------*/
@@ -54,7 +57,11 @@ export default class ApiClient implements ApiClientService {
     public set(newData: TObjetDonnees) {
         if (!('context' in this.router)) throw new Error('api.set is not available on server side.');
 
-        if (this.router.context.page) this.router.context.page.setAllData((curData) => ({ ...curData, ...newData }));
+        const currentPage = this.router.context.page;
+        if (currentPage && 'setAllData' in currentPage) {
+            const page = currentPage as { setAllData: (updater: (data: TObjetDonnees) => TObjetDonnees) => void };
+            page.setAllData((curData) => ({ ...curData, ...newData }));
+        }
         else throw new Error(`[api] this.router.context.page undefined`);
     }
 
@@ -77,10 +84,10 @@ export default class ApiClient implements ApiClientService {
         debug && console.log('[api] Reload data', ids, params, page.fetchers);
 
         page.fetchData()
-            .then((data) => {
+            .then((data: TObjetDonnees) => {
                 this.set(data);
             })
-            .catch((error) => {
+            .catch((error: Error) => {
                 this.app.handleError(error);
             });
     }
@@ -137,15 +144,19 @@ export default class ApiClient implements ApiClientService {
         // Fetch all the api data thanks to one http request
         const fetchedData =
             fetchersCount === 0
-                ? 0
-                : await this.execute('POST', '/api', { fetchers: fetchersToRun })
-                      .then((res) => {
+                ? {}
+                : await this.execute<TObjetDonnees>(
+                      'POST',
+                      '/api',
+                      ({ fetchers: fetchersToRun } as unknown) as TPostData,
+                  )
+                      .then((res: TObjetDonnees) => {
                           const data: TObjetDonnees = {};
                           for (const id in res) data[id] = res[id];
 
                           return data;
                       })
-                      .catch((e) => {
+                      .catch((e: Error) => {
                           // API Error hook
                           this.app.handleError(e);
 
@@ -163,13 +174,14 @@ export default class ApiClient implements ApiClientService {
         debug && console.log(`[api] Sending request`, method, url, data);
 
         // Create Fetch config
-        const config: With<RequestInit, 'headers'> = { method: method, headers: { Accept: 'application/json' } };
+        const headers = new Headers({ Accept: 'application/json' });
+        const config: RequestInit = { method, headers };
 
         // Update options depending on data
         if (data) {
             // If file included in data, need to use multipart
             // TODO: deep check
-            const hasFile = Object.values(data).some((value) => value instanceof File);
+                const hasFile = Object.values(data).some((value) => isFileValue(value));
             if (hasFile) {
                 // GET request = Can't send files
                 if (method === 'GET') throw new Error('Cannot send file in GET request');
@@ -182,14 +194,18 @@ export default class ApiClient implements ApiClientService {
 
             // Data encoding
             if (method === 'GET') {
-                const params = new URLSearchParams(data as unknown as TPostDataWithoutFile).toString();
+                const params = new URLSearchParams();
+                for (const [key, value] of Object.entries(data as TPostDataWithoutFile)) {
+                    if (value === undefined || value === null) continue;
+                    params.set(key, String(value));
+                }
                 url = `${url}?${params}`;
             } else if (options.encoding === 'multipart') {
                 debug && console.log('[api] Multipart request', data);
                 // Browser will automatically choose the right headers
                 config.body = toMultipart(data);
             } else {
-                config.headers['Content-Type'] = 'application/json';
+                headers.set('Content-Type', 'application/json');
                 config.body = JSON.stringify(data);
             }
         }

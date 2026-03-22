@@ -37,9 +37,11 @@ export default ({ page }: { page: Page }) => {
         setApiData(page.data);
     }, [page.data]);
 
+    const rendererProps = { ...context, ...fullData } as Parameters<NonNullable<typeof page.renderer>>[0];
+
     /*----------------------------------
     - RENDER
     ----------------------------------*/
     //  Make request parameters and api data accessible from the page component
-    return page.renderer ? <page.renderer {...context} {...fullData} /> : <>Renderer missing</>;
+    return page.renderer ? <page.renderer {...rendererProps} /> : <>Renderer missing</>;
 };

@@ -11,45 +11,53 @@ import { removeStopwords, eng } from 'stopword';
 - TYPES
 ----------------------------------*/
 
+type TSlugSqlClient = {
+    esc?: (value: unknown) => string;
+    selectVal?: <TValue = number>(query: string) => Promise<TValue | null>;
+};
+
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
 export class Slug {
-    public async generate(label: string);
-    public async generate(label: string, SQL: SQL, table: string, column: string);
-    public async generate(label: string, SQL?: SQL, table?: string, column?: string) {
-        // Generate slug
+    public async generate(label: string): Promise<string>;
+    public async generate(label: string, sql: TSlugSqlClient, table: string, column: string): Promise<string>;
+    public async generate(
+        label: string,
+        sql?: TSlugSqlClient,
+        table?: string,
+        column?: string,
+    ): Promise<string> {
         let slug = slugify(label, {
-            replacement: '-', // replace spaces with replacement character, defaults to `-`
-            remove: /[^a-z\s]/gi, // remove characters that match regex, defaults to `undefined`
-            lower: true, // convert to lower case, defaults to `false`
-            strict: true, // strip special characters except replacement, defaults to `false`
-            locale: 'vi', // language code of the locale to use
-            trim: true, // trim leading and trailing replacement chars, defaults to `true`
+            replacement: '-',
+            remove: /[^a-z\s]/gi,
+            lower: true,
+            strict: true,
+            locale: 'vi',
+            trim: true,
         });
 
         slug = removeStopwords(slug.split('-'), eng).join('-');
 
-        // Check if already existing
-        if (SQL !== undefined) {
-            slug = await this.Correct(slug, SQL, table, column);
-        }
+        if (sql && table && column) slug = await this.Correct(slug, sql, table, column);
 
         return slug;
     }
 
-    public async Correct(slug: string, SQL: SQL, table: string, column: string) {
+    public async Correct(slug: string, sql: TSlugSqlClient, table: string, column: string): Promise<string> {
+        if (!sql.esc || !sql.selectVal) return slug;
+
         const escapedSlug = escapeStringRegexp(slug);
 
-        const duplicates = await SQL.selectVal<number>(`
+        const duplicates = await sql.selectVal<number>(`
             SELECT 
-                IF( ${column} LIKE ${SQL.esc(slug)},
+                IF( ${column} LIKE ${sql.esc(slug)},
                     1,
                     CAST(SUBSTRING_INDEX(slug, '-', -1) AS UNSIGNED)
                 ) AS duplicates
             FROM ${table} 
             WHERE 
-                ${column} LIKE ${SQL.esc(slug)}
+                ${column} LIKE ${sql.esc(slug)}
                 OR
                 ${column} REGEXP '^${escapedSlug}-[0-9]+$'
             ORDER BY duplicates DESC

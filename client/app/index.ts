@@ -100,7 +100,7 @@ export default abstract class Application {
         };
     }
 
-    public abstract handleError(error: CoreError | Error);
+    public abstract handleError(error: CoreError | Error): void;
 
     public abstract handleUpdate(): void;
 
@@ -111,7 +111,7 @@ export default abstract class Application {
             headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 url: window.location.pathname,
-                context: JSON.stringify(window['ssr']),
+                context: JSON.stringify((window as Window & { ssr?: unknown }).ssr),
                 guiVersion: BUILD_DATE,
                 ...infos,
             }),

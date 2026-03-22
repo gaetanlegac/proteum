@@ -8,10 +8,9 @@ import type express from 'express';
 import type http from 'http';
 
 // Core
-import { Application } from '@server/app';
+import type { Application } from '@server/app/index';
 import Service from '@server/app/service';
-import type { TAnyRouter } from '@server/services/router';
-import { default as Router, Request as ServerRequest } from '@server/services/router';
+import { type TAnyRouter, Request as ServerRequest } from '@server/services/router';
 import { InputError, AuthRequired, Forbidden } from '@common/errors';
 
 /*----------------------------------
@@ -77,9 +76,17 @@ export type TConfig = {
 
 export type THooks = {};
 
-export type TBasicUser = { type: string; name: string | null; email: string; roles: string[] };
+export type TBasicUser = {
+    type: string;
+    name: string | null;
+    email: string;
+    roles: string[];
+    locale?: string | null;
+};
 
 export type TBasicJwtSession = { apiKey: string } | { email: string };
+
+type TApiKeySession = { apiKey: string; accountType?: string };
 
 /*----------------------------------
 - SERVICE
@@ -90,14 +97,15 @@ export default abstract class AuthService<
     TJwtSession extends TBasicJwtSession = TBasicJwtSession,
     TRequest extends ServerRequest<TAnyRouter> = ServerRequest<TAnyRouter>,
 > extends Service<TConfig, THooks, TApplication, TApplication> {
-    //public abstract login( ...args: any[] ): Promise<{ user: TUser, token: string }>;
+    public login?(request: TRequest, email: string): Promise<unknown>;
     public abstract decodeSession(jwt: TJwtSession, req: THttpRequest): Promise<TUser | null>;
 
     // https://beeceptor.com/docs/concepts/authorization-header/#examples
     public async decode(req: THttpRequest, withData: true): Promise<TUser | null>;
     public async decode(req: THttpRequest, withData?: false): Promise<TJwtSession | null>;
     public async decode(req: THttpRequest, withData: boolean = false): Promise<TJwtSession | TUser | null> {
-        this.config.debug && console.log(LogPrefix, 'Decode:', { cookie: req.cookies['authorization'] });
+        const requestCookies = 'cookies' in req ? req.cookies : undefined;
+        this.config.debug && console.log(LogPrefix, 'Decode:', { cookie: requestCookies?.['authorization'] });
 
         // Get auth token
         const authMethod = this.getAuthMethod(req);
@@ -145,15 +153,18 @@ export default abstract class AuthService<
         // API Key
         if (tokenType === 'Apikey') {
             const [accountType] = token.split('-');
+            const apiKeySession = { accountType, apiKey: token } satisfies TApiKeySession;
 
             this.config.debug && console.log(LogPrefix, `Auth via API Key`, token);
-            session = { accountType, apiKey: token } as TJwtSession;
+            session = apiKeySession as TJwtSession & TApiKeySession;
 
             // JWT
         } else if (tokenType === 'Bearer') {
             this.config.debug && console.log(LogPrefix, `Auth via JWT token`, token);
             try {
-                session = jwt.verify(token, this.config.jwt.key, { maxAge: this.config.jwt.expiration });
+                session = jwt.verify(token, this.config.jwt.key, {
+                    maxAge: this.config.jwt.expiration,
+                }) as TJwtSession;
             } catch (error) {
                 console.warn(LogPrefix, 'Failed to decode jwt token:', token);
                 return null;
@@ -185,25 +196,27 @@ export default abstract class AuthService<
         request.res.clearCookie('authorization');
     }
 
-    public check(request: TRequest, role?: TUserRole | false): TUser | null;
+    public check(request: TRequest, role?: TUserRole | boolean): TUser | null;
 
-    public check(request: TRequest, role: TUserRole | false, feature: FeatureKeys, action?: string): TUser | null;
+    public check(request: TRequest, role: TUserRole | boolean, feature: FeatureKeys, action?: string): TUser | null;
 
     public check(
         request: TRequest,
-        role: TUserRole | false = 'USER',
+        role: TUserRole | boolean = 'USER',
         feature?: FeatureKeys,
         action?: string,
     ): TUser | null {
+        const normalizedRole = role === true ? 'USER' : role;
         const user = request.user;
 
-        this.config.debug && console.warn(LogPrefix, `Check auth, role = ${role}. Current user =`, user?.name, feature);
+        this.config.debug &&
+            console.warn(LogPrefix, `Check auth, role = ${normalizedRole}. Current user =`, user?.name, feature);
 
         if (user === undefined) {
             throw new Error(`request.user has not been decoded.`);
 
             // Shoudln't be logged
-        } else if (role === false) {
+        } else if (normalizedRole === false) {
             return user as TUser;
 
             // Not connected
@@ -212,16 +225,19 @@ export default abstract class AuthService<
             throw new AuthRequired('Please login to continue', feature as any, action as any);
 
             // Insufficient permissions
-        } else if (!user.roles.includes(role)) {
+        } else if (!user.roles.includes(normalizedRole)) {
             console.warn(
                 LogPrefix,
-                'Refusé: ' + role + ' pour ' + user.name + ' (' + (user.roles || 'role inconnu') + ')',
+                'Refusé: ' + normalizedRole + ' pour ' + user.name + ' (' + (user.roles || 'role inconnu') + ')',
             );
 
             throw new Forbidden('You do not have sufficient permissions to access this resource.');
         } else {
             this.config.debug &&
-                console.warn(LogPrefix, 'Autorisé ' + role + ' pour ' + user.name + ' (' + user.roles + ')');
+                console.warn(
+                    LogPrefix,
+                    'Autorisé ' + normalizedRole + ' pour ' + user.name + ' (' + user.roles + ')',
+                );
         }
 
         return user as TUser;

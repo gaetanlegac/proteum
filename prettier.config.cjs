@@ -5,5 +5,5 @@ module.exports = {
     jsxSingleQuote: false,
     semi: true,
     trailingComma: 'all',
-    objectWrap: 'collapse',
+    objectWrap: 'preserve',
 };

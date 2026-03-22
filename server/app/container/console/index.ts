@@ -83,7 +83,7 @@ export type TJsonLog = { time: Date; level: TLogLevel; args: unknown[]; channel:
 
 const LogPrefix = '[console]';
 
-const logLevels = { log: 0, info: 3, warn: 4, error: 5 } as const;
+const logLevels = { silly: -1, log: 0, info: 3, warn: 4, error: 5 } as const;
 
 var ansi2Html = new Ansi2Html({
     newline: true,
@@ -110,6 +110,8 @@ var ansi2Html = new Ansi2Html({
         '#F5F5F5',
     ],
 });
+
+type TWrappedConsole = typeof console & { _wrapped?: boolean };
 
 /*----------------------------------
 - LOGGER
@@ -156,15 +158,19 @@ export default class Console {
                     logMetaMarkup: string,
                     logArgs: unknown[],
                     logErrors: string[],
-                    settings: ISettings<ILogObj>,
+                    _logMeta?: IMeta,
+                    settings?: ISettings<ILogObj>,
                 ) => {
                     try {
                         const logErrorsStr =
                             (logErrors.length > 0 && logArgs.length > 0 ? '\n' : '') + logErrors.join('\n');
-                        settings.prettyInspectOptions = settings.prettyInspectOptions || {};
-                        settings.prettyInspectOptions.colors = settings.stylePrettyLogs;
+                        const loggerSettings = settings || this.logger.settings;
+                        loggerSettings.prettyInspectOptions = loggerSettings.prettyInspectOptions || {};
+                        loggerSettings.prettyInspectOptions.colors = loggerSettings.stylePrettyLogs;
                         origLog(
-                            logMetaMarkup + formatWithOptions(settings.prettyInspectOptions, ...logArgs) + logErrorsStr,
+                            logMetaMarkup +
+                                formatWithOptions(loggerSettings.prettyInspectOptions, ...logArgs) +
+                                logErrorsStr,
                         );
                     } catch (error) {
                         origLog('Error formatting log', error);
@@ -173,18 +179,20 @@ export default class Console {
             },
         });
 
-        if (!this.config.enable || console['_wrapped'] !== undefined) return;
+        const wrappedConsole = console as TWrappedConsole;
+        if (!this.config.enable || wrappedConsole._wrapped !== undefined) return;
 
         this.enableLogging(origLog);
     }
 
     private enableLogging(origLog: typeof console.log) {
+        const wrappedConsole = console as TWrappedConsole & Record<string, (...args: any[]) => void>;
         const minLogLevel = logLevels[this.config.level];
 
         let logLevel: TLogLevel;
         for (logLevel in logLevels) {
             const levelNumber = logLevels[logLevel];
-            console[logLevel] = (...args: any[]) => {
+            wrappedConsole[logLevel] = (...args: any[]) => {
                 // Dev mode = no care about performance = rich logging
                 if (levelNumber >= minLogLevel)
                     //this.logger[ logLevel ](...args);
@@ -197,7 +205,7 @@ export default class Console {
             };
         }
 
-        console['_wrapped'] = true;
+        wrappedConsole._wrapped = true;
 
         setInterval(() => this.clean(), 10000);
     }
@@ -376,7 +384,11 @@ ${
         : ''
 }
 <hr/>
-Logs: ${this.config.enable ? `<br/>` + this.logsToHTML(report.logs) : 'Logs collection is disabled'}<br />
+Logs: ${
+    this.config.enable
+        ? `<br/>` + this.logsToHTML((report as ServerBug & { logs?: TJsonLog[] }).logs || this.logs)
+        : 'Logs collection is disabled'
+}<br />
         `;
     }
 

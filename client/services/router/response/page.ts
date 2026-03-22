@@ -6,33 +6,43 @@
 import type { ComponentChild } from 'preact';
 
 // Core
-import type { TClientOrServerContextForPage, Layout, TRoute, TErrorRoute } from '@common/router';
+import type { Layout, TErrorRoute, TRoute } from '@common/router';
 import PageResponse, { TFrontRenderer } from '@common/router/response/page';
+import { isClientRequest } from '../request';
 
 // Specific
 import type ClientRouter from '..';
+import type { TRouterContext } from '../response';
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
+type TClientPageRouteLike<TRouter extends ClientRouter<any, any>> =
+    | TRoute<TRouterContext<TRouter, TRouter['app']>>
+    | TErrorRoute<TRouterContext<TRouter, TRouter['app']>>;
+
 /*----------------------------------
 - CLASS
 ----------------------------------*/
 
-export default class ClientPage<TRouter = ClientRouter> extends PageResponse<TRouter> {
-    public scrollToId: string;
+export default class ClientPage<TRouter extends ClientRouter<any, any> = ClientRouter<any, any>> extends PageResponse<
+    TRouter,
+    TClientPageRouteLike<TRouter>,
+    TRouterContext<TRouter, TRouter['app']>
+> {
+    public scrollToId?: string;
 
     public constructor(
-        public route: TRoute | TErrorRoute,
+        public route: TClientPageRouteLike<TRouter>,
         public component: TFrontRenderer,
-        public context: TClientOrServerContextForPage,
+        public context: TRouterContext<TRouter, TRouter['app']>,
         public layout?: Layout,
     ) {
         super(route, component, context);
 
         this.bodyId = context.route.options.bodyId;
-        this.scrollToId = context.request.hash;
+        this.scrollToId = isClientRequest(context.request) ? context.request.hash : undefined;
     }
 
     public async preRender(data?: TObjetDonnees) {
@@ -50,7 +60,7 @@ export default class ClientPage<TRouter = ClientRouter> extends PageResponse<TRo
     ----------------------------------*/
     // Should be called AFTER rendering the page
     public updateClient() {
-        document.body.id = this.bodyId || this.id;
+        document.body.id = this.bodyId || this.chunkId || '';
         document.title = this.title || APP_NAME;
         document.body.className = [...this.bodyClass].join(' ');
     }

@@ -43,7 +43,7 @@ export const getKeywords = (str: string, delimiter: string = ' ') =>
 
         // condenseWhitespace ( https://github.com/sindresorhus/condense-whitespace/blob/main/index.js )
         .trim()
-        .replace(/\s{2,}/gu, ' ')
+        .replace(/\s{2,}/g, ' ')
 
         // Ne garde que les caractères alĥanumériques, ainsi que .
         // https://stackoverflow.com/questions/20690499/concrete-javascript-regex-for-accented-characters-diacritics

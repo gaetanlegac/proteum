@@ -56,6 +56,7 @@ export class ServicesContainer<TServicesIndex extends StartedServicesIndex = Sta
         instance: TInstance,
         funcName: TCallableName,
     ): TInstance[TCallableName] & TInstance => {
+        const instanceRecord = instance as Record<string, unknown>;
         const callableFunc = instance[funcName];
         if (typeof callableFunc !== 'function') throw new Error(`instance[funcName] isn't callable.`);
 
@@ -71,8 +72,10 @@ export class ServicesContainer<TServicesIndex extends StartedServicesIndex = Sta
 
         for (const method of methods)
             if (method !== 'constructor')
-                callable[method] =
-                    typeof instance[method] === 'function' ? instance[method].bind(instance) : instance[method];
+                (callable as Record<string, unknown>)[method] =
+                    typeof instanceRecord[method] === 'function'
+                        ? (instanceRecord[method] as Function).bind(instance)
+                        : instanceRecord[method];
 
         // Allow us to recognize a callable as a service
         callable.serviceInstance = instance;

@@ -34,6 +34,7 @@ export class CLI {
     public commandOptionDefaults: { [command: string]: TArgsObject } = {
         dev: { port: '', cache: true },
         build: { port: '', dev: false, prod: false, cache: false, analyze: false },
+        lint: { fix: false },
     };
 
     public debug: boolean = false;
@@ -61,6 +62,9 @@ export class CLI {
         dev: () => import('./commands/dev'),
         refresh: () => import('./commands/refresh'),
         build: () => import('./commands/build'),
+        typecheck: () => import('./commands/typecheck'),
+        lint: () => import('./commands/lint'),
+        check: () => import('./commands/check'),
     };
 
     private loadPkg() {
@@ -123,6 +127,7 @@ export class CLI {
         if (this.commands[command] === undefined) throw new Error(`Command ${command} does not exists.`);
 
         const runner = await this.commands[command]();
+        let exitCode = 0;
 
         // Running
         runner
@@ -131,10 +136,11 @@ export class CLI {
                 this.debug && console.info(`Command ${command} finished.`);
             })
             .catch((e) => {
+                exitCode = 1;
                 console.error(`Error during execution of ${command}:`, e);
             })
             .finally(() => {
-                process.exit(0);
+                process.exit(exitCode);
             });
     }
 

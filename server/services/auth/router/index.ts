@@ -6,7 +6,6 @@
 
 // Core
 import {
-    default as Router,
     Request as ServerRequest,
     Response as ServerResponse,
     TAnyRoute,
@@ -14,7 +13,7 @@ import {
     TAnyRouter,
 } from '@server/services/router';
 
-import type { Application } from '@server/app';
+import type { Application } from '@server/app/index';
 
 import type { TRouterServiceArgs } from '@server/services/router/service';
 
@@ -40,20 +39,27 @@ export default class AuthenticationRouterService<
     TUser extends TBasicUser = TApplication['app']['userType'],
     TRouter extends TAnyRouter = TAnyRouter,
     TRequest extends ServerRequest<TRouter> = ServerRequest<TRouter>,
-> extends RouterService<{}, TRouter> {
+> extends RouterService<
+    { users: UsersService<TUser, TApplication> },
+    TRouter,
+    UsersRequestService<TRouter, TUser, TRequest>
+> {
     /*----------------------------------
     - LIFECYCLE
     ----------------------------------*/
 
-    public users: UsersService<TUser, Application>;
+    public users: UsersService<TUser, TApplication>;
 
-    public constructor(getConfig: TRouterServiceArgs[0], app: TApplication) {
+    public constructor(
+        getConfig: TRouterServiceArgs<{ users: UsersService<TUser, TApplication> }, TRouter>[0],
+        app: TApplication,
+    ) {
         super(getConfig, app);
 
         this.users = this.config.users;
     }
 
-    protected async ready() {
+    public async ready() {
         // Decode current user
         this.parent.on('request', async (request: TRequest) => {
             // TODO: Typings. (context.user ?)
@@ -66,7 +72,8 @@ export default class AuthenticationRouterService<
         this.parent.on('resolved', async (route: TAnyRoute, request: TRequest, response: ServerResponse<TRouter>) => {
             if (route.options.auth !== undefined) {
                 // Basic auth check
-                this.users.check(request, route.options.auth);
+                const requiredRole = route.options.auth === true ? 'USER' : route.options.auth;
+                this.users.check(request, requiredRole as TUserRole | false);
 
                 // Redirect to logged page
                 if (route.options.auth === false && request.user && route.options.redirectLogged)
@@ -75,13 +82,13 @@ export default class AuthenticationRouterService<
         });
     }
 
-    protected async shutdown() {}
+    public async shutdown() {}
 
     /*----------------------------------
     - ROUTER SERVICE LIFECYCLE
     ----------------------------------*/
 
-    public requestService(request: TRequest): UsersRequestService<TRouter, TUser> {
+    public requestService(request: TRequest): UsersRequestService<TRouter, TUser, TRequest> {
         return new UsersRequestService(request, this);
     }
 }

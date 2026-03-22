@@ -7,9 +7,9 @@ import React from 'react';
 import renderToString from 'preact-render-to-string';
 
 // Core
-import { default as Router, TRouterContext } from '@server/services/router';
+import { type TServerRouter, TRouterContext } from '@server/services/router';
 import type { Layout, TRoute, TErrorRoute, TClientOrServerContext } from '@common/router';
-import PageResponse, { TFrontRenderer } from '@common/router/response/page';
+import PageResponse, { TFrontRenderer, TPageRenderContext } from '@common/router/response/page';
 import { getClientBuildManifest } from './clientManifest';
 
 // Composants UI
@@ -25,7 +25,14 @@ const seoLimits = { title: 70, description: 255 };
 - CLASS
 ----------------------------------*/
 
-export default class ServerPage<TRouter extends Router = Router> extends PageResponse<TRouter> {
+export default class ServerPage<TRouter extends TServerRouter = TServerRouter> extends PageResponse<
+    TRouter,
+    TRoute | TErrorRoute,
+    TRouterContext<TRouter>
+> {
+    public app: TRouter['app'];
+    public router: TRouter;
+
     /*----------------------------------
     - PUBLIC API
     ----------------------------------*/
@@ -33,13 +40,13 @@ export default class ServerPage<TRouter extends Router = Router> extends PageRes
     public constructor(
         public route: TRoute | TErrorRoute,
         public renderer: TFrontRenderer,
-        public context: TRouterContext,
+        context: TRouterContext<TRouter>,
         public layout?: Layout,
-
-        public app = context.app,
-        public router = context.request.router,
     ) {
         super(route, renderer, context);
+
+        this.app = context.app;
+        this.router = context.request.router;
     }
 
     public render(): Promise<string> {
@@ -54,7 +61,10 @@ export default class ServerPage<TRouter extends Router = Router> extends PageRes
         // because document needs to access to runtime assigned values
         // Ex: runtime added scripts, title, metas, ....
 
-        const html = renderToString(<App {...this.context} />);
+        const context = this.context as TPageRenderContext & TRouterContext<TRouter>;
+        const html = renderToString(
+            <App context={context as Parameters<typeof App>[0]['context'] & TRouterContext<TRouter>} />,
+        );
 
         if (html === undefined) throw new Error(`Page HTML is empty (undefined)`);
 
@@ -72,7 +82,7 @@ export default class ServerPage<TRouter extends Router = Router> extends PageRes
         if (page.theme)
             attrsBody.className += ' ' + page.theme;*/
 
-        return this.router.render.page(html, this, this.context.response);
+        return this.router.render.page(html, this, context.response);
     }
 
     /*----------------------------------
@@ -105,9 +115,10 @@ export default class ServerPage<TRouter extends Router = Router> extends PageRes
     }
 
     private buildMetas() {
-        const shouldIndex = this.context.response.statusCode < 300;
+        const context = this.context as TPageRenderContext & TRouterContext<TRouter>;
+        const shouldIndex = context.response.statusCode < 300;
 
-        const metas = {
+        const metas: Record<string, string | undefined> = {
             robots: shouldIndex ? 'index' : 'noindex',
 
             'og:type': 'website',

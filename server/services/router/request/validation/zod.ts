@@ -1,148 +1,140 @@
 import { InputError } from '@common/errors';
-import zod, { _ZodType } from 'zod';
+import zod from 'zod';
 
 export type TRichTextValidatorOptions = { attachements?: boolean };
+export type TValidationSchema = zod.ZodTypeAny;
+export type TValidationShape = zod.ZodRawShape;
 
-export const preprocessSchema = (schema: zod.ZodObject): zod.ZodObject => {
-    // Not working, data is {}
-    return schema;
+type TChoiceOption = { value: PrimitiveValue; label: string };
 
-    if (!(schema instanceof zod.ZodObject)) return schema;
-
-    if (schema.withPreprocessing) return schema;
-
-    const shape = schema.def.shape;
-    const newShape: Record<string, zod.ZodTypeAny> = {};
-
-    for (const key in shape) {
-        if (!['newEntity', 'email'].includes(key)) continue;
-
-        let current: zod.ZodTypeAny = shape[key];
-        while (current) {
-            const origType = current.type;
-            const preprocessor = toPreprocess[origType];
-
-            if (origType === 'object') {
-                newShape[key] = preprocessSchema(current as zod.ZodObject);
-                break;
-            }
-
-            if (preprocessor) {
-                newShape[key] = preprocessor(current);
-                console.log('====newShape', key, newShape[key]);
-                break;
-            }
-
-            current = current.def;
-        }
-    }
-
-    const newSchema = zod.object(newShape);
-    newSchema.withPreprocessing = true;
-    return newSchema;
+type TLexicalNode = {
+    type: string;
+    text?: string;
+    children?: TLexicalNode[];
 };
 
-const toPreprocess = {
-    string: (zString: zod.ZodString) =>
-        zod.preprocess((val) => {
-            return val === '' ? undefined : val;
-        }, zString),
+type TLexicalRoot = {
+    root: {
+        type: 'root';
+        children: TLexicalNode[];
+    };
+};
 
-    int: (zInt: zod.ZodInt) =>
-        zod.preprocess((val) => {
-            return typeof val === 'string' ? Number.parseInt(val) : val;
-        }, zInt),
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+const hasChoiceValue = (value: unknown): value is { value: PrimitiveValue } => isRecord(value) && 'value' in value;
+
+const normalizeChoiceValue = (value: unknown): PrimitiveValue =>
+    (hasChoiceValue(value) ? value.value : value) as PrimitiveValue;
+
+const isLexicalNode = (value: unknown): value is TLexicalNode =>
+    isRecord(value) && typeof value.type === 'string';
+
+const isLexicalRoot = (value: unknown): value is TLexicalRoot => {
+    if (!isRecord(value)) return false;
+    if (!isRecord(value.root)) return false;
+    if (value.root.type !== 'root') return false;
+    return Array.isArray(value.root.children);
+};
+
+export const isZodSchema = (fields: unknown): fields is TValidationSchema => {
+    return (
+        typeof fields === 'object' &&
+        fields !== null &&
+        'safeParse' in fields &&
+        typeof (fields as TValidationSchema).safeParse === 'function'
+    );
+};
+
+export function toValidationSchema<TSchema extends TValidationSchema>(fields: TSchema): TSchema;
+export function toValidationSchema<TShape extends TValidationShape>(fields: TShape): zod.ZodObject<TShape>;
+export function toValidationSchema(
+    fields: TValidationSchema | TValidationShape,
+): TValidationSchema | zod.ZodObject<TValidationShape>;
+export function toValidationSchema(fields: TValidationSchema | TValidationShape) {
+    return isZodSchema(fields) ? fields : zod.object(fields);
+}
+
+// Legacy hook kept as an identity to preserve the public surface without relying on removed Zod internals.
+export const preprocessSchema = <TSchema extends zod.ZodObject<any>>(schema: TSchema): TSchema => schema;
+
+const createChoiceValueSchema = (
+    choices: readonly string[] | readonly TChoiceOption[] | zod.ZodTypeAny,
+): zod.ZodTypeAny => {
+    if (isZodSchema(choices)) return choices;
+
+    const allowedValues = new Set(choices.map((choice) => normalizeChoiceValue(choice)));
+
+    return zod.custom<PrimitiveValue>((value) => allowedValues.has(normalizeChoiceValue(value)), {
+        message: 'Invalid choice.',
+    });
 };
 
 export const schema = {
     ...zod,
 
     file: () => {
-        // Chaine = url ancien fichier = exclusion de la valeur pour conserver l'ancien fichier
-        // NOTE: Si la valeur est présente mais undefined, alors on supprimera le fichier
-        /*if (typeof val === 'string')
-            return true;*/
-
+        // String = existing file URL, so callers can omit replacing an uploaded file.
         return zod.file();
     },
 
-    choice: (choices: string[] | { value: any; label: string }[] | _ZodType, options: { multiple?: boolean } = {}) => {
-        const normalizeValue = (value: any) => (typeof value === 'object' ? value.value : value);
-
-        const valueType: _ZodType = Array.isArray(choices) ? zod.enum(choices.map(normalizeValue)) : zod.string();
-
+    choice: (
+        choices: readonly string[] | readonly TChoiceOption[] | zod.ZodTypeAny,
+        options: { multiple?: boolean } = {},
+    ) => {
+        const valueType = createChoiceValueSchema(choices);
         const itemType = zod.union([zod.object({ value: valueType, label: zod.string() }), valueType]);
+        const choiceType = options.multiple ? zod.array(itemType) : itemType;
 
-        const type = options.multiple ? zod.array(itemType) : itemType;
-
-        return type.transform((v) => {
-            if (options.multiple) {
-                return v.map(normalizeValue);
-            } else {
-                return normalizeValue(v);
-            }
+        return choiceType.transform((value: unknown) => {
+            if (options.multiple) return (value as unknown[]).map((entry: unknown) => normalizeChoiceValue(entry));
+            return normalizeChoiceValue(value);
         });
     },
 
     richText: (opts: TRichTextValidatorOptions = {}) =>
-        schema.custom((val) => {
-            if (typeof val !== 'string') {
-                console.error('Invalid rich text format.', val);
+        schema.custom((value) => {
+            if (typeof value !== 'string') {
+                console.error('Invalid rich text format.', value);
                 return false;
             }
 
-            // We get a stringified json as input since the editor workds with JSON string
+            let parsed: unknown;
             try {
-                val = JSON.parse(val);
+                parsed = JSON.parse(value);
             } catch (error) {
-                console.error('Failed to parse rich text json:', error, val);
-                return false; //throw new InputError("Invalid rich text format.");
-            }
-
-            // Check that the root exists and has a valid type
-            if (!val || typeof val !== 'object' || typeof val.root !== 'object' || val.root.type !== 'root') {
-                console.error('Invalid rich text value (1).', val);
-                return false; //throw new InputError("Invalid rich text value (1).");
-            }
-
-            // Check if root has children array
-            if (!Array.isArray(val.root.children)) {
-                console.error('Invalid rich text value (2).', val);
+                console.error('Failed to parse rich text json:', error, value);
                 return false;
             }
 
-            // Validate each child node in root
-            for (const child of val.root.children) {
-                if (!validateLexicalNode(child, opts)) return false;
+            if (!isLexicalRoot(parsed)) {
+                console.error('Invalid rich text value.', parsed);
+                return false;
             }
 
-            return true;
+            return parsed.root.children.every((child) => validateLexicalNode(child, opts));
         }),
 };
 
-// Recursive function to validate each node
-function validateLexicalNode(node: any, opts: TRichTextValidatorOptions) {
-    // Each node should be an object with a `type` property
-    if (typeof node !== 'object' || !node.type || typeof node.type !== 'string')
-        throw new InputError('Invalid rich text value (3).');
+function validateLexicalNode(node: unknown, opts: TRichTextValidatorOptions) {
+    if (!isLexicalNode(node)) throw new InputError('Invalid rich text value (3).');
 
-    // Validate text nodes
     if (node.type === 'text') {
         if (typeof node.text !== 'string') throw new InputError('Invalid rich text value (4).');
+        return true;
+    }
 
-        // Validate paragraph, heading, or other structural nodes that may contain children
-    } else if (['paragraph', 'heading', 'list', 'listitem'].includes(node.type)) {
-        if (!Array.isArray(node.children) || !node.children.every((children) => validateLexicalNode(children, opts))) {
+    if (['paragraph', 'heading', 'list', 'listitem'].includes(node.type)) {
+        if (!Array.isArray(node.children) || !node.children.every((child) => validateLexicalNode(child, opts))) {
             throw new InputError('Invalid rich text value (5).');
         }
 
-        // Files upload
-    } else if (node.type === 'image') {
-        // Check if allowed
-        /*if (opts.attachements === undefined)
-            throw new InputError("Image attachments not allowed in this rich text field.");*/
-        // TODO: check mime
-        // Upload file
+        return true;
+    }
+
+    if (node.type === 'image') {
+        // Attachments are validated by the upload pipeline; rich-text validation only enforces node shape.
+        return true;
     }
 
     return true;

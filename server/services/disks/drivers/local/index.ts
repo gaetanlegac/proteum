@@ -16,7 +16,7 @@ import fs from 'fs-extra';
 import AppContainer from '@server/app/container';
 
 // Specific
-import DiskDriver, { TDrivercnfig, SourceFile, TOutputFileOptions } from '../../driver';
+import DiskDriver, { TDrivercnfig, SourceFile, TOutputFileOptions, TReadFileOptions } from '../../driver';
 
 /*----------------------------------
 - CONFIG
@@ -33,9 +33,15 @@ export type TConfig = TDrivercnfig & {};
 ----------------------------------*/
 export default class LocalFS<
     Config extends TConfig = TConfig,
-    TBucketName = keyof Config['buckets'],
-> extends DiskDriver<TConfig> {
+    TBucketName extends Extract<keyof Config['buckets'], string> = Extract<keyof Config['buckets'], string>,
+> extends DiskDriver<Config, TBucketName> {
     public rootDir = AppContainer.path.var;
+
+    private getBucketDir(bucketName: TBucketName) {
+        const bucketDir = this.config.buckets[bucketName];
+        if (bucketDir === undefined) throw new Error(`Bucket "${bucketName}" not found in configuration`);
+        return bucketDir;
+    }
 
     public async mount() {}
 
@@ -46,13 +52,13 @@ export default class LocalFS<
     ----------------------------------*/
 
     public getFileUrl(bucketName: TBucketName, filename: string) {
-        const bucketDir = this.config.buckets[bucketName];
+        const bucketDir = this.getBucketDir(bucketName);
         const fullPath = path.join(this.rootDir, bucketDir, filename || '.');
         return fullPath;
     }
 
     public async readDir(bucketName: TBucketName, dirname?: string) {
-        const bucketDir = this.config.buckets[bucketName];
+        const bucketDir = this.getBucketDir(bucketName);
 
         const fullPath = path.join(this.rootDir, bucketDir, dirname || '.');
 
@@ -90,16 +96,16 @@ export default class LocalFS<
         return files;
     }
 
-    public async readFile(bucketName: TBucketName, filename: string) {
-        const bucketDir = this.config.buckets[bucketName];
+    public async readFile(bucketName: TBucketName, filename: string, options: TReadFileOptions = {}) {
+        const bucketDir = this.getBucketDir(bucketName);
         const fullPath = path.join(this.rootDir, bucketDir, filename);
 
         this.config.debug && console.log(`readFile ${fullPath}`);
-        return fs.readFileSync(fullPath);
+        return options.encoding === 'string' ? fs.readFileSync(fullPath, 'utf8') : fs.readFileSync(fullPath);
     }
 
     public createReadStream(bucketName: TBucketName, filename: string) {
-        const bucketDir = this.config.buckets[bucketName];
+        const bucketDir = this.getBucketDir(bucketName);
         const fullPath = path.join(this.rootDir, bucketDir, filename);
 
         this.config.debug && console.log(`createReadStream ${fullPath}`);
@@ -107,7 +113,7 @@ export default class LocalFS<
     }
 
     public async exists(bucketName: TBucketName, filename: string) {
-        const bucketDir = this.config.buckets[bucketName];
+        const bucketDir = this.getBucketDir(bucketName);
         const fullPath = path.join(this.rootDir, bucketDir, filename);
 
         this.config.debug && console.log(`exists ${fullPath}`);
@@ -120,7 +126,7 @@ export default class LocalFS<
         destination: string,
         options: { overwrite?: boolean } = {},
     ) {
-        const bucketDir = this.config.buckets[bucketName];
+        const bucketDir = this.getBucketDir(bucketName);
         const fullPathSource = path.join(this.rootDir, bucketDir, source);
         const fullPathDestination = path.join(this.rootDir, bucketDir, destination);
 
@@ -134,7 +140,7 @@ export default class LocalFS<
         content: string | Buffer,
         options?: TOutputFileOptions,
     ) {
-        const bucketDir = this.config.buckets[bucketName];
+        const bucketDir = this.getBucketDir(bucketName);
         const fullPath = path.join(this.rootDir, bucketDir, filename);
         this.config.debug && console.log(`outputFile`, fullPath);
 
@@ -144,7 +150,7 @@ export default class LocalFS<
     }
 
     public async readJSON(bucketName: TBucketName, filename: string) {
-        const bucketDir = this.config.buckets[bucketName];
+        const bucketDir = this.getBucketDir(bucketName);
         const fullPath = path.join(this.rootDir, bucketDir, filename);
 
         this.config.debug && console.log(`readJSON ${fullPath}`);
@@ -152,10 +158,19 @@ export default class LocalFS<
     }
 
     public async delete(bucketName: TBucketName, filename: string) {
-        const bucketDir = this.config.buckets[bucketName];
+        const bucketDir = this.getBucketDir(bucketName);
         const fullPath = path.join(this.rootDir, bucketDir, filename);
 
         this.config.debug && console.log(`delete ${fullPath}`);
+        fs.removeSync(fullPath);
+        return true;
+    }
+
+    public async deleteDir(bucketName: TBucketName, dirname: string) {
+        const bucketDir = this.getBucketDir(bucketName);
+        const fullPath = path.join(this.rootDir, bucketDir, dirname);
+
+        this.config.debug && console.log(`deleteDir ${fullPath}`);
         fs.removeSync(fullPath);
         return true;
     }

@@ -240,16 +240,23 @@ export const toJson = (e: Error | CoreError): TJsonError => {
 };
 
 export const fromJson = ({ code, message, ...details }: TJsonError) => {
+    const errorDetails = details as Record<string, unknown>;
+
     switch (code) {
         case 400:
             if (details.errors) return new InputErrorSchema(details.errors, details);
             else return new InputError(message, details);
 
         case 401:
-            return new AuthRequired(message, details['feature'], details['action'], details);
+            return new AuthRequired(message, errorDetails.feature as FeatureKeys, errorDetails.action as string, details);
 
         case 402:
-            return new UpgradeRequired(message, details['feature'], details['action'], details);
+            return new UpgradeRequired(
+                message,
+                errorDetails.feature as FeatureKeys,
+                errorDetails.action as string,
+                details,
+            );
 
         case 403:
             return new Forbidden(message, details);

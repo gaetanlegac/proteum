@@ -28,7 +28,7 @@ export const blurable = (...args: [HTMLElement, Function][]) => {
     if (!history) return;
 
     const blur = (e: MouseEvent) => {
-        if (e.target === null) return;
+        if (!(e.target instanceof HTMLElement)) return;
 
         for (const [refElement, masquer] of args) {
             //console.log("refElement", refElement, e.target?.matches);

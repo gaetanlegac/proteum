@@ -11,16 +11,16 @@
 import express from 'express';
 
 // Core
-import { Application } from '@server/app';
 import context from '@server/context';
 import type { AnyRouterService, default as ServerRouter, TServerRouter, TAnyRouter } from '@server/services/router';
 import ServerRequest from '@server/services/router/request';
-import { TRoute, TAnyRoute, TDomainsList } from '@common/router';
+import { TMatchedRoute, TRoute, TAnyRoute, TDomainsList } from '@common/router';
 import { NotFound, Forbidden, Anomaly } from '@common/errors';
 import BaseResponse, { TResponseData } from '@common/router/response';
 import { splitRouteSetupResult } from '@common/router/pageSetup';
 import Page from './page';
 import createControllers from '@/common/.generated/controllers';
+import type { TControllers } from '@/common/.generated/controllers';
 
 // To move into a new npm module: json-mask
 import jsonMask from './mask';
@@ -49,11 +49,12 @@ export type TRouterContext<TRouter extends TServerRouter> =
         request: ServerRequest<TRouter>;
         api: ServerRequest<TRouter>['api'];
         response: ServerResponse<TRouter>;
-        route: TRoute;
+        route: TAnyRoute<TRouterContext<TRouter>>;
         page?: Page;
 
         Router: TRouter;
     } & TRouterContextServices<TRouter> &
+        TControllers &
         TRouterRequestContext<TRouter>;
 
 export type TRouterContextServices<TRouter extends TServerRouter, TPlugins = TRouter['config']['plugins']> =
@@ -61,7 +62,7 @@ export type TRouterContextServices<TRouter extends TServerRouter, TPlugins = TRo
     // For each roiuter service, return the request service (returned by roiuterService.requestService() )
     {
         [serviceName in keyof TPlugins]: TPlugins[serviceName] extends AnyRouterService
-            ? ReturnType<TPlugins[serviceName]['requestService']>
+            ? Exclude<ReturnType<TPlugins[serviceName]['requestService']>, null | undefined>
             : TPlugins[serviceName];
     };
 
@@ -72,11 +73,11 @@ export type TRouterRequestContext<TRouter extends TServerRouter> = ReturnType<TR
 ----------------------------------*/
 export default class ServerResponse<
     TRouter extends TAnyRouter,
-    TRequestContext = TRouterContext<TAnyRouter>,
+    TRequestContext extends TRouterContext<TRouter> = TRouterContext<TRouter>,
     TData extends TResponseData = TResponseData,
 > extends BaseResponse<TData, ServerRequest<TRouter>> {
     // Services
-    public app: Application;
+    public app: TRouter['app'];
     public router: TRouter;
 
     // Response metadata
@@ -102,7 +103,7 @@ export default class ServerResponse<
         this.canonicalUrl.search = '';
     }
 
-    public async runController(route: TAnyRoute, additionnalData: {} = {}) {
+    public async runController(route: TAnyRoute<TRouterContext<TRouter>>, additionnalData: {} = {}) {
         this.route = route;
 
         // Update canonical url
@@ -110,7 +111,9 @@ export default class ServerResponse<
 
         // Create response context for controllers
         const requestContext = await this.createContext(route);
-        const contextStore = context.getStore();
+        const contextStore = context.getStore() as
+            | { requestContext?: TRouterContext<TAnyRouter>; inputSchemaUsed?: boolean }
+            | undefined;
         if (contextStore) {
             contextStore.requestContext = requestContext;
             contextStore.inputSchemaUsed = false;
@@ -130,7 +133,7 @@ export default class ServerResponse<
         else await this.json(content);
     }
 
-    private updateCanonicalUrl(route: TAnyRoute) {
+    private updateCanonicalUrl(route: TAnyRoute<TRouterContext<TRouter>>) {
         if (!route.options.canonicalParams) return;
 
         for (const key of route.options.canonicalParams) {
@@ -143,27 +146,29 @@ export default class ServerResponse<
     - INTERNAL
     ----------------------------------*/
 
-    public async resolveRouteOptions(route: TRoute): Promise<TRoute> {
+    public async resolveRouteOptions(
+        route: TMatchedRoute<TRouterContext<TRouter>>,
+    ): Promise<TMatchedRoute<TRouterContext<TRouter>>> {
         const setup = route.options.setup;
         if (!setup) return route;
 
         const requestContext = await this.createContext(route);
-        const { options } = splitRouteSetupResult(setup({ ...requestContext, data: this.request.data }) || {});
+        const { options } = splitRouteSetupResult(((setup as any)({ ...requestContext, data: this.request.data }) as {}) || {});
 
         return { ...route, options: { ...route.options, ...options } };
     }
 
     // Start controller services
-    private async createContext(route: TRoute): Promise<TRequestContext> {
+    private async createContext(route: TAnyRoute<TRouterContext<TRouter>>): Promise<TRequestContext> {
         const contextServices = this.router.createContextServices(this.request);
 
-        const customSsrData = this.router.config.context(this.request, this.app);
+        const customSsrData = this.router.config.context(this.request, this.app) as TRouterRequestContext<TRouter>;
 
         // TODO: transmiss safe data (especially for Router), as Router info could be printed on client side
-        const context: TRequestContext = {
+        const requestContext = {
             // Router context
             app: this.app,
-            context: undefined as TRequestContext,
+            context: undefined!,
             request: this.request,
             response: this,
             route: route,
@@ -176,11 +181,11 @@ export default class ServerResponse<
             // Router services
             ...(contextServices as TRouterContextServices<TRouter>),
             ...customSsrData,
-        };
+        } as TRequestContext;
 
-        context.context = context;
+        requestContext.context = requestContext;
 
-        return context;
+        return requestContext;
     }
 
     public forSsr(page: Page<TRouter>): TBasicSSrData {
@@ -188,7 +193,8 @@ export default class ServerResponse<
 
         return {
             request: { id: this.request.id, data: this.request.data },
-            page: { chunkId: page.chunkId, data: page.data },
+            page: { chunkId: page.chunkId || '', data: page.data },
+            user: this.request.user,
             domains: this.router.config.domains,
             ...customSsrData,
         };
@@ -237,28 +243,28 @@ export default class ServerResponse<
         // RAPPEL: On jsonMask aussi les requetes internes, car leurs données seront imprimées au SSR pour le contexte client
         // filtreApi vérifie systèmatiquement si la donnée a été filtrée
         // NOTE: On évite le filtrage sans masque spécifié (performances + risques erreurs)
-        if (mask !== undefined) data = await jsonMask(data, mask, this.request.user);
+        if (mask !== undefined) data = await jsonMask(data, mask);
 
         this.headers['Content-Type'] = 'application/json';
-        this.data = this.request.isVirtual ? data : JSON.stringify(data);
+        this.data = (this.request.isVirtual ? data : JSON.stringify(data)) as TData;
         return this.end();
     }
 
     public html(html: string) {
         this.headers['Content-Type'] = 'text/html';
-        this.data = html;
+        this.data = html as TData;
         return this.end();
     }
 
     public xml(xml: string) {
         this.headers['Content-Type'] = 'text/xml';
-        this.data = xml;
+        this.data = xml as TData;
         return this.end();
     }
 
     public text(text: string, mimetype: string = 'text/plain') {
         this.headers['Content-Type'] = mimetype;
-        this.data = text;
+        this.data = text as TData;
         return this.end();
     }
 
@@ -290,7 +296,7 @@ export default class ServerResponse<
 
         // envoi filename
         const file = await disk.readFile('data', filename, { encoding: 'buffer' });
-        this.data = file;
+        this.data = file as TData;
 
         // Mimetype
         if (mimetype !== undefined) this.headers['Content-Type'] = mimetype;

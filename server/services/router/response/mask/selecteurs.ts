@@ -67,7 +67,7 @@ const compiler = (selecteurs: string): TObjetSelecteurs => {
                             brancheA[nomBranche] = {};
 
                         // Rférnce pour la prochaine itération
-                        brancheA = brancheA[nomBranche];
+                        brancheA = brancheA[nomBranche] as TObjetSelecteurs;
                     }
                 }
             }

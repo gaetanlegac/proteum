@@ -8,7 +8,7 @@ import renderToString from 'preact-render-to-string';
 const safeStringify = require('fast-safe-stringify'); // remplace les références circulairs par un [Circular]
 
 // Core
-import type { default as Router, Response as ServerResponse } from '@server/services/router';
+import type { TServerRouter, Response as ServerResponse } from '@server/services/router';
 import type Page from '.';
 import { getClientBuildManifest } from './clientManifest';
 
@@ -19,7 +19,7 @@ import { getClientBuildManifest } from './clientManifest';
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
-export default class DocumentRenderer<TRouter extends Router> {
+export default class DocumentRenderer<TRouter extends TServerRouter> {
     public constructor(
         public router: TRouter,
         public app = router.app,
@@ -58,7 +58,7 @@ export default class DocumentRenderer<TRouter extends Router> {
         );
     }
 
-    public async page(html: string, page: Page, response: ServerResponse<TRouter>) {
+    public async page(html: string, page: Page<TRouter>, response: ServerResponse<TRouter>) {
         let attrsBody = { className: [...page.bodyClass].join(' ') };
 
         return (
@@ -96,7 +96,7 @@ export default class DocumentRenderer<TRouter extends Router> {
                         {/* Page */}
                         <title>{page.title}</title>
                         <meta content={page.description} name="description" />
-                        <link rel="canonical" href={response.canonicalUrl} />
+                        <link rel="canonical" href={String(response.canonicalUrl)} />
 
                         {/* SEO, social medias, OG tags, ...  */}
                         {page.head.map(({ $, ...attrs }) => React.createElement($, attrs))}
@@ -119,7 +119,7 @@ export default class DocumentRenderer<TRouter extends Router> {
         );
     }
 
-    private styles(page: Page) {
+    private styles(page: Page<TRouter>) {
         return (
             <>
                 {this.clientStyles()}
@@ -178,7 +178,7 @@ export default class DocumentRenderer<TRouter extends Router> {
         );
     }
 
-    private async scripts(response: ServerResponse<TRouter>, page: Page) {
+    private async scripts(response: ServerResponse<TRouter>, page: Page<TRouter>) {
         const ssrData = response.forSsr(page);
         const context = safeStringify(ssrData);
         const routesForClient = JSON.stringify(this.router.ssrRoutes);

@@ -18,7 +18,7 @@ export type TDeferredModuleResult<TModule> = {
     isLoaded: boolean;
     isLoading: boolean;
     load: () => Promise<TModule>;
-    ref: React.RefCallback<HTMLElement>;
+    ref: (node: HTMLElement | null) => void;
 };
 
 type TDeferredModuleEntry<TModule> = {
@@ -86,8 +86,8 @@ export default function useDeferredModule<TModule>(
         setState(getInitialState(loader, cache));
     }, [loader, cache]);
 
-    const ref = React.useCallback<React.RefCallback<HTMLElement>>(
-        (node) => {
+    const ref = React.useCallback(
+        (node: HTMLElement | null) => {
             if (when !== 'visible') return;
             setTargetNode(node);
         },
@@ -160,13 +160,13 @@ export default function useDeferredModule<TModule>(
                 };
             }
 
-            const timeoutId = window.setTimeout(() => {
+            const timeoutId = setTimeout(() => {
                 if (!cancelled) void load();
             }, timeoutMs);
 
             return () => {
                 cancelled = true;
-                window.clearTimeout(timeoutId);
+                clearTimeout(timeoutId);
             };
         }
 

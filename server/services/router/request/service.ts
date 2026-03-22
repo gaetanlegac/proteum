@@ -2,16 +2,16 @@
 - DEPENDANCES
 ----------------------------------*/
 
-import type Router from '..';
+import type { TAnyRouter } from '..';
 import type ServerRequest from '.';
 
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
-export default abstract class RequestService {
+export default abstract class RequestService<TRequest extends ServerRequest<TAnyRouter> = ServerRequest<TAnyRouter>> {
     public constructor(
-        public request: ServerRequest<Router>,
-        public router = request.router,
-        public app = router.app,
+        public request: TRequest,
+        public router: TRequest['router'] = request.router,
+        public app: TRequest['router']['app'] = router.app,
     ) {}
 }

@@ -9,7 +9,12 @@ import zod from 'zod';
 import { TServerRouter, Request as ServerRequest } from '@server/services/router';
 
 // Ap
-import { schema } from '@server/services/router/request/validation/zod';
+import {
+    schema,
+    toValidationSchema,
+    type TValidationSchema,
+    type TValidationShape,
+} from '@server/services/router/request/validation/zod';
 
 /*----------------------------------
 - SERVICE CONFIG
@@ -18,18 +23,6 @@ import { schema } from '@server/services/router/request/validation/zod';
 const LogPrefix = `[router][validation]`;
 
 export type TConfig = { debug?: boolean };
-
-type TValidationSchema = zod.ZodTypeAny;
-type TValidationShape = zod.ZodRawShape;
-
-const isZodSchema = (fields: unknown): fields is TValidationSchema => {
-    return (
-        typeof fields === 'object' &&
-        fields !== null &&
-        'safeParse' in fields &&
-        typeof (fields as TValidationSchema).safeParse === 'function'
-    );
-};
 
 /*----------------------------------
 - SERVICE
@@ -45,7 +38,7 @@ export default (
     function validate(fields: TValidationSchema | TValidationShape) {
         config.debug && console.log(LogPrefix, 'Validate request data:', request.data);
 
-        const validationSchema = isZodSchema(fields) ? fields : zod.object(fields);
+        const validationSchema = toValidationSchema(fields);
 
         //const preprocessedSchema = preprocessSchema(validationSchema);
 

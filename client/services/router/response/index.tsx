@@ -3,7 +3,7 @@
 ----------------------------------*/
 
 // Libs
-import type ServerRouter from '@server/services/router';
+import type { TAnyRouter } from '@server/services/router';
 import type ServerResponse from '@server/services/router/response';
 
 import type { TAnyRoute, TErrorRoute } from '@common/router';
@@ -16,32 +16,54 @@ import ClientRequest from '@client/services/router/request';
 import ClientPage from '@client/services/router/response/page';
 import { history } from '@client/services/router/request/history';
 import createControllers from '@/common/.generated/controllers';
+import type { TControllers } from '@/common/.generated/controllers';
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
-export type TPageResponse<TRouter extends ClientRouter> =
-    | ClientResponse<TRouter, ClientPage>
-    | ServerResponse<ServerRouter, ClientPage>;
+export type TPageResponse<TRouter extends ClientRouter<any, any>> =
+    | ClientResponse<TRouter, ClientPage<TRouter>>
+    | ServerResponse<TAnyRouter>;
+
+type TRouterContextBase<
+    TRouter extends ClientRouter<any, any> = ClientRouter<any, any>,
+    TApplication extends ClientApplication = ClientApplication,
+> = {
+    app: TApplication;
+    request: ClientRequest<TRouter>;
+    route: TAnyRoute<TRouterContext<TRouter, TApplication>>;
+    api: ClientRequest<TRouter>['api'];
+    Router: TRouter;
+    page: ClientPage<TRouter>;
+    data: TObjetDonnees;
+};
+
+type TContextOwnState<TValue> = {
+    [TKey in keyof TValue as TValue[TKey] extends (...args: any[]) => any ? never : TKey]: TValue[TKey];
+};
+
+type TRouterRuntimeContext<
+    TRouter extends ClientRouter<any, any> = ClientRouter<any, any>,
+    TApplication extends ClientApplication = ClientApplication,
+> = TRouterContextBase<TRouter, TApplication> &
+    TContextOwnState<TApplication> &
+    TControllers;
+
+const createRuntimeContextBase = <
+    TRouter extends ClientRouter<any, any> = ClientRouter<any, any>,
+    TApplication extends ClientApplication = ClientApplication,
+>(
+    app: TApplication,
+    controllers: TControllers,
+    fields: TRouterContextBase<TRouter, TApplication>,
+): TRouterRuntimeContext<TRouter, TApplication> => Object.assign({}, app, controllers, fields);
 
 export type TRouterContext<
-    TRouter extends ClientRouter = ClientRouter,
+    TRouter extends ClientRouter<any, any> = ClientRouter<any, any>,
     TApplication extends ClientApplication = ClientApplication,
-> =
-    // ClientPage context
-    {
-        app: TApplication;
-        request: ClientRequest<TRouter>;
-        route: TAnyRoute<TRouterContext>;
-        api: ClientRequest<TRouter>['api'];
-        page: ClientPage<TRouter>;
-        data: TObjetDonnees;
-    } &
-        // Expose client application services (api, socket, ...)
-        //TRouter["app"]
-        TApplication &
-        ReturnType<TRouter['config']['context']>;
+> = TRouterRuntimeContext<TRouter, TApplication> &
+    ReturnType<TRouter['config']['context']> & { context: TRouterContext<TRouter, TApplication> };
 
 /*----------------------------------
 - ROUTER
@@ -54,7 +76,7 @@ export default class ClientPageResponse<
 
     public constructor(
         public request: ClientRequest<TRouter>,
-        public route: TAnyRoute | TErrorRoute,
+        public route: TAnyRoute<TRouterContext<TRouter, TRouter['app']>>,
 
         public app = request.app,
     ) {
@@ -67,27 +89,21 @@ export default class ClientPageResponse<
     }
 
     private createContext(): TRouterContext<TRouter, TRouter['app']> {
-        const basicContext: TRouterContext<TRouter, TRouter['app']> = {
-            // App services (TODO: expose only services)
-            ...this.request.app,
-            ...createControllers(this.request.api),
-
+        const basicContext = createRuntimeContextBase(this.request.app, createControllers(this.request.api), {
             // Router context
             app: this.app,
             request: this.request,
             route: this.route,
             api: this.request.api,
+            Router: this.request.router,
             // Will be assigned when the controller will be runned
-            page: undefined as unknown as ClientPage<TRouter>,
+            page: undefined!,
             data: {},
-        };
+        });
+        const customContext = this.request.router.config.context(basicContext, this.request.router);
 
-        const newContext: TRouterContext<TRouter, TRouter['app']> = {
-            ...basicContext,
-            // Custom context
-            ...this.request.router.config.context(basicContext, this.request.router),
-        };
-
+        const newContext: TRouterContext<TRouter, TRouter['app']> = Object.create(Object.prototype);
+        Object.assign(newContext, basicContext, customContext);
         newContext.context = newContext;
 
         // Update context object if already exists
@@ -95,12 +111,14 @@ export default class ClientPageResponse<
         const existingContext = this.request.router.context;
         if (existingContext === undefined) {
             this.request.router.context = newContext;
-        } else for (const key in newContext) existingContext[key] = newContext[key];
+        } else {
+            Object.assign(existingContext, newContext);
+        }
 
         return newContext;
     }
 
-    public async runController(additionnalData: {} = {}): Promise<ClientPage> {
+    public async runController(additionnalData: {} = {}): Promise<ClientPage<TRouter>> {
         // Run contoller
         const result = this.route.controller(this.context);
 

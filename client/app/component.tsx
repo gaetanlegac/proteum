@@ -7,17 +7,17 @@ import React from 'react';
 
 // Core
 import type { Layout } from '@common/router';
-import { ReactClientContext } from '@/client/context';
+import type { LayoutProps } from '@common/router/layouts';
+import { ReactClientContext, type ClientContext } from '@/client/context';
 import DialogManager from '@client/components/Dialog/Manager';
 
 // Core components
 import RouterComponent from '@client/services/router/components/router';
-import type { TClientOrServerContextForPage } from '@common/router';
 
 /*----------------------------------
 - COMPOSANT
 ----------------------------------*/
-export default function App({ context }: { context: TClientOrServerContextForPage }) {
+export default function App({ context }: { context: ClientContext }) {
     const curLayout = context.page?.layout;
     const [layout, setLayout] = React.useState<Layout | false | undefined>(curLayout);
     const [apiData, setApiData] = React.useState<{ [k: string]: any } | null>(context.page?.data || {});
@@ -25,9 +25,17 @@ export default function App({ context }: { context: TClientOrServerContextForPag
     // TODO: context.page is always provided in the context on the client side
     if (context.app.side === 'client') context.app.setLayout = setLayout;
 
+    const layoutProps: LayoutProps = {
+        ...context,
+        context,
+        data: { ...apiData, ...context.request.data },
+        menu: undefined,
+        children: undefined,
+    };
+
     return (
         <ReactClientContext.Provider value={context}>
-            <DialogManager context={context} />
+            <DialogManager />
 
             {!layout ? (
                 <>
@@ -38,12 +46,7 @@ export default function App({ context }: { context: TClientOrServerContextForPag
                 <>
                     {' '}
                     {/* Same as router/components/Page.tsx */}
-                    <layout.Component
-                        // Services
-                        {...context}
-                        // API data & URL params
-                        data={{ ...apiData, ...context.request.data }}
-                    />
+                    <layout.Component {...layoutProps} />
                 </>
             )}
         </ReactClientContext.Provider>

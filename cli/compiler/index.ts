@@ -40,7 +40,7 @@ type TRegisteredService = {
     id?: string;
     name: string;
     className: string;
-    instanciation: (parentRef?: string) => string;
+    instanciation: (parentRef?: string, appRef?: string) => string;
     priority: number;
 };
 
@@ -271,8 +271,13 @@ export default class Compiler {
 
     private getGeneratedImportPath(fromDir: string, targetFile: string) {
         const relativeImportPath = path.relative(fromDir, targetFile).replace(/\\/g, '/');
+        const normalizedImportPath = relativeImportPath.startsWith('.') ? relativeImportPath : './' + relativeImportPath;
 
-        return relativeImportPath.startsWith('.') ? relativeImportPath : './' + relativeImportPath;
+        return normalizedImportPath.replace(/\.(ts|tsx|js|jsx)$/, '');
+    }
+
+    private cleanupObsoleteGeneratedArtifacts() {
+        fs.removeSync(path.join(app.paths.client.generated, 'index.ts'));
     }
 
     private readPreloadedRouteChunks() {
@@ -305,6 +310,7 @@ export default class Compiler {
 
             writeGeneratedRouteModule({
                 outputFilepath: this.getGeneratedClientRouteModuleFilepath(filepath),
+                runtime: 'client',
                 side: 'client',
                 sourceFilepath: filepath,
                 clientRoute: { chunkId: pageChunk.chunkId, filepath: pageChunk.filepath },
@@ -313,6 +319,7 @@ export default class Compiler {
 
             writeGeneratedRouteModule({
                 outputFilepath: this.getGeneratedServerRouteModuleFilepath(filepath),
+                runtime: 'server',
                 side: 'client',
                 sourceFilepath: filepath,
                 clientRoute: { chunkId: pageChunk.chunkId, filepath: pageChunk.filepath },
@@ -330,6 +337,7 @@ export default class Compiler {
         for (const filepath of serverRouteFiles) {
             writeGeneratedRouteModule({
                 outputFilepath: this.getGeneratedServerRouteModuleFilepath(filepath),
+                runtime: 'server',
                 side: 'server',
                 sourceFilepath: filepath,
                 routeSourceFilepaths,
@@ -507,6 +515,7 @@ export default routeModules;
     }
 
     private generateRoutingModules() {
+        this.cleanupObsoleteGeneratedArtifacts();
         this.generateClientRouteWrapperModules();
         this.generateServerRouteWrapperModules();
         this.generateServerRoutesModule();
@@ -548,12 +557,30 @@ export default routeModules;
         const controllers = this.indexControllers();
         const clientTree = generateControllerClientTree(controllers);
 
+        const getControllerLeafMeta = (leaf: string) => {
+            const meta = JSON.parse(leaf) as {
+                routePath: string;
+                importPath: string;
+                className: string;
+                methodName: string;
+                hasInput: boolean;
+            };
+            const controllerIndex = controllers.findIndex((controller) => controller.importPath === meta.importPath);
+
+            if (controllerIndex === -1) {
+                throw new Error(`Unable to find controller import ${meta.importPath} while generating controller types.`);
+            }
+
+            return { ...meta, controllerIndex };
+        };
+
         const runtimeLeaf = (leaf: string) => {
-            const meta = JSON.parse(leaf) as { routePath: string; hasInput: boolean };
+            const meta = getControllerLeafMeta(leaf);
+            const resultType = `TControllerResult<Controller${meta.controllerIndex}, ${JSON.stringify(meta.methodName)}>`;
 
             return meta.hasInput
-                ? `(data) => api.createFetcher('POST', ${JSON.stringify(meta.routePath)}, data)`
-                : `() => api.createFetcher('POST', ${JSON.stringify(meta.routePath)})`;
+                ? `(data) => api.createFetcher<${resultType}>('POST', ${JSON.stringify(meta.routePath)}, data)`
+                : `() => api.createFetcher<${resultType}>('POST', ${JSON.stringify(meta.routePath)})`;
         };
 
         const typeImports = controllers
@@ -561,18 +588,10 @@ export default routeModules;
             .join('\n');
 
         const typeLeaf = (leaf: string) => {
-            const meta = JSON.parse(leaf) as {
-                importPath: string;
-                className: string;
-                methodName: string;
-                hasInput: boolean;
-            };
+            const meta = getControllerLeafMeta(leaf);
+            const fetcherType = `TControllerFetcher<Controller${meta.controllerIndex}, ${JSON.stringify(meta.methodName)}>`;
 
-            const controllerIndex = controllers.findIndex((controller) => controller.importPath === meta.importPath);
-
-            const returnType = `ReturnType<Controller${controllerIndex}[${JSON.stringify(meta.methodName)}]>`;
-
-            return meta.hasInput ? `(data: any) => ${returnType}` : `() => ${returnType}`;
+            return meta.hasInput ? `(data: any) => ${fetcherType}` : `() => ${fetcherType}`;
         };
 
         const createControllersContent = `/*----------------------------------
@@ -583,7 +602,13 @@ export default routeModules;
 // Do not edit it manually.
 
 import type ApiClient from '@common/router/request/api';
+import type { TFetcher } from '@common/router/request/api';
 ${typeImports ? '\n' + typeImports : ''}
+
+type TControllerResult<TController, TMethod extends keyof TController> =
+    TController[TMethod] extends (...args: any[]) => infer TResult ? Awaited<TResult> : never;
+
+type TControllerFetcher<TController, TMethod extends keyof TController> = TFetcher<TControllerResult<TController, TMethod>>;
 
 export type TControllers = ${printControllerTree(clientTree, typeLeaf)};
 
@@ -676,11 +701,17 @@ export default controllers;
         // Read app services
         const imported: string[] = [];
         const referencedNames: { [serviceId: string]: string } = {}; // ID to Name
+        let serviceImportIndex = 0;
 
         const refService = (serviceName: string, serviceConfig: any, level: number = 0): TRegisteredService => {
             if (serviceConfig.refTo !== undefined) {
                 const refTo = serviceConfig.refTo;
-                return { name: serviceName, instanciation: () => `this.${refTo}`, priority: 0 };
+                return {
+                    name: serviceName,
+                    className: serviceName,
+                    instanciation: (_parentRef, appRef = 'this') => `${appRef}.${refTo}`,
+                    priority: 0,
+                };
             }
 
             const serviceMetas = servicesAvailable[serviceConfig.id];
@@ -694,11 +725,12 @@ export default controllers;
                 throw new Error(`Service ${serviceConfig.id} is already setup as ${referencedName}`);
 
             // Generate index & typings
-            imported.push(`import ${serviceMetas.name} from "${serviceMetas.importationPath}";`);
+            const importIdentifier = `${serviceMetas.name}Class${serviceImportIndex++}`;
+            imported.push(`import ${importIdentifier} from "${serviceMetas.importationPath}";`);
 
             if (serviceConfig.name !== undefined) referencedNames[serviceConfig.id] = serviceConfig.name;
 
-            const processConfig = (config: any, level: number = 0) => {
+            const processConfig = (config: any, level: number = 0, appRef: string = 'this') => {
                 let propsStr = '';
                 for (const key in config) {
                     const value = config[key];
@@ -708,30 +740,36 @@ export default controllers;
                     // Reference to a service
                     else if (value.type === 'service.setup' || value.type === 'service.ref')
                         // TODO: more reliable way to detect a service reference
-                        propsStr += `${key}:` + refService(key, value, level + 1).instanciation() + ',\n';
+                        propsStr += `${key}:` + refService(key, value, level + 1).instanciation(undefined, appRef) + ',\n';
                     // Recursion
                     else if (level <= 4 && !Array.isArray(value))
-                        propsStr += `"${key}":` + processConfig(value, level + 1) + ',\n';
+                        propsStr += `"${key}":` + processConfig(value, level + 1, appRef) + ',\n';
                     else propsStr += `"${key}":${serialize(value, { space: 4 })},\n`;
                 }
 
                 return `{ ${propsStr} }`;
             };
-            const config = processConfig(serviceConfig.config || {});
 
             // Generate the service instance
-            const instanciation = (parentRef?: string) =>
-                `new ${serviceMetas.name}( 
+            const instanciation = (parentRef?: string, appRef: string = 'this') => {
+                const config = processConfig(serviceConfig.config || {}, 0, appRef);
+                const typedRouterConfig =
+                    serviceMetas.id === 'Core/Router' && parentRef
+                        ? `defineServiceConfig(${config} satisfies ConstructorParameters<typeof ${importIdentifier}>[1])`
+                        : `defineServiceConfig(${config})`;
+
+                return `new ${importIdentifier}( 
                     ${parentRef ? `${parentRef},` : ''}
-                    ${config},
-                    this 
+                    ${typedRouterConfig},
+                    ${appRef} 
                 )`;
+            };
 
             return {
                 id: serviceConfig.id,
                 name: serviceName,
                 instanciation,
-                className: serviceMetas.name,
+                className: importIdentifier,
                 priority: serviceConfig.config?.priority || serviceMetas.priority || 0,
             };
         };
@@ -742,11 +780,23 @@ export default controllers;
         // Define the app class identifier
         const appClassIdentifier = app.identity.identifier;
         const containerServices = app.containerServices.map((s) => "'" + s + "'").join('|');
+        const generatedFactories = sortedServices
+            .map((service) => {
+                const factoryIdentifier = `create${service.className}`;
+                const instanceIdentifier = `${service.className}Instance`;
+
+                return `const ${factoryIdentifier} = (app: ${appClassIdentifier}) => ${service.instanciation('app', 'app')};
+
+type ${instanceIdentifier} = ReturnType<typeof ${factoryIdentifier}>;`;
+            })
+            .join('\n\n');
 
         // @/client/.generated/services.d.ts
         writeIfChanged(
             path.join(app.paths.client.generated, 'services.d.ts'),
-            `declare module "@app" {
+            `declare type ${appClassIdentifier} = import("@/server/.generated/app").default;
+
+declare module "@app" {
 
     import { ${appClassIdentifier} as ${appClassIdentifier}Client } from "@/client";
     import ${appClassIdentifier}Server from "@/server/.generated/app";
@@ -793,30 +843,9 @@ declare namespace preact.JSX {
             `// TODO: move it into core (but how to make sure usecontext returns ${appClassIdentifier}'s context ?)
 import React from 'react';
 
-import type ${appClassIdentifier}Server from '@/server/.generated/app';
-import type { TRouterContext as TServerRouterRequestContext } from '@server/services/router/response';
-import type { TRouterContext as TClientRouterRequestContext } from '@client/services/router/response';
-import type { TControllers } from '@/common/.generated/controllers';
-import type ${appClassIdentifier}Client from '.';
+import type ${appClassIdentifier}Client from '@/client/index';
 
-// TO Fix: TClientRouterRequestContext is unable to get the right type of ${appClassIdentifier}Client["router"]
-    //    (it gets ClientApplication instead of ${appClassIdentifier}Client)
-type ClientRequestContext = TClientRouterRequestContext<${appClassIdentifier}Client["Router"], ${appClassIdentifier}Client>;
-type ServerRequestContext = TServerRouterRequestContext<${appClassIdentifier}Server["Router"]>
-type UniversalServices = ClientRequestContext | ServerRequestContext
-
-// Non-universla services are flagged as potentially undefined
-export type ClientContext = (
-    UniversalServices 
-    & 
-    Partial<Omit<ClientRequestContext, keyof UniversalServices>>
-    &
-    TControllers
-    &
-    {
-        Router: ${appClassIdentifier}Client["Router"],
-    }
-)
+export type ClientContext = ${appClassIdentifier}Client["Router"]["context"];
 
 export const ReactClientContext = React.createContext<ClientContext>({} as ClientContext);
 export default (): ClientContext => React.useContext<ClientContext>(ReactClientContext);`,
@@ -825,9 +854,18 @@ export default (): ClientContext => React.useContext<ClientContext>(ReactClientC
         // @/common/.generated/services.d.ts
         writeIfChanged(
             path.join(app.paths.common.generated, 'services.d.ts'),
-            `declare module '@models/types' {
+            `declare type ${appClassIdentifier} = import("@/server/.generated/app").default;
+
+declare module '@models/types' {
     export * from '@/var/prisma/index';
 }`,
+        );
+
+        // @/common/generated.d.ts
+        writeIfChanged(
+            path.join(app.paths.root, 'common', 'generated.d.ts'),
+            `/// <reference path="./.generated/services.d.ts" />
+`,
         );
 
         // @/server/.generated/app.ts
@@ -839,28 +877,38 @@ import { ServicesContainer } from '@server/app/service/container';
 
 ${imported.join('\n')}
 
+type TLooseServiceConfig<TConfig> =
+    TConfig extends (...args: any[]) => any ? TConfig
+    : TConfig extends Array<infer TItem> ? Array<TLooseServiceConfig<TItem>>
+    : TConfig extends object ? ({ [K in keyof TConfig]?: TLooseServiceConfig<TConfig[K]> } & Record<string, unknown>)
+    : TConfig;
+
+const defineServiceConfig = <TConfig>(value: TConfig): TConfig => value;
+
+${generatedFactories}
+
 export default class ${appClassIdentifier} extends Application<ServicesContainer, CurrentUser> {
 
     // Make sure the services typigs are reflecting the config and referring to the app
     ${sortedServices
         .map(
             (service) =>
-                `public ${service.name}!: ReturnType<${appClassIdentifier}["registered"]["${service.id}"]["start"]>;`,
+                `public ${service.name}!: ${service.className}Instance;`,
         )
         .join('\n')}
 
-    protected registered = {
+    protected registered: Record<string, { name: string; priority: number; start: () => import('@server/app/service').AnyService }> = {
         ${sortedServices
             .map(
                 (service) =>
                     `"${service.id}": {
                 name: "${service.name}",
                 priority: ${service.priority},
-                start: () => ${service.instanciation('this')}
+                start: () => create${service.className}(this)
             }`,
             )
             .join(',\n')}
-    } as const;
+    };
 }
 
 
@@ -870,7 +918,7 @@ export default class ${appClassIdentifier} extends Application<ServicesContainer
         // @/server/.generated/services.d.ts
         writeIfChanged(
             path.join(app.paths.server.generated, 'services.d.ts'),
-            `type InstalledServices = import('./services').Services;
+            `type InstalledServices = Record<string, import('@server/app/service').AnyService>;
 
 declare type ${appClassIdentifier} = import("@/server/.generated/app").default;
 
@@ -879,9 +927,9 @@ declare module '@cli/app' {
     type TSetupConfig<TConfig> =
         TConfig extends (...args: any[]) => any ? TConfig
         : TConfig extends Array<infer TItem> ? Array<TSetupConfig<TItem>>
-        : TConfig extends object ? {
-            [K in keyof TConfig]: TSetupConfig<TConfig[K]> | TServiceSetup | TServiceRef
-        }
+        : TConfig extends object ? ({
+            [K in keyof TConfig]?: TSetupConfig<TConfig[K]> | TServiceSetup | TServiceRef
+        } & Record<string, unknown>)
         : TConfig;
 
     type App = {

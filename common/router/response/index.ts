@@ -4,7 +4,7 @@
 
 // Core
 import { TAnyRoute } from '..';
-import type ClientRequest from '@client/services/router/request';
+import type BaseRequest from '@common/router/request';
 
 /*----------------------------------
 - TYPES
@@ -17,7 +17,7 @@ export type TResponseData = unknown;
 ----------------------------------*/
 export default abstract class BaseResponse<
     TData extends TResponseData = TResponseData,
-    TRequest extends ClientRequest = ClientRequest,
+    TRequest extends BaseRequest = BaseRequest,
 > {
     public data?: TData;
     public request: TRequest;
@@ -34,5 +34,5 @@ export default abstract class BaseResponse<
         return this;
     }
 
-    public abstract redirect(url: string, code: number);
+    public abstract redirect(url: string, code?: number, absolute?: boolean): unknown;
 }

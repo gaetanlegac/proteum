@@ -3,40 +3,33 @@
 ----------------------------------*/
 
 // Core
-import type { Application } from '@server/app';
+import type { Application } from '@server/app/index';
 
 // Specific
-import { SchemaValidators, TFileValidator } from '@server/services/router/request/validation/validators';
-import Validator, { TValidatorOptions } from '@server/services/router/request/validation/validator';
+import { schema, type TRichTextValidatorOptions } from '@server/services/router/request/validation/zod';
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
+export type TFileValidator = boolean;
+export type TValidatorOptions<TValue> = { default?: TValue; optional?: boolean };
+
+type TCompatValidator<TValue> = {
+    validate: (value: unknown, options?: unknown, path?: string[]) => TValue;
+};
+
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
-export default class ServerSchemaValidator extends SchemaValidators {
+export default class ServerSchemaValidator {
     public constructor(public app: Application) {
-        super();
+        void app;
     }
 
-    public richText = (opts: TValidatorOptions<string> & { attachements?: TFileValidator } = {}) =>
-        new Validator<string>(
-            'richText',
-            (val, options, path) => {
-                // Default validation
-                val = super.richText(opts).validate(val, options, path);
-
-                // Uploads are done in the business code since the process is specific to every case:
-                // - ID in the destination directory
-                // - Cleanup before upload
-
-                return val;
-            },
-            {
-                //defaut: new Date,
-                ...opts,
-            },
-        );
+    public richText = (
+        opts: TValidatorOptions<string> & { attachements?: TFileValidator } = {},
+    ): TCompatValidator<string> => ({
+        validate: (value: unknown) => schema.richText(opts as TRichTextValidatorOptions).parse(value) as string,
+    });
 }

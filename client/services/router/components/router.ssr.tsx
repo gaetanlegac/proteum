@@ -29,7 +29,7 @@ export default function RouterComponent({ service: _clientRouter, loaderComponen
 
     return (
         <PageComponent
-            page={currentPage}
+            page={currentPage as Parameters<typeof PageComponent>[0]['page']}
             key={currentPage.chunkId === undefined ? undefined : 'page_' + currentPage.chunkId}
         />
     );

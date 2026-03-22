@@ -12,10 +12,6 @@ import path from 'path';
 import AWS from 'aws-sdk';
 import dayjs from 'dayjs';
 
-// Core
-import type { Application } from '@server/app';
-import type { TServiceArgs } from '@server/app/service';
-
 // Specific
 import DiskDriver, {
     TDrivercnfig,
@@ -23,6 +19,7 @@ import DiskDriver, {
     TOutputFileOptions,
     TReadFileOptions,
 } from '@server/services/disks/driver';
+import type { TSetupConfig } from '@server/app/service';
 
 /*----------------------------------
 - CONFIG
@@ -41,11 +38,17 @@ export type TConfig = TDrivercnfig & { accessKeyId: string; secretAccessKey: str
 ----------------------------------*/
 export default class S3Driver<
     Config extends TConfig = TConfig,
-    TBucketName = keyof Config['buckets'],
-> extends DiskDriver<TConfig> {
+    TBucketName extends Extract<keyof Config['buckets'], string> = Extract<keyof Config['buckets'], string>,
+> extends DiskDriver<Config, TBucketName> {
     public s3: AWS.S3;
 
-    public constructor(config: TConfig, app: Application) {
+    private getBucketName(bucketName: TBucketName) {
+        const bucket = this.config.buckets[bucketName];
+        if (bucket === undefined) throw new Error(`Bucket "${bucketName}" not found in configuration`);
+        return bucket;
+    }
+
+    public constructor(config: TSetupConfig<Config>, app: DiskDriver<Config, TBucketName>['app']) {
         super(config, app);
 
         AWS.config.update({ accessKeyId: this.config.accessKeyId, secretAccessKey: this.config.secretAccessKey });
@@ -66,20 +69,21 @@ export default class S3Driver<
     ----------------------------------*/
 
     public getFileUrl(bucketName: TBucketName, filename: string) {
-        const bucket = this.config.buckets[bucketName];
-        if (bucket === undefined) throw new Error(`Bucket "${bucketName}" not found in configuration`);
+        const bucket = this.getBucketName(bucketName);
         return `https://${bucket}.s3.${this.config.region}.amazonaws.com/${filename}`;
     }
 
     public readDir(bucketName: TBucketName, dirname?: string) {
-        const bucket = this.config.buckets[bucketName];
+        const bucket = this.getBucketName(bucketName);
         return new Promise<SourceFile[]>((resolve, reject) => {
             debug && console.log(`readDir ` + (dirname === undefined ? bucket : path.join(bucket, dirname)));
             this.s3.listObjectsV2({ Bucket: bucket }, async (err, data) => {
                 if (err) return reject(err);
 
                 const files: SourceFile[] = [];
-                for (const file of data.Contents) {
+                for (const file of data.Contents || []) {
+                    if (!file.Key) continue;
+
                     const [source, ...hierarchy] = file.Key.split('/');
                     if (hierarchy.length > 1)
                         // Take only direct childs
@@ -90,8 +94,8 @@ export default class S3Driver<
 
                     debug && console.log('-', file.Key);
 
-                    const fileContent = await this.readFile(bucketName, file.Key);
-                    const rowsCount = (fileContent as unknown as string).split('\n').length - 1;
+                    const fileContent = await this.readFile(bucketName, file.Key, { encoding: 'string' });
+                    const rowsCount = String(fileContent).split('\n').length - 1;
 
                     const name =
                         dayjs(file.LastModified).format('DD/MM HH:mm:ss') +
@@ -105,7 +109,7 @@ export default class S3Driver<
                         name,
                         path: file.Key,
                         source: source,
-                        modified: file.LastModified,
+                        modified: file.LastModified?.getTime() || 0,
                         parentFolder: source,
                     });
                 }
@@ -117,9 +121,9 @@ export default class S3Driver<
     }
 
     public readFile(bucketName: TBucketName, filename: string, options: TReadFileOptions = {}) {
-        const bucket = this.config.buckets[bucketName];
+        const bucket = this.getBucketName(bucketName);
         debug && console.log(`readFile ${bucket}/${filename}`);
-        return new Promise<string>((resolve, reject) => {
+        return new Promise<Buffer | string>((resolve, reject) => {
             this.s3.getObject({ Bucket: bucket, Key: filename }, (err, data) => {
                 if (err) return reject(err);
 
@@ -139,13 +143,13 @@ export default class S3Driver<
     }
 
     public createReadStream(bucketName: TBucketName, filename: string) {
-        const bucket = this.config.buckets[bucketName];
+        const bucket = this.getBucketName(bucketName);
         debug && console.log(`createReadStream ${bucket}/${filename}`);
         return this.s3.getObject({ Bucket: bucket, Key: filename }).createReadStream();
     }
 
     public exists(bucketName: TBucketName, filename: string) {
-        const bucket = this.config.buckets[bucketName];
+        const bucket = this.getBucketName(bucketName);
         debug && console.log(`exists`, path.join(bucket, filename));
         return new Promise<boolean>((resolve, reject) => {
             this.s3.headObject({ Bucket: bucket, Key: filename }, (err, metadata) => {
@@ -162,7 +166,7 @@ export default class S3Driver<
         destination: string,
         options: { overwrite?: boolean } = {},
     ) {
-        const bucket = this.config.buckets[bucketName];
+        const bucket = this.getBucketName(bucketName);
         debug && console.log(`move ${bucket}/${source} to ${bucket}/${destination}`);
 
         if (options.overwrite) await this.s3.deleteObject({ Bucket: bucket, Key: destination }).promise();
@@ -178,25 +182,28 @@ export default class S3Driver<
         content: string | Buffer,
         options?: TOutputFileOptions,
     ) {
-        const bucket = this.config.buckets[bucketName];
+        const bucket = this.getBucketName(bucketName);
         debug && console.log(`outputFile ${bucket}/${filename}`);
-        return new Promise((resolve, reject) => {
-            this.s3.upload({ Bucket: bucket, Key: filename, Body: content }, (err, data) => {
-                if (err) return reject(err);
-                debug && console.log(`outputFile ${bucket}/${filename}: OK (${data.Location})`);
+        return new Promise<{ path: string }>((resolve, reject) => {
+            this.s3.upload(
+                { Bucket: bucket, Key: filename, Body: content },
+                (err: Error | null, data: AWS.S3.ManagedUpload.SendData) => {
+                    if (err) return reject(err);
+                    debug && console.log(`outputFile ${bucket}/${filename}: OK (${data.Location})`);
 
-                resolve({ path: data.Location });
-            });
+                    resolve({ path: data.Location || `s3://${bucket}/${filename}` });
+                },
+            );
         });
     }
 
     public async readJSON(bucketName: TBucketName, filename: string) {
-        const bucket = this.config.buckets[bucketName];
+        const bucket = this.getBucketName(bucketName);
         debug && console.log(`readJSON ${bucket}/${filename}`);
         const filecontent = await this.readFile(bucketName, filename);
         try {
             debug && console.log(`readJSON: ${bucket}/${filename} : PARSE JSON`);
-            return JSON.parse(filecontent);
+            return JSON.parse(String(filecontent));
         } catch (error) {
             console.error(`Failed to parse file "${filename}" as JSON: `, error);
             throw new Error(`Failed to parse file "${filename}" as JSON: ` + error);
@@ -204,7 +211,7 @@ export default class S3Driver<
     }
 
     public delete(bucketName: TBucketName, filename: string) {
-        const bucket = this.config.buckets[bucketName];
+        const bucket = this.getBucketName(bucketName);
         debug && console.log(`delete ${bucket}/${filename}`);
         return new Promise<boolean>((resolve, reject) => {
             this.s3.deleteObject({ Bucket: bucket, Key: filename }, (err, metadata) => {
@@ -216,19 +223,21 @@ export default class S3Driver<
     }
 
     public async deleteDir(bucketName: TBucketName, directoryPath: string) {
-        const bucket = this.config.buckets[bucketName];
+        const bucket = this.getBucketName(bucketName);
         debug && console.log(`delete ${bucket}/${directoryPath}`);
         try {
             // Liste des objets dans le répertoire
             const listedObjects = await this.s3.listObjectsV2({ Bucket: bucket, Prefix: directoryPath }).promise();
 
-            if (!listedObjects.Contents?.length) return;
+            if (!listedObjects.Contents?.length) return false;
 
             // Supprimer les objets
             await this.s3
                 .deleteObjects({
                     Bucket: bucket,
-                    Delete: { Objects: listedObjects.Contents.map(({ Key }) => ({ Key })) },
+                    Delete: {
+                        Objects: listedObjects.Contents.flatMap(({ Key }) => (Key ? [{ Key }] : [])),
+                    },
                 })
                 .promise();
 
@@ -236,8 +245,10 @@ export default class S3Driver<
             //if (listedObjects.IsTruncated) await deleteDirectory();
 
             console.log(`Le répertoire ${directoryPath} a été supprimé.`);
+            return true;
         } catch (error) {
             console.error('Erreur lors de la suppression :', error);
+            throw error;
         }
     }
 }

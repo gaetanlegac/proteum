@@ -22,7 +22,7 @@ rules.link_open = function (tokens, idx, options, env, self) {
     const aIndex = tokens[idx].attrIndex('target');
     if (aIndex < 0) {
         tokens[idx].attrPush(['target', '_blank']);
-    } else {
+    } else if (tokens[idx].attrs) {
         tokens[idx].attrs[aIndex][1] = '_blank';
     }
 
@@ -55,18 +55,20 @@ md.block.ruler.after(
                 const aIndex = token.attrIndex('class');
                 if (aIndex < 0) {
                     token.attrPush(['class', 'liste']); // add new attribute
-                } else {
+                } else if (token.attrs) {
                     token.attrs[aIndex][1] = 'liste'; // replace value of existing attr
                 }
             } else if (token.type === 'ordered_list_open') {
                 const aIndex = token.attrIndex('class');
                 if (aIndex < 0) {
                     token.attrPush(['class', 'steps']); // add new attribute
-                } else {
+                } else if (token.attrs) {
                     token.attrs[aIndex][1] = 'steps'; // replace value of existing attr
                 }
             }
         }
+
+        return false;
     },
     { alt: ['paragraph', 'reference', 'blockquote'] },
 );

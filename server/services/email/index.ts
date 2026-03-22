@@ -3,7 +3,7 @@
 ----------------------------------*/
 
 // Core
-import type { Application } from '@server/app';
+import type { Application } from '@server/app/index';
 import Service from '@server/app/service';
 import markdown from '@common/data/markdown';
 
@@ -57,14 +57,19 @@ type TOptions = { transporter?: string };
 /*----------------------------------
 - FONCTIONS
 ----------------------------------*/
-export default abstract class Email<TConfig extends Config> extends Service<TConfig, Hooks, Application, Application> {
+export default abstract class Email<TConfig extends Config, TApplication extends Application = Application> extends Service<
+    TConfig,
+    Hooks,
+    TApplication,
+    TApplication
+> {
     /*----------------------------------
     - ACTIONS
     ----------------------------------*/
 
     protected abstract sendNow(emails: TCompleteEmail[]): Promise<void>;
 
-    public async send(to: string, subject: string, markdown: string, options?: TOptions);
+    public async send(to: string, subject: string, markdown: string, options?: TOptions): Promise<void>;
     public async send(emails: TEmail | TEmail[], options?: TOptions): Promise<void>;
     public async send(...args: TEmailSendArgs): Promise<void> {
         let emails: TEmail[] | TEmail;

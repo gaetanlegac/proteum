@@ -31,43 +31,49 @@ export type { default as Response } from './response';
 
 export type ClientOrServerRouter = ClientRouter | TAnyRouter;
 
-export type TRoute<RouterContext extends TClientOrServerContextForPage = TClientOrServerContextForPage> = {
+type TRouteMatch = { regex: RegExp; keys: (number | string)[] };
+
+type TRouteBase<RouterContext = unknown, TResult = any> = {
     // Match
     method: TRouteHttpMethod;
     path: string;
 
     // Execute
     schema?: zod.ZodSchema;
-    controller: TRouteController<RouterContext>;
-    options: TRouteOptions;
-} &
-    // With regex
-    (| { regex: RegExp; keys: (number | string)[] }
-        // Without regex (for ex: controllers)
-        | { regex?: undefined; keys?: undefined }
-    );
-
-export type TErrorRoute<RouterContext extends TClientOrServerContextForPage = TClientOrServerContextForPage> = {
-    code;
-    controller: TRouteController<RouterContext>;
+    controller: TRouteController<RouterContext, TResult>;
     options: TRouteOptions;
 };
 
-export type TAnyRoute<RouterContext extends TClientOrServerContextForPage = TClientOrServerContextForPage> =
-    | TRoute<RouterContext>
-    | TErrorRoute<RouterContext>;
+export type TMatchedRoute<RouterContext = unknown, TResult = any> = TRouteBase<RouterContext, TResult> & TRouteMatch;
+
+export type TRoute<RouterContext = unknown, TResult = any> =
+    | TMatchedRoute<RouterContext, TResult>
+    | TRouteBase<RouterContext, TResult>;
+
+export type TErrorRoute<RouterContext = unknown, TResult = any> = {
+    code: number;
+    controller: TRouteController<RouterContext, TResult>;
+    options: TRouteOptions;
+};
+
+export type TAnyRoute<RouterContext = unknown, TResult = any> =
+    | TRoute<RouterContext, TResult>
+    | TErrorRoute<RouterContext, TResult>;
 
 // ClientRouterContext already includes server context
 export type TClientOrServerContext = ClientRouterContext; // | ServerRouterContext;
 
 export type TClientOrServerContextForPage = With<TClientOrServerContext, 'page'>;
 
-export type TRouteController<RouterContext extends TClientOrServerContextForPage = TClientOrServerContextForPage> = (
-    context: RouterContext,
-) => /* Page to render */ Page | /* Any data (html, json) */ Promise<any>;
+export type TRouteController<RouterContext = unknown, TResult = any> = (context: RouterContext) => TResult;
+
+export type TPageRoute = TRoute<TClientOrServerContextForPage, Page | Promise<any>>;
+
+export type TPageErrorRoute = TErrorRoute<TClientOrServerContextForPage, Page | Promise<any>>;
 
 export type TRouteOptions = {
     // Injected by the page plugin
+    id?: string;
     filepath?: string;
     setup?: TPageSetup;
 
@@ -96,12 +102,12 @@ export type TRouteOptions = {
 
 export type TRouteModule<TRegisteredRoute = any> = {
     // exporing __register is a way to know we axport a TAppArrowFunction
-    __register?: TAppArrowFunction<TRegisteredRoute>;
+    __register: TAppArrowFunction<TRegisteredRoute>;
 };
 
 export type TDomainsList = { [endpointId: string]: string } & { current: string };
 
-export const defaultOptions = { priority: 0 };
+export const defaultOptions: Pick<TRouteOptions, 'priority'> = { priority: 0 };
 
 /*----------------------------------
 - FUNCTIONS
@@ -150,7 +156,11 @@ export const buildUrl = (
     return prefix + path + (searchParams.toString() ? '?' + searchParams.toString() : '');
 };
 
-export const matchRoute = (route: TRoute, request: RouterRequest) => {
+export const hasRouteMatcher = <TRouteLike extends { regex?: unknown; keys?: unknown }>(
+    route: TRouteLike,
+): route is TRouteLike & TRouteMatch => 'regex' in route && route.regex instanceof RegExp;
+
+export const matchRoute = (route: TRouteMatch, request: RouterRequest) => {
     // Match Path
     const match = route.regex.exec(request.path);
     if (!match) return false;
@@ -161,7 +171,7 @@ export const matchRoute = (route: TRoute, request: RouterRequest) => {
         const value = match[iKey + 1];
         if (typeof key === 'string' && value)
             // number = sans nom
-            request.data[key] = decodeURIComponent(value.replaceAll('+', '%20'));
+            request.data[key] = decodeURIComponent(value.replace(/\+/g, '%20'));
     }
 
     return true;
@@ -174,7 +184,11 @@ export const matchRoute = (route: TRoute, request: RouterRequest) => {
 export default abstract class RouterInterface {
     public abstract page<TControllerData extends TObjetDonnees = {}>(
         ...args: TRegisterPageArgs<TControllerData, TRouteOptions>
-    );
+    ): unknown;
 
-    public abstract error(code: number, options, renderer: TFrontRenderer<{}, { message: string }>);
+    public abstract error(
+        code: number,
+        options: Partial<TRouteOptions>,
+        renderer: TFrontRenderer<{}, { message: string }>,
+    ): unknown;
 }

@@ -16,24 +16,38 @@ export const shouldOpenNewTab = (url: string, target?: string) =>
 // Simple link
 export const Link = ({
     to,
+    children,
+    class: classNameAttr,
+    className,
+    onClick,
+    target,
     ...props
 }: {
     to: string;
     children?: ComponentChild;
     class?: string;
     className?: string;
-} & React.HTMLProps<HTMLAnchorElement>) => {
-    const openNewTab = shouldOpenNewTab(to, props.target);
+} & React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+    const openNewTab = shouldOpenNewTab(to, typeof target === 'string' ? target : undefined);
+    const resolvedTarget = openNewTab ? '_blank' : target;
 
-    // External = open in new tab by default
-    if (openNewTab) props.target = '_blank';
-    // Otherwise, propagate to the router
-    else
-        props.onClick = (e) => {
+    const handleClick: React.MouseEventHandler<HTMLAnchorElement> | undefined = openNewTab
+        ? onClick
+        : (e) => {
             history?.push(to);
             e.preventDefault();
             return false;
         };
 
-    return <a {...props} href={to} />;
+    return (
+        <a
+            {...props}
+            href={to}
+            target={resolvedTarget}
+            onClick={handleClick}
+            class={classNameAttr ?? className}
+        >
+            {children}
+        </a>
+    );
 };

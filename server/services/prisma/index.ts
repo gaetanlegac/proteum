@@ -9,7 +9,7 @@ import type PrismaClientType from '@prisma/client';
 const safeStringify = require('fast-safe-stringify'); // remplace les références circulairs par un [Circular]
 
 // Core
-import type { Application } from '@server/app';
+import type { Application } from '@server/app/index';
 import Service from '@server/app/service';
 
 // Specific

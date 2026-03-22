@@ -1,5 +1,5 @@
 import type ClientApplication from '@client/app';
-import type ServerApplication from '@server/app';
+import type ServerApplication from '@server/app/index';
 
 export type ClientOrServerApplication = ClientApplication | ServerApplication;
 

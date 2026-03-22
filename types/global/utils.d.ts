@@ -20,9 +20,7 @@ declare type ThenArg<T> = T extends PromiseLike<infer U> ? U : T;
 declare type TPagination<TElement> = { list: TElement[]; page: number; pages: number; total: number };
 
 // https://stackoverflow.com/questions/39392853/is-there-a-type-for-class-in-typescript-and-does-any-include-it
-declare interface ClassType<T> extends Function {
-    new (): T;
-}
+declare type ClassType<T> = abstract new (...args: any[]) => T;
 
 declare type TPagination<T> = { docs: Array<T>; pages: number; total: number };
 

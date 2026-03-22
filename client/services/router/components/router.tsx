@@ -44,7 +44,7 @@ const PageLoading = ({
         <LoaderComponent isLoading={isLoading} />
     ) : (
         <div id="loading" class={isLoading ? 'display' : ''}>
-            <i src="spin" />
+            <i class="spin" />
         </div>
     );
 };
@@ -61,7 +61,7 @@ export default ({ service: clientRouter, loaderComponent }: TProps) => {
     ----------------------------------*/
 
     const context = useContext();
-    const [currentPage, setCurrentPage] = React.useState<undefined | Page>(context.page);
+    const [currentPage, setCurrentPage] = React.useState<undefined | Page>(context.page as Page | undefined);
 
     // Bind context object to client router
     if (clientRouter !== undefined) {
@@ -75,8 +75,8 @@ export default ({ service: clientRouter, loaderComponent }: TProps) => {
     const resolvePage = async (request: ClientRequest, data: {} = {}) => {
         if (!clientRouter) return;
 
-        const currentRequest = context.request;
-        context.request = request;
+        const currentRequest = context.request as ClientRequest;
+        context.request = request as typeof context.request;
 
         // WARNING: Don"t try to play with pages here, since the object will not be updated
         //  If needed to play with pages, do it in the setPages callback below
@@ -132,7 +132,7 @@ export default ({ service: clientRouter, loaderComponent }: TProps) => {
                 /*window.location.replace( request ? request.url : window.location.href );
                 return page; // Don't spread since it's an instance*/
 
-                context.app.setLayout(newLayout);
+                (context.app as { setLayout?: (layout: NonNullable<typeof newLayout>) => void }).setLayout?.(newLayout);
             }
 
             return newpage;
@@ -149,7 +149,7 @@ export default ({ service: clientRouter, loaderComponent }: TProps) => {
     // First render
     React.useEffect(() => {
         // Resolve page if it wasn't done via SSR
-        if (context.page === undefined) resolvePage(context.request);
+        if (context.page === undefined) resolvePage(context.request as ClientRequest);
 
         // Foreach URL change (Ex: bowser' back buttton)
         return history?.listen(async (locationUpdate) => {
@@ -174,7 +174,7 @@ export default ({ service: clientRouter, loaderComponent }: TProps) => {
         restoreScroll(currentPage);
 
         // Hooks
-        clientRouter.runHook('page.changed', currentPage);
+        clientRouter.runHook('page.changed', (currentPage?.context.request || context.request) as ClientRequest);
     }, [currentPage]);
 
     /*----------------------------------
@@ -184,8 +184,8 @@ export default ({ service: clientRouter, loaderComponent }: TProps) => {
     return (
         <>
             {currentPage && (
-                <PageComponent
-                    page={currentPage}
+                    <PageComponent
+                    page={currentPage as Parameters<typeof PageComponent>[0]['page']}
                     /* Create a new instance of the Page component every time the page change
                     Otherwise the page will memorise the data of the previous page */
                     key={currentPage.chunkId === undefined ? undefined : 'page_' + currentPage.chunkId}

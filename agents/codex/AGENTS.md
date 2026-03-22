@@ -61,7 +61,7 @@ When implementing a feature that relies on a **curated list of items**, keep **o
 ## Typings
 
 - Fix typing issues only on the code you wrote.
-- Never force cast with `unknown` or `any`. If you find no other solutions, tell me in the output.
+- Never cast with `as any` or `as unknown`; fix the type contract or introduce an explicit typed adapter instead. If you find no other solution, tell me in the output.
 
 ## Workflow
 
