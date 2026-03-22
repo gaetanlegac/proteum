@@ -6,6 +6,7 @@ import fs from 'fs-extra';
 
 // Type
 import type { App } from '../../app';
+import { logVerbose } from '../../runtime/verbose';
 
 export default async (app: App, outputDir: string, enabled: boolean = true) => {
     if (!enabled) return;
@@ -23,7 +24,7 @@ export default async (app: App, outputDir: string, enabled: boolean = true) => {
     )
         return;
 
-    console.info(`Generating identity assets ...`);
+    logVerbose(`Generating identity assets ...`);
     fs.emptyDirSync(outputDir);
 
     const response = await favicons(logoPath, options);

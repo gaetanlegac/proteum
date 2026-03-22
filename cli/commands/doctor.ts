@@ -12,7 +12,7 @@ const allowedDoctorArgs = new Set(['json', 'strict']);
 
 const validateDoctorArgs = () => {
     const enabledArgs = Object.entries(cli.args)
-        .filter(([name, value]) => name !== 'workdir' && value === true)
+        .filter(([name, value]) => name !== 'workdir' && name !== 'verbose' && value === true)
         .map(([name]) => name);
 
     const invalidArgs = enabledArgs.filter((arg) => !allowedDoctorArgs.has(arg));

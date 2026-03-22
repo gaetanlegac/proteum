@@ -14,6 +14,7 @@ import { createClientBundleAnalysisPlugins } from '../common/bundleAnalysis';
 import { toRspackAliases } from '../common/rspackAliases';
 import identityAssets from './identite';
 import cli from '../..';
+import { logVerbose } from '../../runtime/verbose';
 
 // Type
 import type { App } from '../../app';
@@ -54,7 +55,7 @@ export default function createCompiler(
     mode: TCompileMode,
     outputTarget: TCompileOutputTarget = mode === 'dev' ? 'dev' : 'bin',
 ): Configuration {
-    console.info(`Creating compiler for client (${mode}).`);
+    logVerbose(`Creating compiler for client (${mode}).`);
     const dev = mode === 'dev';
     const outputPath = app.outputPath(outputTarget);
 

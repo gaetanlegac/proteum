@@ -8,6 +8,8 @@ export type TArgsObject = { [key: string]: string | boolean | string[] | undefin
 export class CLIContext {
     public args: TArgsObject = { workdir: process.cwd() };
 
+    public verbose = false;
+
     public debug = false;
 
     public packageJson: { [key: string]: any };
@@ -23,6 +25,8 @@ export class CLIContext {
 
     public setArgs(args: TArgsObject = {}) {
         this.args = { workdir: process.cwd(), ...args };
+        this.verbose = this.args.verbose === true;
+        this.debug = this.verbose;
     }
 
     private loadPkg() {
@@ -41,10 +45,10 @@ export class CLIContext {
                 })
                 .join(';');
 
-            console.log('$ ' + fullCommand);
+            this.verbose && console.log('$ ' + fullCommand);
 
             const wrappedCommand = `bash -c '${fullCommand}'`;
-            console.log('Running command: ' + wrappedCommand);
+            this.verbose && console.log('Running command: ' + wrappedCommand);
 
             const proc = cp.spawn(wrappedCommand, [], {
                 cwd: process.cwd(),
@@ -52,10 +56,10 @@ export class CLIContext {
                 shell: true,
             });
 
-            console.log(proc.exitCode);
+            this.verbose && console.log(proc.exitCode);
 
             proc.on('exit', () => {
-                console.log('Command finished.');
+                this.verbose && console.log('Command finished.');
                 resolve();
             });
         });

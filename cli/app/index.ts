@@ -13,6 +13,7 @@ import cli from '..';
 // Specific
 import ConfigParser from './config';
 import type { TEnvConfig } from '../../server/app/container/config';
+import { logVerbose } from '../runtime/verbose';
 
 /*----------------------------------
 - TYPES
@@ -177,7 +178,7 @@ export class App {
         const configDir = path.resolve(cli.paths.appRoot, 'server', 'config');
         const configFiles = fs.readdirSync(configDir);
         for (const configFile of configFiles) {
-            console.log('Loading config file:', configFile);
+            logVerbose('Loading config file:', configFile);
             require(path.resolve(configDir, configFile));
         }
     }

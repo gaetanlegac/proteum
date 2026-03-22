@@ -16,6 +16,7 @@ import yaml from 'yaml';
 
 // Types
 import type { TEnvConfig } from '../../server/app/container/config';
+import { logVerbose } from '../runtime/verbose';
 
 /*----------------------------------
 - LOADE
@@ -28,7 +29,7 @@ export default class ConfigParser {
     ) {}
 
     private loadYaml(filepath: string) {
-        console.info(`Loading config ${filepath}`);
+        logVerbose(`Loading config ${filepath}`);
         const rawConfig = fs.readFileSync(filepath, 'utf-8');
         return yaml.parse(rawConfig);
     }
@@ -36,7 +37,7 @@ export default class ConfigParser {
     public env(): TEnvConfig {
         // We assume that when we run 5htp dev, we're in local
         // Otherwise, we're in production environment (docker)
-        console.log('[app] Using environment:', process.env.NODE_ENV);
+        logVerbose('[app] Using environment:', process.env.NODE_ENV);
         const envFileName = this.appDir + '/env.yaml';
         const envFile = this.loadYaml(envFileName);
         return {

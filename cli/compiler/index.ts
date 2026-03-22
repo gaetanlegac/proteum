@@ -40,6 +40,8 @@ import {
 } from './common/proteumManifest';
 import writeIfChanged from './writeIfChanged';
 import { reservedRouteSetupKeys, routeSetupOptionKeys } from '../../common/router/pageSetup';
+import { logVerbose } from '../runtime/verbose';
+import { createCompileLoader, type TCompileLoader } from '../presentation/compileLoader';
 
 type TCompilerCallback = (compiler: RspackCompiler) => void;
 
@@ -81,6 +83,7 @@ export default class Compiler {
     private recentCompilationResults: { [compiler: string]: TRecentCompilationResult } = {};
     private recentModifiedFiles: { [compiler: string]: string[] } = {};
     private refreshingGeneratedArtifacts?: Promise<void>;
+    private compileLoader?: TCompileLoader;
 
     public constructor(
         private mode: TCompileMode,
@@ -109,9 +112,9 @@ export default class Compiler {
     public fixNpmLinkIssues() {
         const corePath = path.join(app.paths.root, '/node_modules/proteum');
         if (!fs.lstatSync(corePath).isSymbolicLink())
-            return console.info("Not fixing npm issue because proteum wasn't installed with npm link.");
+            return logVerbose("Not fixing npm issue because proteum wasn't installed with npm link.");
 
-        this.debug && console.info(`Fix NPM link issues ...`);
+        this.debug && logVerbose(`Fix NPM link issues ...`);
         const outputPath = app.outputPath(this.outputTarget);
 
         const appModules = path.join(app.paths.root, 'node_modules');
@@ -1498,6 +1501,13 @@ declare module '@models/types' {
             createServerConfig(app, this.mode, this.outputTarget),
             createClientConfig(app, this.mode, this.outputTarget),
         ]);
+        this.compileLoader = await createCompileLoader({
+            mode: this.mode,
+            compilerNames: multiCompiler.compilers
+                .map((compiler) => compiler.name)
+                .filter((name): name is string => typeof name === 'string'),
+            enabled: cli.verbose !== true,
+        });
 
         for (const compiler of multiCompiler.compilers) {
             const name = compiler.name;
@@ -1521,7 +1531,8 @@ declare module '@models/types' {
                 this.compiling[name] = new Promise((resolve) => (finished = resolve));
 
                 timeStart = new Date();
-                console.info(`[${name}] Compiling ...`);
+                this.compileLoader?.start(name, this.recentModifiedFiles[name] || []);
+                logVerbose(`[${name}] Compiling ...`);
             });
 
             /* TODO: Ne pas résoudre la promise tant que la recompilation des données indexées (icones, identité, ...) 
@@ -1537,6 +1548,7 @@ declare module '@models/types' {
                 // Shiow status
                 const timeEnd = new Date();
                 const time = timeEnd.getTime() - timeStart.getTime();
+                this.compileLoader?.finish(name, { succeeded: compilationSucceeded, durationMs: time });
                 if (!compilationSucceeded) {
                     console.info(stats.toString(compiler.options.stats));
                     console.error(`[${name}] Failed to compile after ${time} ms`);
@@ -1549,8 +1561,8 @@ declare module '@models/types' {
                         writeClientManifest(stats, app.outputPath(this.outputTarget));
                     }
 
-                    this.debug && console.info(stats.toString(compiler.options.stats));
-                    console.info(`[${name}] Finished compilation after ${time} ms`);
+                    this.debug && logVerbose(stats.toString(compiler.options.stats));
+                    logVerbose(`[${name}] Finished compilation after ${time} ms`);
                 }
 
                 // Mark as finished

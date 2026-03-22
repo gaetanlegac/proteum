@@ -4,6 +4,7 @@
 
 // npm
 import readline, { Key } from 'readline';
+import { logVerbose } from '../runtime/verbose';
 
 /*----------------------------------
 - TYPES
@@ -41,7 +42,7 @@ class KeyboardCommands {
             }
 
             if (str === 'ctrl+c') {
-                console.log(`Exiting ...`);
+                logVerbose(`Exiting ...`);
                 process.exit(0);
             }
         });

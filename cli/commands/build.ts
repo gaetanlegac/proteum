@@ -13,6 +13,8 @@ import {
     getClientBundleAnalysisReportPaths,
     waitForClientBundleAnalysisArtifacts,
 } from '../compiler/common/bundleAnalysis';
+import { renderRows } from '../presentation/layout';
+import { renderStep, renderSuccess, renderTitle } from '../presentation/ink';
 
 const allowedBuildArgs = new Set(['prod', 'cache', 'analyze']);
 
@@ -21,7 +23,7 @@ const allowedBuildArgs = new Set(['prod', 'cache', 'analyze']);
 ----------------------------------*/
 function resolveBuildMode(): TCompileMode {
     const enabledArgs = Object.entries(cli.args)
-        .filter(([name, value]) => name !== 'workdir' && value === true)
+        .filter(([name, value]) => name !== 'workdir' && name !== 'verbose' && value === true)
         .map(([name]) => name);
 
     const invalidArgs = enabledArgs.filter((arg) => !allowedBuildArgs.has(arg));
@@ -39,6 +41,21 @@ export const run = async (): Promise<void> => {
     const mode = resolveBuildMode();
     const compiler = new Compiler(mode, {}, false, 'bin');
     const multiCompiler = await compiler.create();
+    let analysisArtifacts: { reportPath: string; statsPath: string } | undefined;
+
+    console.info(
+        [
+            await renderTitle('PROTEUM BUILD', 'Producing the server and client bundles.'),
+            renderRows([
+                { label: 'app', value: cli.paths.appRoot === process.cwd() ? '.' : cli.paths.appRoot },
+                { label: 'mode', value: mode },
+                { label: 'cache', value: cli.args.cache === true ? 'enabled' : 'disabled' },
+                { label: 'analyze', value: cli.args.analyze === true ? 'enabled' : 'disabled' },
+                { label: 'output', value: 'bin/' },
+            ]),
+            await renderStep('[1/1]', 'Running the production compiler.'),
+        ].join('\n\n'),
+    );
 
     await new Promise<void>((resolve, reject) => {
         multiCompiler.run((error, stats) => {
@@ -56,9 +73,7 @@ export const run = async (): Promise<void> => {
             if (cli.args.analyze === true) {
                 waitForClientBundleAnalysisArtifacts(app, 'bin')
                     .then(() => {
-                        const { reportPath, statsPath } = getClientBundleAnalysisReportPaths(app, 'bin');
-                        console.info(`Client bundle analysis report: ${reportPath}`);
-                        console.info(`Client bundle analysis stats: ${statsPath}`);
+                        analysisArtifacts = getClientBundleAnalysisReportPaths(app, 'bin');
                         resolve();
                     })
                     .catch(reject);
@@ -68,4 +83,15 @@ export const run = async (): Promise<void> => {
             resolve();
         });
     });
+
+    if (analysisArtifacts !== undefined) {
+        console.info(
+            renderRows([
+                { label: 'report', value: analysisArtifacts.reportPath },
+                { label: 'stats', value: analysisArtifacts.statsPath },
+            ]),
+        );
+    }
+
+    console.info(await renderSuccess(`Build completed in ${mode} mode.`));
 };

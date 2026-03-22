@@ -16,6 +16,7 @@
 		"proteum": "cli/bin.js"
 	},
 	"dependencies": {
+		"@inkjs/ui": "^2.0.0",
 		"@prisma/adapter-mariadb": "7.2.0",
 		"@prisma/client": "7.2.0",
 		"@rspack/core": "^1.7.9",
@@ -50,6 +51,7 @@
 		"history": "^5.0.1",
 		"hpp": "^0.2.3",
 		"human-interval": "^2.0.1",
+		"ink": "^6.8.0",
 		"intl": "^1.2.5",
 		"iso-639-1": "^2.1.9",
 		"jsonwebtoken": "^8.5.1",

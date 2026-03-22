@@ -5,6 +5,7 @@
 // Npm
 import fs from 'fs-extra';
 import path from 'path';
+import { logVerbose } from '../runtime/verbose';
 
 /*----------------------------------
 - TYPES
@@ -86,7 +87,7 @@ function ensureSymlinks(appRoot: string, linkDefinitions: TAgentLinkDefinition[]
         const symlinkTarget = path.relative(projectParentDir, sourceFilepath);
         fs.symlinkSync(symlinkTarget, projectFilepath);
 
-        console.info(`${logPrefix} Created ${path.relative(appRoot, projectFilepath) || '.'} -> ${symlinkTarget}`);
+        logVerbose(`${logPrefix} Created ${path.relative(appRoot, projectFilepath) || '.'} -> ${symlinkTarget}`);
     }
 }
 
