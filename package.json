@@ -1,7 +1,7 @@
 {
 	"name": "proteum",
 	"description": "AI-first SSR, SEO, and TypeScript framework optimized for autonomous agent development.",
-	"version": "2.0.0",
+	"version": "2.0.0-1",
 	"author": "Gaetan Le Gac (https://github.com/gaetanlegac)",
 	"repository": "git://github.com/gaetanlegac/proteum.git",
 	"license": "MIT",
@@ -85,7 +85,8 @@
 		"yargs-parser": "^21.1.1",
 		"youch": "^3.3.3",
 		"youch-terminal": "^2.2.3",
-		"zod": "^4.1.5"
+		"zod": "^4.1.5",
+		"webpack-bundle-analyzer": "^5.2.0"
 	},
 	"devDependencies": {
 		"@types/cookie": "^0.4.1",
@@ -102,7 +103,6 @@
 		"@types/sharp": "^0.31.1",
 		"@types/universal-analytics": "^0.4.5",
 		"@types/yargs-parser": "^21.0.0",
-		"schema-dts": "^1.1.2",
-		"webpack-bundle-analyzer": "^5.2.0"
+		"schema-dts": "^1.1.2"
 	}
 }
