@@ -25,6 +25,7 @@ Router.page('/path', ({ Feature }) => ({
 - Prefer the generated page arguments or the app context hook; do not import `.proteum` files directly.
 - Never use `api.fetch(...)` in page files
 - Never import client service values from `@app`
+- Compose page UI from shared Shadcn-based components when the project already provides them instead of redefining common controls inline in the page file
 
 ## Typings
 

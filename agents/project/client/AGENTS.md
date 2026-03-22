@@ -8,6 +8,7 @@ UI components are defined in `/client/pages` and `/client/components`.
 - Preact with SSR
 - Follow the UI stack already used in the touched area.
 - Many Proteum apps use Tailwind and `@/client/components/Motion`, but those are app conventions, not framework guarantees.
+- When the project already exposes Shadcn components or `client/components/ui/**` primitives derived from them, prefer those components for standard UI instead of rebuilding the same primitives locally.
 
 Don't add `React` imports just for JSX.
 Use `React` only when a React or Preact API is actually needed.
@@ -69,11 +70,13 @@ If a catch is needed, rethrow or surface the failure clearly.
 - Follow the existing design language of the app or feature area.
 - Keep layouts responsive and accessible.
 - Add motion only when the area already uses it or when it materially improves UX.
+- Reuse Shadcn-based shared primitives first for common controls like buttons, inputs, dialogs, dropdowns, tabs, tables, and forms when they cover the requirement.
+- Create custom UI primitives only when the existing Shadcn layer cannot express the interaction or visual requirement cleanly.
 
 ## Rules
 
 - Don't add `React` imports unless the file actually uses a React or Preact API.
-- Don't use any component from `@client/components` unless the codebase already does in that area
+- Don't use any component from `@client/components` unless the codebase already does in that area, except for established shared primitives such as the project's Shadcn-based `client/components/ui/**` layer
 - To create a link / button, always use the `Link` component when the codebase expects navigation links
 
 ## Keep the code organized

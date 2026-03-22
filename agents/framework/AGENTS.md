@@ -833,6 +833,7 @@ When maintaining a Proteum app:
 - `controllerPath` only when the file path would produce the wrong public API shape
 - `useContext()` or page render args for controller access on the client
 - one clear source of truth for catalogs and shared types
+- when a project already includes a Shadcn-based `client/components/ui/**` layer, reuse those components for standard UI primitives before creating custom ones
 
 # Legacy Or Discouraged Patterns
 

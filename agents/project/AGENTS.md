@@ -61,6 +61,7 @@ When implementing a feature that relies on a **curated list of items**, keep **o
 - `setup` receives the normal page context plus the generated controller tree spread into it.
 - `render` receives the normal page context plus the resolved setup data and the same controller tree spread into it.
 - Components and hooks use the app client context hook, usually imported from `@/client/context`.
+- For UI primitives, prefer the project's shared Shadcn-based components whenever they already exist and fit the need before creating bespoke buttons, inputs, dialogs, or similar building blocks.
 
 ## Server runtime access
 
@@ -109,3 +110,4 @@ And any git command in the write mode.
 # Copy and UX
 
 Before making UX/copy decisions, read `docs/PERSONAS.md`, `docs/PRODUCT.md`, `docs/MARKETING.md`.
+When implementing UI, prefer existing Shadcn components or local wrappers around them whenever they can satisfy the requirement cleanly.
