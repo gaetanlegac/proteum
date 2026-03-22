@@ -20,6 +20,12 @@ This is a full stack monolith project using Typescript, NodeJS, Preact, and Prot
 See `CODING_STYLE.md`.
 This file is the source of truth for formatting, section-comment structure, and general coding style.
 
+# Framework contract
+
+For Proteum-wide project scaffolding, routing, SSR, controller, service, generated-code, and maintenance rules, use the
+framework guide in the Proteum repository at `agents/framework/AGENTS.md`.
+From a normal Proteum project install, read it at `./node_modules/proteum/agents/framework/AGENTS.md`.
+
 # Files organization
 
 - Always keep one class / react component per file

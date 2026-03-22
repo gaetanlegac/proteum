@@ -19,7 +19,7 @@ type TAgentLinkDefinition = { projectPath: string; sourcePath: string; ensurePar
 ----------------------------------*/
 
 // Project-local AGENTS entrypoints mapped to their framework-owned source files.
-const codexAgentLinkDefinitions: TAgentLinkDefinition[] = [
+const projectAgentLinkDefinitions: TAgentLinkDefinition[] = [
     { projectPath: 'AGENTS.md', sourcePath: 'AGENTS.md' },
     { projectPath: 'CODING_STYLE.md', sourcePath: 'CODING_STYLE.md' },
     { projectPath: path.join('client', 'AGENTS.md'), sourcePath: path.join('client', 'AGENTS.md') },
@@ -37,8 +37,8 @@ const codexAgentLinkDefinitions: TAgentLinkDefinition[] = [
 ----------------------------------*/
 
 export function ensureProjectAgentSymlinks({ appRoot, coreRoot }: TEnsureProjectAgentSymlinksArgs) {
-    const agentSourceRoot = path.join(coreRoot, 'agents', 'codex');
-    const agentLinks = codexAgentLinkDefinitions.map((linkDefinition) => ({
+    const agentSourceRoot = path.join(coreRoot, 'agents', 'project');
+    const agentLinks = projectAgentLinkDefinitions.map((linkDefinition) => ({
         ...linkDefinition,
         sourcePath: path.join(agentSourceRoot, linkDefinition.sourcePath),
     }));

@@ -814,7 +814,7 @@ declare module "@app" {
 }
     
 declare module '@models/types' {
-    export * from '@/var/prisma/index';
+    export * from '@/client/.generated/models';
 }
 
 declare module '@common/errors' {
@@ -834,6 +834,13 @@ declare namespace preact.JSX {
         src?: string;
     }
 }
+`,
+        );
+
+        // @/client/.generated/models.ts
+        writeIfChanged(
+            path.join(app.paths.client.generated, 'models.ts'),
+            `export * from '@/var/prisma/browser';
 `,
         );
 
@@ -857,8 +864,15 @@ export default (): ClientContext => React.useContext<ClientContext>(ReactClientC
             `declare type ${appClassIdentifier} = import("@/server/.generated/app").default;
 
 declare module '@models/types' {
-    export * from '@/var/prisma/index';
+    export * from '@/common/.generated/models';
 }`,
+        );
+
+        // @/common/.generated/models.ts
+        writeIfChanged(
+            path.join(app.paths.common.generated, 'models.ts'),
+            `export * from '@/var/prisma/browser';
+`,
         );
 
         // @/common/generated.d.ts
@@ -912,6 +926,13 @@ export default class ${appClassIdentifier} extends Application<ServicesContainer
 }
 
 
+`,
+        );
+
+        // @/server/.generated/models.ts
+        writeIfChanged(
+            path.join(app.paths.server.generated, 'models.ts'),
+            `export * from '@/var/prisma/client';
 `,
         );
 
@@ -1002,7 +1023,7 @@ declare module '@common/errors' {
 }
     
 declare module '@models/types' {
-    export * from '@/var/prisma/index';
+    export * from '@/server/.generated/models';
 }`,
         );
     }

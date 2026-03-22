@@ -9,7 +9,7 @@ export type TWithStats = { $table: string; $key: string } & Record<string, strin
 
 export type TSubset = (...args: any[]) => Record<string, unknown> & { withStats?: TWithStats };
 
-export type Transform<S extends TSubset, R, RT> = (row: R) => RT;
+export type Transform<R, RT> = (row: R) => RT;
 
 export default class Facet<
     D extends TDelegate<R>,
@@ -21,7 +21,7 @@ export default class Facet<
         private readonly prisma: PrismaClient,
         private readonly delegate: D,
         private readonly subset: S,
-        private readonly transform?: Transform<S, R, RT>,
+        private readonly transform?: Transform<R, RT>,
     ) {}
 
     public async findMany(...args: Parameters<S>): Promise<RT[]> {

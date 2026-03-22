@@ -3,17 +3,18 @@
 ----------------------------------*/
 
 // Npm
-import { PrismaClient } from '@/var/prisma';
+import dotenv from 'dotenv';
+import { PrismaClient } from '@/server/.generated/models';
 import mysql from 'mysql2/promise';
-import type PrismaClientType from '@prisma/client';
 const safeStringify = require('fast-safe-stringify'); // remplace les références circulairs par un [Circular]
 
 // Core
 import type { Application } from '@server/app/index';
-import Service from '@server/app/service';
+import Service, { TServiceArgs } from '@server/app/service';
 
 // Specific
 import Facet, { TDelegate, TSubset, Transform } from './Facet';
+import { createMariaDbAdapter } from './mariadb';
 import { NotFound } from '@common/errors';
 
 /*----------------------------------
@@ -37,7 +38,23 @@ export type Services = {};
 ----------------------------------*/
 
 export default class ModelsManager extends Service<Config, Hooks, Application, Application> {
-    public client = new PrismaClient() as PrismaClientType.PrismaClient;
+    public client: PrismaClient;
+
+    public constructor(...args: TServiceArgs<ModelsManager>) {
+        super(...args);
+
+        dotenv.config();
+
+        const databaseUrl = process.env.DATABASE_URL;
+        if (!databaseUrl)
+            throw new Error(
+                'DATABASE_URL is required before starting the Models service. Prisma 7 no longer auto-loads runtime env files.',
+            );
+
+        this.client = new PrismaClient({
+            adapter: createMariaDbAdapter(databaseUrl),
+        });
+    }
 
     public async ready() {
         await this.client.$executeRaw`SET time_zone = '+00:00'`;
@@ -47,7 +64,7 @@ export default class ModelsManager extends Service<Config, Hooks, Application, A
         await this.client.$disconnect();
     }
 
-    public Facet<D extends TDelegate<R>, S extends TSubset, R, RT>(...args: [D, S, Transform<S, R, RT>]) {
+    public Facet<D extends TDelegate<R>, S extends TSubset, R, RT = R>(...args: [D, S, Transform<R, RT>?]) {
         return new Facet(this.client, ...args);
     }
 
