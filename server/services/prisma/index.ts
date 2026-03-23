@@ -33,6 +33,12 @@ export type Hooks = {};
 
 export type Services = {};
 
+// Fix: Do not know how to serialize a BigInt
+BigInt.prototype.toJSON = function () {
+    const int = Number.parseInt(this.toString());
+    return int ?? this.toString();
+};
+
 /*----------------------------------
 - CLASSE
 ----------------------------------*/
