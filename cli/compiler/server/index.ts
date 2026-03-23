@@ -32,6 +32,18 @@ import type { App } from '../../app';
 
 const debug = false;
 const ssrScriptExtensions = ['.ssr.ts', '.ssr.tsx'];
+const serverReactCompatCompilePrefixes = [
+    '@floating-ui',
+    '@mantine/',
+    '@radix-ui/',
+    'aria-hidden',
+    'react-number-format',
+    'react-remove-scroll',
+    'react-remove-scroll-bar',
+    'react-style-singleton',
+    'use-callback-ref',
+    'use-sidecar',
+];
 
 const getDevGeneratedRuntimeEntries = (app: App) => ({
     __proteum_dev_routes: [app.paths.server.generated + '/routes.ts'],
@@ -108,10 +120,9 @@ export default function createCompiler(
                         // TODO: proteum.conf: compile: include
                         // Compile proteum modules
                         request.startsWith('proteum') ||
-                        // Compile 5HTP modules
-                        request.startsWith('@mantine/') ||
-                        request.startsWith('react-number-format') ||
-                        request.startsWith('@floating-ui'));
+                        // React-based UI packages must pass through the alias layer on the server,
+                        // otherwise SSR can mix real React packages with the Preact compat runtime.
+                        serverReactCompatCompilePrefixes.some((prefix) => request.startsWith(prefix)));
 
                 //console.log('isNodeModule', request, isNodeModule);
 

@@ -47,6 +47,7 @@ const hotReloadableRoots = [() => app.paths.root, () => cli.paths.core.root];
 // Current server child process used by the dev loop.
 let cp: ChildProcess | undefined = undefined;
 let devSessionStopping = false;
+let appProcessOperation: Promise<void> = Promise.resolve();
 type TDevWatching = ReturnType<Awaited<ReturnType<Compiler['create']>>['watch']>;
 
 /*----------------------------------
@@ -64,6 +65,12 @@ const closeWatching = async (watching: TDevWatching) =>
             resolve();
         });
     });
+
+const runSerializedAppProcessOperation = async <T>(operation: () => Promise<T>) => {
+    const resultPromise = appProcessOperation.catch(() => undefined).then(() => operation());
+    appProcessOperation = resultPromise.then(() => undefined, () => undefined);
+    return resultPromise;
+};
 
 const waitForChildExit = async (child: ChildProcess, timeoutMs: number) =>
     await new Promise<boolean>((resolve) => {
@@ -119,37 +126,40 @@ const signalAppProcess = (child: ChildProcess, signal: NodeJS.Signals) => {
 };
 
 async function startApp(app: App) {
-    if (devSessionStopping) return;
+    await runSerializedAppProcessOperation(async () => {
+        if (devSessionStopping) return;
 
-    await stopApp('Restart asked');
+        await stopAppInternal('Restart asked');
+        if (devSessionStopping) return;
 
-    logVerbose('Launching new server ...');
-    cp = spawn('node', ['--preserve-symlinks', app.outputPath('dev') + '/server.js'], {
-        // stdin, stdout, stderr
-        stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-        detached: true,
-    });
+        logVerbose('Launching new server ...');
+        cp = spawn('node', ['--preserve-symlinks', app.outputPath('dev') + '/server.js'], {
+            // stdin, stdout, stderr
+            stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+            detached: true,
+        });
 
-    const child = cp;
+        const child = cp;
 
-    child.on('exit', () => {
-        if (cp === child) cp = undefined;
-    });
+        child.on('exit', () => {
+            if (cp === child) cp = undefined;
+        });
 
-    child.on('message', (message: unknown) => {
-        if (!isServerHotReloadResult(message)) return;
+        child.on('message', (message: unknown) => {
+            if (!isServerHotReloadResult(message)) return;
 
-        if (message.type === serverHotReloadMessageType.succeeded) {
-            logVerbose('Server hot reload applied without restarting app.');
-            return;
-        }
+            if (message.type === serverHotReloadMessageType.succeeded) {
+                logVerbose('Server hot reload applied without restarting app.');
+                return;
+            }
 
-        console.error('Server hot reload failed. Restarting app with a fresh process.', message.error || '');
-        void startApp(app);
+            console.error('Server hot reload failed. Restarting app with a fresh process.', message.error || '');
+            void startApp(app);
+        });
     });
 }
 
-async function stopApp(reason: string) {
+async function stopAppInternal(reason: string) {
     const currentApp = cp;
     if (currentApp === undefined) return;
 
@@ -166,6 +176,12 @@ async function stopApp(reason: string) {
     if (!signalAppProcess(currentApp, 'SIGKILL')) return;
 
     await waitForChildExit(currentApp, 2000);
+}
+
+async function stopApp(reason: string) {
+    await runSerializedAppProcessOperation(async () => {
+        await stopAppInternal(reason);
+    });
 }
 
 function requestServerHotReload(changedFiles: string[]) {
