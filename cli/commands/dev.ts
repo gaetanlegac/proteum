@@ -10,6 +10,7 @@ import { spawn, ChildProcess } from 'child_process';
 import cli from '..';
 import Keyboard from '../utils/keyboard';
 import {
+    isServerReadyMessage,
     isServerHotReloadResult,
     serverHotReloadMessageType,
     TServerHotReloadRequest,
@@ -19,7 +20,7 @@ import {
 import Compiler from '../compiler';
 import { createDevEventServer } from './devEvents';
 import { ensureProjectAgentSymlinks } from '../utils/agents';
-import { renderDevSession } from '../presentation/devSession';
+import { renderDevSession, renderServerReadyBanner } from '../presentation/devSession';
 import { logVerbose } from '../runtime/verbose';
 
 // Core
@@ -106,6 +107,8 @@ const createIgnoredWatchPattern = (outputPaths: string[]) =>
             ...outputPaths.map((outputPath) => `(?:^${escapeForRegExp(outputPath)}(?:/|$))`),
         ].join('|'),
     );
+const getDevAppName = (app: App) =>
+    app.identity.web?.fullTitle || app.identity.web?.title || app.identity.name || app.packageJson.name || app.paths.root;
 
 const signalAppProcess = (child: ChildProcess, signal: NodeJS.Signals) => {
     try {
@@ -146,6 +149,18 @@ async function startApp(app: App) {
         });
 
         child.on('message', (message: unknown) => {
+            if (isServerReadyMessage(message)) {
+                void (async () => {
+                    console.info(
+                        await renderServerReadyBanner({
+                            appName: getDevAppName(app),
+                            publicUrl: message.publicUrl,
+                        }),
+                    );
+                })();
+                return;
+            }
+
             if (!isServerHotReloadResult(message)) return;
 
             if (message.type === serverHotReloadMessageType.succeeded) {
@@ -233,12 +248,7 @@ export const run = async () => {
     app.devEventPort = devEventServer.port;
     console.info(
         await renderDevSession({
-            appName:
-                app.identity.web?.fullTitle ||
-                app.identity.web?.title ||
-                app.identity.name ||
-                app.packageJson.name ||
-                app.paths.root,
+            appName: getDevAppName(app),
             appRoot: app.paths.root === process.cwd() ? '.' : app.paths.root,
             routerPort: app.env.router.port,
             devEventPort: devEventServer.port,

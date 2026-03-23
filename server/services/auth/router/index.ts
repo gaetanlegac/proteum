@@ -18,7 +18,7 @@ import type { Application } from '@server/app/index';
 import type { TRouterServiceArgs } from '@server/services/router/service';
 
 // Specific
-import type { default as UsersService, TUserRole, TBasicUser } from '..';
+import type { default as UsersService, TAuthCheckConditions, TBasicUser } from '..';
 import UsersRequestService from './request';
 
 /*----------------------------------
@@ -71,13 +71,45 @@ export default class AuthenticationRouterService<
         // Check route permissions
         this.parent.on('resolved', async (route: TAnyRoute, request: TRequest, response: ServerResponse<TRouter>) => {
             if (route.options.auth !== undefined) {
-                // Basic auth check
-                const requiredRole = route.options.auth === true ? 'USER' : route.options.auth;
-                this.users.check(request, requiredRole as TUserRole | false);
+                const tracking = route.options.authTracking ?? null;
 
-                // Redirect to logged page
-                if (route.options.auth === false && request.user && route.options.redirectLogged)
-                    response.redirect(route.options.redirectLogged);
+                // Guest-only routes can still redirect authenticated users away.
+                if (route.options.auth === false) {
+                    const currentUser = this.users.check(request, false, tracking);
+
+                    if (route.options.redirectLogged && currentUser) response.redirect(route.options.redirectLogged);
+                    return;
+                }
+
+                if (route.options.auth === null) {
+                    this.users.check(request, null, tracking);
+                    return;
+                }
+
+                if (typeof route.options.auth === 'object') {
+                    this.users.check(request, route.options.auth as TAuthCheckConditions, tracking);
+                    return;
+                }
+
+                // `true` keeps the historical "USER" meaning. Use `null` for "logged in only".
+                if (route.options.auth === true) {
+                    if (tracking !== null && this.users.config.rules) {
+                        this.users.check(request, { role: 'USER' }, tracking);
+                        return;
+                    }
+
+                    this.users.check(request, true);
+                    return;
+                }
+
+                const requiredRole = route.options.auth;
+
+                if (tracking !== null && this.users.config.rules) {
+                    this.users.check(request, { role: requiredRole }, tracking);
+                    return;
+                }
+
+                this.users.check(request, requiredRole);
             }
         });
     }

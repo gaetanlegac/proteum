@@ -11,6 +11,7 @@ export const routeSetupOptionKeys = [
     'accept',
     'raw',
     'auth',
+    'authTracking',
     'redirectLogged',
     'static',
     'whenStatic',

@@ -9,13 +9,12 @@ import { rspack, type Compiler as RspackCompiler } from '@rspack/core';
 
 // Core
 import app from '../app';
-import cli from '..';
 import createServerConfig from './server';
 import createClientConfig from './client';
 import { TCompileMode, TCompileOutputTarget } from './common';
 import { writeClientManifest } from './common/clientManifest';
 import { logVerbose } from '../runtime/verbose';
-import { createCompileLoader, type TCompileLoader } from '../presentation/compileLoader';
+import { createCompileReporter, type TCompileReporter } from '../presentation/compileReporter';
 import { generateRoutingArtifacts } from './artifacts/routing';
 import { generateControllerArtifacts } from './artifacts/controllers';
 import { generateServiceArtifacts } from './artifacts/services';
@@ -34,7 +33,7 @@ export default class Compiler {
     private recentCompilationResults: { [compiler: string]: TRecentCompilationResult } = {};
     private recentModifiedFiles: { [compiler: string]: string[] } = {};
     private refreshingGeneratedArtifacts?: Promise<void>;
-    private compileLoader?: TCompileLoader;
+    private compileReporter?: TCompileReporter;
 
     public constructor(
         private mode: TCompileMode,
@@ -163,8 +162,8 @@ export default class Compiler {
     }
 
     public dispose() {
-        this.compileLoader?.stop();
-        this.compileLoader = undefined;
+        this.compileReporter?.stop();
+        this.compileReporter = undefined;
     }
 
     public consumeRecentCompilationResults() {
@@ -186,12 +185,8 @@ export default class Compiler {
             createServerConfig(app, this.mode, this.outputTarget),
             createClientConfig(app, this.mode, this.outputTarget),
         ]);
-        this.compileLoader = await createCompileLoader({
-            mode: this.mode,
-            compilerNames: multiCompiler.compilers
-                .map((compiler) => compiler.name)
-                .filter((name): name is string => typeof name === 'string'),
-            enabled: cli.verbose !== true,
+        this.compileReporter = createCompileReporter({
+            enabled: this.mode === 'dev' && this.outputTarget === 'dev',
         });
 
         for (const compiler of multiCompiler.compilers) {
@@ -216,7 +211,7 @@ export default class Compiler {
                 this.compiling[name] = new Promise((resolve) => (finished = resolve));
 
                 timeStart = new Date();
-                this.compileLoader?.start(name, this.recentModifiedFiles[name] || []);
+                this.compileReporter?.start(name, this.recentModifiedFiles[name] || []);
                 logVerbose(`[${name}] Compiling ...`);
             });
 
@@ -233,7 +228,7 @@ export default class Compiler {
                 // Shiow status
                 const timeEnd = new Date();
                 const time = timeEnd.getTime() - timeStart.getTime();
-                this.compileLoader?.finish(name, { succeeded: compilationSucceeded, durationMs: time });
+                this.compileReporter?.finish(name, { succeeded: compilationSucceeded, durationMs: time });
                 if (!compilationSucceeded) {
                     console.info(stats.toString(compiler.options.stats));
                     console.error(`[${name}] Failed to compile after ${time} ms`);

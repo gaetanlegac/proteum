@@ -22,6 +22,7 @@ import * as csp from 'express-csp-header';
 // Core
 import Container from '@server/app/container';
 import type { TServerRouter } from '..';
+import { serverHotReloadMessageType } from '@common/dev/serverHotReload';
 
 // Middlewaees (core)
 import { isMutipart, MiddlewareFormData } from './multipart';
@@ -210,8 +211,15 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         /*----------------------------------
         - BOOT SERVICES
         ----------------------------------*/
-        console.info('Lancement du serveur web');
         this.http.listen(this.config.port, () => {
+            if (__DEV__ && typeof process.send === 'function') {
+                process.send({
+                    type: serverHotReloadMessageType.ready,
+                    publicUrl: this.publicUrl,
+                });
+                return;
+            }
+
             console.info(`Web server ready on ${this.publicUrl}`);
         });
     }

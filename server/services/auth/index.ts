@@ -11,7 +11,7 @@ import type http from 'http';
 import type { Application } from '@server/app/index';
 import Service from '@server/app/service';
 import { type TAnyRouter, Request as ServerRequest } from '@server/services/router';
-import { InputError, AuthRequired, Forbidden } from '@common/errors';
+import * as AuthErrors from '@common/errors';
 
 /*----------------------------------
 - TYPES
@@ -35,6 +35,24 @@ declare global {
     interface ProteumAuthFeatureCatalog {}
 
     /**
+     * App-level rule catalog consumed by `auth.check({ ... })`.
+     *
+     * Apps can extend this interface with their own condition inputs:
+     * `interface ProteumAuthRuleCatalog { hasFeature: MyFeatureName }`
+     */
+    interface ProteumAuthRuleCatalog {
+        role: TUserRole;
+    }
+
+    /**
+     * Optional tracking context attached to auth / upgrade prompts.
+     *
+     * Apps can extend this interface with their own machine-readable payload:
+     * `interface ProteumAuthTrackingContext extends Partial<BlockedAttempt> {}`
+     */
+    interface ProteumAuthTrackingContext {}
+
+    /**
      * Canonical feature keys union used across app + framework.
      *
      * Notes:
@@ -52,6 +70,52 @@ export type THttpRequest = express.Request | http.IncomingMessage;
 
 export type TFeatureKey = FeatureKeys;
 
+export type TAuthRuleOutcome = true | false | Error;
+
+declare const ProteumAuthRuleNoInputBrand: unique symbol;
+
+export type TAuthRuleNoInput = {
+    readonly [ProteumAuthRuleNoInputBrand]: 'ProteumAuthRuleNoInput';
+};
+
+type TAuthRuleConditionValue<TValue> = TValue extends TAuthRuleNoInput ? true : TValue;
+
+type TAuthRuleHandler<TValue> = TValue extends TAuthRuleNoInput
+    ? () => TAuthRuleOutcome
+    : TValue extends readonly [...infer TArgs]
+      ? (...args: TArgs) => TAuthRuleOutcome
+      : (input: TValue) => TAuthRuleOutcome;
+
+export type TAuthCheckConditions = {
+    [TRuleName in Extract<keyof ProteumAuthRuleCatalog, string>]?: TAuthRuleConditionValue<
+        ProteumAuthRuleCatalog[TRuleName]
+    >;
+};
+
+export type TAuthCheckInput = TUserRole | boolean | TAuthCheckConditions | null;
+
+export type TAuthConfiguredRules = {
+    [TRuleName in Extract<keyof ProteumAuthRuleCatalog, string>]?: TAuthRuleHandler<
+        ProteumAuthRuleCatalog[TRuleName]
+    >;
+};
+
+export type TAuthTrackingContext = ProteumAuthTrackingContext | null;
+
+export type TAuthRuleErrorConstructors = {
+    InputError: typeof AuthErrors.InputError;
+    Forbidden: typeof AuthErrors.Forbidden;
+    AuthRequired: new (tracking?: TAuthTrackingContext, message?: string) => AuthErrors.AuthRequired<FeatureKeys>;
+    UpgradeRequired: new (tracking?: TAuthTrackingContext, message?: string) => AuthErrors.UpgradeRequired<FeatureKeys>;
+};
+
+export type TAuthRulesFactory<TUser extends TBasicUser, TRequest extends ServerRequest<TAnyRouter>> = (
+    user: TUser,
+    tracking: TAuthTrackingContext,
+    request: TRequest,
+    errors: TAuthRuleErrorConstructors,
+) => TAuthConfiguredRules;
+
 /*----------------------------------
 - CONFIG
 ----------------------------------*/
@@ -64,7 +128,10 @@ export const UserRoles = ['USER', 'ADMIN', 'TEST', 'DEV'] as const;
 - SERVICE CONVIG
 ----------------------------------*/
 
-export type TConfig = {
+export type TConfig<
+    TUser extends TBasicUser = TBasicUser,
+    TRequest extends ServerRequest<TAnyRouter> = ServerRequest<TAnyRouter>,
+> = {
     debug: boolean;
     logoutUrl: string;
     jwt: {
@@ -72,6 +139,8 @@ export type TConfig = {
         key: string;
         expiration: number;
     };
+    unauthenticated?: (tracking: TAuthTrackingContext, request: TRequest, errors: TAuthRuleErrorConstructors) => Error;
+    rules?: TAuthRulesFactory<TUser, TRequest>;
 };
 
 export type THooks = {};
@@ -96,7 +165,7 @@ export default abstract class AuthService<
     TApplication extends Application,
     TJwtSession extends TBasicJwtSession = TBasicJwtSession,
     TRequest extends ServerRequest<TAnyRouter> = ServerRequest<TAnyRouter>,
-> extends Service<TConfig, THooks, TApplication, TApplication> {
+> extends Service<TConfig<TUser, TRequest>, THooks, TApplication, TApplication> {
     public login?(request: TRequest, email: string): Promise<unknown>;
     public abstract decodeSession(jwt: TJwtSession, req: THttpRequest): Promise<TUser | null>;
 
@@ -196,33 +265,186 @@ export default abstract class AuthService<
         request.res.clearCookie('authorization');
     }
 
-    public check(request: TRequest, role?: TUserRole | boolean): TUser | null;
+    protected getDecodedUser(request: TRequest): TUser | null {
+        const user = request.user;
 
-    public check(request: TRequest, role: TUserRole | boolean, feature: FeatureKeys, action?: string): TUser | null;
+        if (user === undefined) throw new Error(`request.user has not been decoded.`);
 
-    public check(
+        return user as TUser | null;
+    }
+
+    private resolveErrorTrackingContext(
+        tracking: TAuthTrackingContext,
+        fallbackFeature: FeatureKeys | null,
+        fallbackAction: string,
+    ): {
+        feature: FeatureKeys;
+        action: string;
+        details?: {
+            data: Exclude<TAuthTrackingContext, null>;
+        };
+    } {
+        const trackingDetails = tracking
+            ? (tracking as {
+                  feature?: string | null;
+                  action?: string | null;
+              })
+            : null;
+
+        const feature =
+            typeof trackingDetails?.feature === 'string' && trackingDetails.feature.trim()
+                ? (trackingDetails.feature as FeatureKeys)
+                : fallbackFeature;
+
+        if (!feature) throw new AuthErrors.InputError(`This auth rule requires a tracking context with a feature.`);
+
+        const action =
+            typeof trackingDetails?.action === 'string' && trackingDetails.action.trim()
+                ? trackingDetails.action
+                : fallbackAction;
+
+        return {
+            feature,
+            action,
+            details: tracking ? { data: tracking as Exclude<TAuthTrackingContext, null> } : undefined,
+        };
+    }
+
+    protected buildRuleErrorConstructors(
+        request: TRequest,
+        tracking: TAuthTrackingContext,
+    ): TAuthRuleErrorConstructors {
+        const authService = this;
+
+        class BoundAuthRequired extends AuthErrors.AuthRequired<FeatureKeys> {
+            public constructor(
+                trackingOverride: TAuthTrackingContext = tracking,
+                message: string = 'Please login to continue',
+            ) {
+                const resolved = authService.resolveErrorTrackingContext(
+                    trackingOverride,
+                    'auth' as FeatureKeys,
+                    'view',
+                );
+
+                super(message, resolved.feature, resolved.action, resolved.details);
+            }
+        }
+
+        class BoundUpgradeRequired extends AuthErrors.UpgradeRequired<FeatureKeys> {
+            public constructor(
+                trackingOverride: TAuthTrackingContext = tracking,
+                message: string = 'Please upgrade to continue',
+            ) {
+                const resolved = authService.resolveErrorTrackingContext(trackingOverride, null, 'view');
+
+                super(message, resolved.feature, resolved.action, resolved.details);
+            }
+        }
+
+        return {
+            InputError: AuthErrors.InputError,
+            Forbidden: AuthErrors.Forbidden,
+            AuthRequired: BoundAuthRequired,
+            UpgradeRequired: BoundUpgradeRequired,
+        };
+    }
+
+    protected buildUnauthenticatedError(request: TRequest, tracking: TAuthTrackingContext): Error {
+        const errors = this.buildRuleErrorConstructors(request, tracking);
+
+        if (this.config.unauthenticated) return this.config.unauthenticated(tracking, request, errors);
+
+        const resolved = this.resolveErrorTrackingContext(tracking, 'auth' as FeatureKeys, 'view');
+
+        return new AuthErrors.AuthRequired(
+            'Please login to continue',
+            resolved.feature,
+            resolved.action,
+            resolved.details,
+        );
+    }
+
+    private isCheckConditions(
+        value: TUserRole | boolean | TAuthCheckConditions | null,
+    ): value is TAuthCheckConditions {
+        return typeof value === 'object' && value !== null && !Array.isArray(value);
+    }
+
+    private invokeConfiguredRule<TRuleName extends Extract<keyof TAuthConfiguredRules, string>>(
+        ruleName: TRuleName,
+        rule: TAuthConfiguredRules[TRuleName],
+        input: TAuthCheckConditions[TRuleName],
+    ): TAuthRuleOutcome {
+        if (typeof rule !== 'function') throw new AuthErrors.InputError(`Unknown auth rule "${ruleName}".`);
+
+        const callable = rule as Function;
+
+        if (callable.length === 0) return callable() as TAuthRuleOutcome;
+        if (Array.isArray(input)) return Reflect.apply(callable, undefined, input) as TAuthRuleOutcome;
+        return Reflect.apply(callable, undefined, [input]) as TAuthRuleOutcome;
+    }
+
+    private checkWithConditions(
+        request: TRequest,
+        conditions: TAuthCheckConditions | null | false,
+        tracking: TAuthTrackingContext,
+    ): TUser | null {
+        const user = this.getDecodedUser(request);
+
+        this.config.debug && console.warn(LogPrefix, `Check auth with rules. Current user =`, user?.name, conditions);
+
+        if (conditions === false) return user;
+
+        if (user === null) {
+            console.warn(LogPrefix, 'Refusé pour anonyme (' + request.ip + ')');
+            throw this.buildUnauthenticatedError(request, tracking);
+        }
+
+        if (!conditions) return user;
+
+        if (!this.config.rules) throw new AuthErrors.InputError(`Auth rules are not configured for this application.`);
+
+        const rules = this.config.rules(user, tracking, request, this.buildRuleErrorConstructors(request, tracking));
+        const conditionRuleNames = Object.keys(conditions) as Array<Extract<keyof TAuthConfiguredRules, string>>;
+
+        for (const ruleName of conditionRuleNames) {
+            const input = conditions[ruleName];
+            if (input === undefined) continue;
+
+            const outcome = this.invokeConfiguredRule(ruleName, rules[ruleName], input);
+            if (outcome === true) continue;
+            if (outcome === false)
+                throw new AuthErrors.Forbidden('You do not have sufficient permissions to access this resource.');
+            throw outcome;
+        }
+
+        return user;
+    }
+
+    protected checkLegacyRole(
         request: TRequest,
         role: TUserRole | boolean = 'USER',
-        feature?: FeatureKeys,
+        feature?: FeatureKeys | null,
         action?: string,
     ): TUser | null {
         const normalizedRole = role === true ? 'USER' : role;
-        const user = request.user;
+        const user = this.getDecodedUser(request);
 
         this.config.debug &&
             console.warn(LogPrefix, `Check auth, role = ${normalizedRole}. Current user =`, user?.name, feature);
 
-        if (user === undefined) {
-            throw new Error(`request.user has not been decoded.`);
-
-            // Shoudln't be logged
-        } else if (normalizedRole === false) {
+        if (normalizedRole === false) {
             return user as TUser;
 
             // Not connected
         } else if (user === null) {
             console.warn(LogPrefix, 'Refusé pour anonyme (' + request.ip + ')');
-            throw new AuthRequired('Please login to continue', feature as any, action as any);
+            throw new AuthErrors.AuthRequired(
+                'Please login to continue',
+                feature && feature !== null ? feature : ('auth' as FeatureKeys),
+                action || 'view',
+            );
 
             // Insufficient permissions
         } else if (!user.roles.includes(normalizedRole)) {
@@ -231,7 +453,7 @@ export default abstract class AuthService<
                 'Refusé: ' + normalizedRole + ' pour ' + user.name + ' (' + (user.roles || 'role inconnu') + ')',
             );
 
-            throw new Forbidden('You do not have sufficient permissions to access this resource.');
+            throw new AuthErrors.Forbidden('You do not have sufficient permissions to access this resource.');
         } else {
             this.config.debug &&
                 console.warn(
@@ -241,5 +463,52 @@ export default abstract class AuthService<
         }
 
         return user as TUser;
+    }
+
+    public check(request: TRequest): TUser;
+
+    public check(request: TRequest, conditions: null, tracking?: TAuthTrackingContext): TUser;
+
+    public check(request: TRequest, conditions: TAuthCheckConditions, tracking?: TAuthTrackingContext): TUser;
+
+    public check(request: TRequest, conditions: false, tracking?: TAuthTrackingContext): null;
+
+    public check(request: TRequest, role?: TUserRole | boolean): TUser | null;
+
+    public check(request: TRequest, role: TUserRole | boolean, feature: FeatureKeys, action?: string): TUser | null;
+
+    public check(
+        request: TRequest,
+        roleOrConditions: TUserRole | boolean | TAuthCheckConditions | null = null,
+        featureOrTracking?: FeatureKeys | null | TAuthTrackingContext,
+        action?: string,
+    ): TUser | null {
+        if (roleOrConditions === null || this.isCheckConditions(roleOrConditions)) {
+            const tracking = (featureOrTracking ?? null) as TAuthTrackingContext;
+            return this.checkWithConditions(request, roleOrConditions, tracking);
+        }
+
+        if (roleOrConditions === false) {
+            if (
+                featureOrTracking === undefined ||
+                featureOrTracking === null ||
+                typeof featureOrTracking === 'object'
+            ) {
+                const tracking = (featureOrTracking ?? null) as TAuthTrackingContext;
+                return this.checkWithConditions(request, false, tracking);
+            }
+
+            return this.checkLegacyRole(request, false, featureOrTracking, action);
+        }
+
+        if ((roleOrConditions === true || typeof roleOrConditions === 'string') && this.config.rules) {
+            return this.checkWithConditions(
+                request,
+                { role: roleOrConditions === true ? 'USER' : roleOrConditions },
+                null,
+            );
+        }
+
+        return this.checkLegacyRole(request, roleOrConditions, featureOrTracking as FeatureKeys | null | undefined, action);
     }
 }

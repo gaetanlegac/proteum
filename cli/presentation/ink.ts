@@ -31,7 +31,7 @@ const loadInkRuntime = () => {
     return inkRuntimePromise;
 };
 
-const renderInk = async (
+export const renderInk = async (
     buildNode: (runtime: TInkRuntime) => import('react').ReactElement | null,
     columns = getTerminalWidth(),
 ) => {

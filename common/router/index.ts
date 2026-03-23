@@ -13,7 +13,7 @@ import type { TAnyRouter, TRouterContext as ServerRouterContext, TRouteHttpMetho
 
 import type RouterRequest from './request';
 
-import type { TUserRole } from '@server/services/auth';
+import type { TAuthCheckInput, TAuthTrackingContext } from '@server/services/auth';
 
 import type { TAppArrowFunction } from '@common/app';
 
@@ -86,7 +86,8 @@ export type TRouteOptions = {
     domain?: string;
     accept?: string;
     raw?: boolean; // true to return raw data
-    auth?: TUserRole | boolean;
+    auth?: TAuthCheckInput;
+    authTracking?: TAuthTrackingContext;
     redirectLogged?: string; // Redirect to this route if auth: false and user is logged
 
     // Rendering
