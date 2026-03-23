@@ -4,7 +4,7 @@
 
 // Core
 import type { Application } from '@server/app/index';
-import Service, { AnyService, TRegisteredServicesIndex, TServiceArgs } from '@server/app/service';
+import Service, { AnyService, TServiceArgs } from '@server/app/service';
 
 // Specific
 import type Driver from './driver';

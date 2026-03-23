@@ -45,6 +45,8 @@ my-app/
     islands/
     services/
   server/
+    config/
+    index.ts
     controllers/
     services/
   common/
@@ -62,10 +64,64 @@ Important files:
 
 - `identity.yaml`: app identity, naming, locale, and SEO-facing metadata defaults
 - `env.yaml`: environment contract loaded by the app
+- `server/config/*.ts`: plain typed config exports consumed by the explicit app bootstrap
+- `server/index.ts`: default-exported `Application` subclass that instantiates root services and router plugins
 - `client/pages/**`: SSR page entrypoints registered through `Router.page(...)`
 - `server/controllers/**`: request handlers that extend `Controller`
 - `server/services/**`: business logic that extends `Service`
 - `.proteum/**`: framework-owned generated contracts and manifests
+
+## Example: Server Bootstrap
+
+Proteum app services are declared explicitly through typed config exports plus a concrete `Application` subclass.
+
+```ts
+// server/config/user.ts
+import { Services, type ServiceConfig } from '@server/app';
+import AppContainer from '@server/app/container';
+import Router from '@server/services/router';
+import Users from '@/server/services/Users';
+
+type RouterBaseConfig = Omit<ServiceConfig<typeof Router>, 'plugins'>;
+
+export const usersConfig = Services.config(Users, {});
+
+export const routerBaseConfig = {
+  domains: AppContainer.Environment.router.domains,
+  http: {
+    domain: 'example.com',
+    port: AppContainer.Environment.router.port,
+    ssl: true,
+    upload: { maxSize: '10mb' },
+  },
+  context: () => ({}),
+} satisfies RouterBaseConfig;
+```
+
+```ts
+// server/index.ts
+import { Application } from '@server/app';
+import Router from '@server/services/router';
+import SchemaRouter from '@server/services/schema/router';
+import Users from '@/server/services/Users';
+import * as userConfig from '@/server/config/user';
+
+export default class MyApp extends Application {
+  public Users = new Users(this, userConfig.usersConfig, this);
+  public Router = new Router(
+    this,
+    {
+      ...userConfig.routerBaseConfig,
+      plugins: {
+        schema: new SchemaRouter({}, this),
+      },
+    },
+    this
+  );
+}
+```
+
+Proteum reads `server/index.ts` plus `server/services/**/service.json` to derive the installed service graph and generated type contracts.
 
 ## Example: Page
 
@@ -208,7 +264,7 @@ Proteum is built so an agent can answer these questions quickly and reliably:
 - What is this app called, and what are its SEO defaults?
 - Which routes exist?
 - Which controller handles a request?
-- Which services are registered?
+- Which services are installed?
 - Which layouts exist?
 - Which diagnostics did the framework detect?
 
@@ -216,6 +272,7 @@ Proteum answers those questions with explicit artifacts:
 
 - `identity.yaml` for app identity
 - `env.yaml` for the environment surface
+- `server/index.ts` for the explicit root service graph
 - `.proteum/manifest.json` for machine-readable app structure
 - `proteum explain --json` for structured framework introspection
 - `proteum doctor --json` for structured diagnostics
@@ -224,16 +281,18 @@ If you are an LLM or automation agent, start here:
 
 1. Read `identity.yaml`.
 2. Read `env.yaml`.
-3. Read `.proteum/manifest.json` or run `proteum explain --json`.
-4. Inspect `server/controllers/**` for request entrypoints.
-5. Inspect `server/services/**` for business logic.
-6. Inspect `client/pages/**` for SSR routes and page setup contracts.
+3. Inspect `server/index.ts` and `server/config/*.ts` for the explicit app bootstrap.
+4. Read `.proteum/manifest.json` or run `proteum explain --json`.
+5. Inspect `server/controllers/**` for request entrypoints.
+6. Inspect `server/services/**` for business logic.
+7. Inspect `client/pages/**` for SSR routes and page setup contracts.
 
 ## What Proteum Avoids
 
 Proteum intentionally avoids several patterns that make frameworks harder to inspect and harder to trust:
 
 - hidden runtime globals
+- implicit service registration hidden behind bootstrap helpers
 - implicit request state inside business services
 - controller validation defined far away from the handler
 - route systems that cannot be explained without reading the compiler

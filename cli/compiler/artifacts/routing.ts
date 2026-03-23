@@ -28,6 +28,8 @@ const cleanupObsoleteGeneratedArtifacts = () => {
     fs.removeSync(path.join(app.paths.root, '.proteum', 'client', '.generated'));
     fs.removeSync(path.join(app.paths.root, '.proteum', 'common', '.generated'));
     fs.removeSync(path.join(app.paths.root, '.proteum', 'server', '.generated'));
+    fs.removeSync(path.join(app.paths.client.generated, 'route-modules'));
+    fs.removeSync(path.join(app.paths.server.generated, 'route-modules'));
     fs.removeSync(path.join(app.paths.client.generated, 'index.ts'));
 };
 

@@ -3,16 +3,10 @@
 ----------------------------------*/
 
 // Specific
-import type {
-    AnyService,
-    StartedServicesIndex,
-    // Hooks
-    THookCallback,
-    THooksIndex,
-} from '.';
+import type { AnyService, AnyServiceClass, StartedServicesIndex } from '.';
 
 /*----------------------------------
-- TYPES: REGISTRATION
+- TYPES
 ----------------------------------*/
 
 // From service/service.json
@@ -24,33 +18,37 @@ export type TServiceMetas<TServiceClass extends AnyService = AnyService> = {
     class: () => { default: ClassType<TServiceClass> };
 };
 
-export type TRegisteredService<TServiceClass extends AnyService = AnyService> = {
-    type: 'service'; // Used to recognize if an object is a registered service
-    config?: {};
-    metas: TServiceMetas<TServiceClass>;
-    hooks: THooksIndex<{}>;
-    on: (hookName: string, hookFunc: THookCallback<any>) => void;
-    subServices: TRegisteredServicesIndex;
-};
+export type ServiceConfig<TServiceClass extends AnyServiceClass> = NonNullable<ConstructorParameters<TServiceClass>[1]>;
 
-export type TRegisteredServicesIndex<TServiceClass extends AnyService = AnyService> = {
-    [serviceId: string]: TRegisteredService<TServiceClass>;
-};
-
-/*----------------------------------
-- CONFIG
-----------------------------------*/
-
-const LogPrefix = '[service]';
+type ExactConfig<TValue, TShape> = TValue extends TShape
+    ? TShape extends (...args: never[]) => infer _TReturn
+        ? TValue
+        : TValue extends readonly (infer TValueItem)[]
+          ? TShape extends readonly (infer TShapeItem)[]
+            ? readonly ExactConfig<TValueItem, TShapeItem>[]
+            : never
+          : TValue extends object
+            ? TShape extends object
+                ? Exclude<keyof TValue, keyof TShape> extends never
+                    ? { [K in keyof TValue]: K extends keyof TShape ? ExactConfig<TValue[K], TShape[K]> : never }
+                    : never
+                : TValue
+            : TValue
+    : never;
 
 /*----------------------------------
 - CLASS
 ----------------------------------*/
 export class ServicesContainer<TServicesIndex extends StartedServicesIndex = StartedServicesIndex> {
-    public registered: TRegisteredServicesIndex = {};
-
     // All service instances by service id
     public allServices: TServicesIndex = {} as TServicesIndex;
+
+    public config<TServiceClass extends AnyServiceClass, const TConfig extends ServiceConfig<TServiceClass>>(
+        _serviceClass: TServiceClass,
+        config: TConfig & ExactConfig<TConfig, ServiceConfig<TServiceClass>>,
+    ): TConfig {
+        return config;
+    }
 
     public callableInstance = <TInstance extends object, TCallableName extends keyof TInstance>(
         instance: TInstance,

@@ -145,7 +145,13 @@ export default class ServerRouter<
     extends Service<TConfig, Hooks, TApplication, TApplication>
     implements BaseRouter
 {
-    public disks = this.use<DisksManager<any, any, TApplication>>('Core/Disks', { optional: true });
+    public get disks() {
+        const { Disks } = this.app as TApplication & {
+            Disks?: DisksManager<any, any, TApplication>;
+        };
+
+        return Disks;
+    }
 
     // Services
     public http: HTTP;

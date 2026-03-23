@@ -14,6 +14,7 @@ import { Anomaly } from '@common/errors';
 import { TBasicUser } from '@server/services/auth';
 
 export { default as Services } from './service/container';
+export type { ServiceConfig } from './service/container';
 export type { TEnvConfig as Environment } from './container/config';
 
 /*----------------------------------
@@ -34,6 +35,17 @@ export const Service = ServicesContainer;
 type Prettify<T> = { [K in keyof T]: T[K] } & {};
 
 export type ApplicationProperties = Prettify<keyof Application>;
+export type RootServicesOf<TApplication extends Application = Application> = Prettify<{
+    [TKey in Exclude<keyof TApplication, ApplicationProperties> as TApplication[TKey] extends AnyService ? TKey : never]: TApplication[TKey];
+}>;
+
+const isServiceInstance = (value: unknown): value is AnyService => {
+    if (!value || typeof value !== 'object') return false;
+
+    const service = value as Partial<AnyService>;
+
+    return typeof service.runHook === 'function' && typeof service.getServiceInstance === 'function' && service.status !== undefined;
+};
 
 /*----------------------------------
 - FUNCTIONS
@@ -67,8 +79,6 @@ export abstract class Application<
     // Status
     public debug: boolean = false;
     public launched: boolean = false;
-
-    protected abstract registered: { [serviceId: string]: { name: string; start: () => AnyService } };
 
     /*----------------------------------
     - INIT
@@ -120,7 +130,6 @@ export abstract class Application<
         console.log('Core version', CORE_VERSION);
         const startTime = Date.now();
 
-        this.startServices();
         const startingServices = await this.ready();
         await Promise.all(startingServices);
         await this.runHook('ready');
@@ -134,63 +143,77 @@ export abstract class Application<
     - ERROR HANDLING
     ----------------------------------*/
 
-    private startServices() {
-        // Satrt services
-        for (const serviceId in this.registered) {
-            try {
-                const service = this.registered[serviceId];
-                const instance = service.start();
-                (this as Record<string, unknown>)[service.name] = instance.getServiceInstance();
-            } catch (error) {
-                console.error('Error while starting service', serviceId, error);
-                throw error;
-            }
+    private listRootServices(): Array<[string, AnyService]> {
+        return Object.keys(this)
+            .map((serviceName) => [serviceName, (this as Record<string, unknown>)[serviceName]] as const)
+            .filter(
+                ([, service]) =>
+                    isServiceInstance(service) &&
+                    service !== this &&
+                    service.parent === this &&
+                    service.app === this,
+            )
+            .map(([serviceName, service]) => [serviceName, service as AnyService]);
+    }
+
+    public getRootServices(): RootServicesOf<this> {
+        const services: Record<string, AnyService> = {};
+
+        for (const [serviceName, service] of this.listRootServices()) {
+            services[serviceName] = service;
         }
+
+        return services as RootServicesOf<this>;
+    }
+
+    public findService(serviceId: string): AnyService | undefined {
+        const rootServices = this.getRootServices() as Record<string, AnyService>;
+        const directService = rootServices[serviceId];
+        if (directService) return directService;
+
+        const serviceName = serviceId.split('/').pop();
+        if (!serviceName) return undefined;
+
+        return rootServices[serviceName];
     }
 
     public register(service: AnyService) {
-        return service.ready();
+        return (service as AnyService & { ready: () => Promise<any> }).ready();
     }
 
     public async ready() {
         const startingServices: Promise<any>[] = [];
 
-        const processService = async (propKey: string, service: AnyService) => {
+        const processService = async (_propKey: string, service: AnyService) => {
             if (service.status !== 'starting') return;
 
             // Services start shouldn't block app boot
             // use await ServiceName.started to make services depends on each other
-            service.starting = service.ready();
+            service.starting = (service as AnyService & { ready: () => Promise<any> }).ready();
             startingServices.push(service.starting);
             service.status = 'running';
 
             // Subservices
             for (const propKey in service) {
-                if (propKey === 'app') continue;
-                    const propValue = (service as Record<string, any>)[propKey];
+                if (propKey === 'app' || propKey === 'parent') continue;
+                const propValue = (service as Record<string, any>)[propKey];
 
                 // Check if service
-                const isService =
-                    typeof propValue === 'object' &&
-                    !(propValue instanceof Application) &&
-                    propValue !== null &&
-                    propValue.status !== undefined;
-                if (!isService) continue;
+                if (!isServiceInstance(propValue) || propValue instanceof Application) continue;
 
                 // Services start shouldn't block app boot
                 processService(propKey, propValue);
             }
         };
 
-        for (const serviceId in this.registered) {
-            const registeredService = this.registered[serviceId];
-            const service = (this as Record<string, any>)[registeredService.name];
+        for (const [serviceName, service] of this.listRootServices()) {
+            const rootService = service as AnyService;
 
             // TODO: move to router
             //  Application.on('service.ready')
 
             // Services start shouldn't block app boot
-            processService(serviceId, service);
+            processService(serviceName, rootService);
         }
 
         return startingServices;

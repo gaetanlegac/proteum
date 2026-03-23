@@ -43,7 +43,8 @@ export default class ServiceName extends Service<Config, {}, AppType, ParentServ
 ```
 
 Replace `AppType` and `ParentServiceType` with the local app types used by neighboring services.
-If the service receives config from `app.setup(...)`, replace `Config` with the real config shape.
+If the service receives config from a project config file, replace `Config` with the real config shape and expose a typed
+config export with `Services.config(ServiceName, { ... })` from `server/config/*.ts`.
 
 ## 2. Create the controller file in `/server/controllers/...`
 
@@ -95,13 +96,28 @@ Rules:
 
 Use the same id namespace and naming convention as neighboring services in the project.
 
-## 4. Register the service in `/server/config/<app>.ts`
+## 4. Add a typed config export in `/server/config/*.ts` and instantiate the service in `/server/index.ts`
 
 ```typescript
-app.setup('ServiceName', '<AppIdentifier>/ServiceName', <ServiceConfig>);
+// server/config/feature.ts
+import { Services } from '@server/app';
+import ServiceName from '@/server/services/ServiceName';
+
+export const serviceNameConfig = Services.config(ServiceName, {});
 ```
 
-Match the existing service id convention in the project instead of hard-coding a specific app prefix.
+```typescript
+// server/index.ts
+import { Application } from '@server/app';
+import ServiceName from '@/server/services/ServiceName';
+import * as featureConfig from '@/server/config/feature';
+
+export default class MyApp extends Application {
+    public ServiceName = new ServiceName(this, featureConfig.serviceNameConfig, this);
+}
+```
+
+Match the existing config-grouping and namespace-import convention in the project instead of inventing a new bootstrap shape.
 
 ## 5. Keep classes clean
 

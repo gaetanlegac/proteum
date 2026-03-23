@@ -37,8 +37,9 @@ Start framework inspection with:
 Generated files live under `./.proteum` and should not be edited by hand.
 Project code should use the generated aliases `@generated/client/*`, `@generated/common/*`, and `@generated/server/*`.
 Client context is typically imported from `@/client/context`.
-Prefer type inference from `./.proteum/app.ts` whenever possible. Treat it as the canonical type root for app services,
-router services, router context, and models instead of duplicating manual type declarations.
+Prefer type inference from the explicit application class in `./server/index.ts` whenever possible. Treat it as the
+canonical type root for app services, router services, router context, and models instead of duplicating manual type
+declarations.
 
 # Files organization
 
@@ -62,7 +63,7 @@ When implementing a feature that relies on a **curated list of items**, keep **o
 - `@models/types`: Prisma typings only. Can be imported anywhere.
 - Never use runtime value imports from `@request` or `@models`.
 - Never expose request-scoped state through imports.
-- Keep app services, router services, router context, and model contracts inferred from `./.proteum/app.ts` whenever
+- Keep app services, router services, router context, and model contracts inferred from `./server/index.ts` whenever
 possible instead of recreating parallel type maps.
 
 ## Client runtime access
@@ -82,12 +83,11 @@ possible instead of recreating parallel type maps.
 - Only controller files are indexed as callable API endpoints.
 - Controller methods validate input with `this.input(schema)` and access request scope through `this.request`.
 - Service classes access other services via `this.services` and prisma models via `this.models`.
-- App service types should be inferred from the config passed into their constructor through the app type graph rooted at
-`./.proteum/app.ts`.
+- App service types should be inferred from the explicit application graph rooted at `./server/index.ts`.
 - Router services and request/context values such as `user`, `auth`, and similar request-scoped contracts should come
 from inferred request and app types, not ad hoc casts.
-- Models should be inferred from the app/model registry rooted at `./.proteum/app.ts`, not from duplicated manual model
-maps.
+- Models should be inferred from the app/model registry rooted at `./server/index.ts` and exposed through the generated
+server app shim, not from duplicated manual model maps.
 - Never use request-scoped state directly inside normal service methods.
 - Controllers should resolve auth and request-derived values, then pass plain typed arguments into services.
 - When referencing an app service, a router service, or a model, expose it in the current block scope first by

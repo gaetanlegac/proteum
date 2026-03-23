@@ -48,7 +48,8 @@ The framework actually reads these files and folders:
 - `package.json`: CLI scripts and dependency entrypoint
 - `identity.yaml`: app identity and web metadata
 - `env.yaml`: runtime environment config that Proteum loads directly
-- `server/config/*.ts`: service and router registration via `app.setup(...)`
+- `server/config/*.ts`: plain typed config exports consumed by the explicit app bootstrap
+- `server/index.ts`: default-exported `Application` subclass that instantiates root services and router plugins
 - `server/services/**/service.json`: root service or router-plugin metadata
 - `server/controllers/**/*.ts`: generated API surface
 - `server/routes/**/*.ts`: manual server routes
@@ -66,7 +67,6 @@ Files Proteum generates and owns:
 - `.proteum/client/services.d.ts`
 - `.proteum/common/controllers.ts`
 - `.proteum/common/models.ts`
-- `.proteum/server/app.ts`
 - `.proteum/server/routes*`
 - `.proteum/server/models.ts`
 
@@ -85,7 +85,8 @@ Use this shape for real work:
 - `client/components`: reusable UI
 - `client/hooks` or local hooks near the feature
 - `common`: shared types, catalogs, utilities safe across client/server
-- `server/config`: app bootstrap and service registration
+- `server/config`: typed service config exports used by `server/index.ts`
+- `server/index.ts`: explicit app bootstrap and root service graph
 - `server/services`: business services
 - `server/controllers`: callable API entrypoints
 - `server/routes`: manual HTTP routes that should not be generated from controllers
@@ -212,44 +213,64 @@ So for framework-level correctness:
 
 # App Bootstrap
 
-Bootstrap lives in `server/config/*.ts`.
+Bootstrap is explicit.
 
-Proteum loads every file in that folder during warmup.
+Use `server/config/*.ts` for typed config exports and `server/index.ts` for the application class that wires services together.
 
-Use:
+Example config module:
 
 ```ts
-import app from '@cli/app';
+import { Services, type ServiceConfig } from '@server/app';
+import AppContainer from '@server/app/container';
+import Router from '@server/services/router';
+import Users from '@/server/services/Users';
 
-app.setup('Users', 'MyApp/Users', {});
+type RouterBaseConfig = Omit<ServiceConfig<typeof Router>, 'plugins'>;
 
-app.setup('Router', 'Core/Router', {
-    domains: app.env.router.domains,
+export const usersConfig = Services.config(Users, {});
+
+export const routerBaseConfig = {
+    domains: AppContainer.Environment.router.domains,
     http: {
         domain: 'example.com',
-        port: app.env.router.port,
+        port: AppContainer.Environment.router.port,
         ssl: true,
         upload: { maxSize: '10mb' },
     },
-    context: (request, app) => ({
-        user: app.Auth.forSSR(request),
-    }),
-    plugins: {
-        auth: app.setup('Core/Users/Router', {
-            users: app.use('Auth'),
-        }),
-        schema: app.setup('Core/Schema/Router'),
-    },
-});
+    context: () => ({}),
+} satisfies RouterBaseConfig;
+```
+
+Example app bootstrap:
+
+```ts
+import { Application } from '@server/app';
+import Router from '@server/services/router';
+import SchemaRouter from '@server/services/schema/router';
+import Users from '@/server/services/Users';
+import * as userConfig from '@/server/config/user';
+
+export default class MyApp extends Application {
+    public Users = new Users(this, userConfig.usersConfig, this);
+    public Router = new Router(this, {
+        ...userConfig.routerBaseConfig,
+        plugins: {
+            schema: new SchemaRouter({}, this),
+        },
+    }, this);
+}
 ```
 
 Important bootstrap rules:
 
-- `app.setup('Name', 'Service/Id', config)` registers a root service on the application.
-- `app.use('Name')` returns a reference to an already-registered root service.
-- Router plugins are configured inside `Router` service config under `plugins`.
+- `server/index.ts` must default-export the app `Application` subclass.
+- Each root service is a public class field instantiated with `new ServiceClass(this, config, this)`.
+- `server/config/*.ts` should export plain typed constants with `Services.config(ServiceClass, { ... })`.
+- Router base config can use `Omit<ServiceConfig<typeof Router>, 'plugins'>` so router plugins are instantiated explicitly in `server/index.ts`.
+- Router plugins are configured inside the `Router` config `plugins` object as explicit `new PluginClass(config, this)` instances.
 - Router `context(request, app)` returns SSR-safe values exposed to both page setup/render and the client runtime.
 - Both reference apps expose a SSR-safe `user` object through `Router.context(...)`.
+- Generated service typings and manifests are derived from `server/index.ts` plus `server/services/**/service.json`.
 
 # Services
 
@@ -274,7 +295,7 @@ Example `service.json`:
 Rules:
 
 - `parent` is `"app"` for normal root services.
-- `id` is the service identifier used in `app.setup(...)`.
+- `id` is the service identifier declared in `service.json` and used by manifests plus `Service.use('Service/Id')`.
 - `name` is metadata for generated registration.
 - `priority` is optional and used by some services.
 
@@ -403,7 +424,7 @@ Typical values:
 - `this.request.metrics`
 - `this.request.request.data`
 
-The exact plugin fields depend on the router plugins configured in `server/config`.
+The exact plugin fields depend on the router plugins configured in `server/index.ts`.
 
 ## Route generation
 
@@ -736,7 +757,7 @@ Rules:
 - prefer explicit `select` or narrow `include`
 - do not edit generated Prisma client files
 
-Both apps use `Core/Models` in `server/config`.
+Both apps instantiate `Models` explicitly in `server/index.ts` with config imported from `server/config/*.ts`.
 
 # Aliases
 
@@ -746,7 +767,6 @@ These aliases matter in real projects:
 - `@/server/...`: app server code
 - `@/common/...`: app shared code
 - `@client/...`, `@server/...`, `@common/...`: Proteum core modules
-- `@cli/app`: bootstrap registration API inside `server/config`
 - `@app`: server-side application services for manual routes
 - `@models/types`: Prisma typings only
 
@@ -783,14 +803,14 @@ When you change source files, Proteum regenerates:
 - route wrapper modules for client pages and server routes
 - layout registries
 - controller client tree
-- typed app class
+- typed server app shim
 
 Source-to-generated mapping:
 
 - `client/pages/**` -> generated route modules and layout modules
 - `server/routes/**` -> generated server route modules
 - `server/controllers/**/*.ts` -> `.proteum/common/controllers.ts` and server controller registry
-- `server/services/**/service.json` + `server/config/*.ts` -> `.proteum/server/app.ts`
+- `server/services/**/service.json` + `server/index.ts` -> generated service typings and manifest service entries
 
 LLM rule:
 
@@ -804,7 +824,7 @@ When adding a feature, follow this order:
 1. Add or extend a root service under `server/services/<Feature>`.
 2. Add or extend subservices if the feature has distinct concerns.
 3. Add `server/controllers/**/*.ts` entrypoints for callable app APIs.
-4. Register the root service in `server/config/*.ts` if it is new.
+4. Add or extend typed config exports in `server/config/*.ts`, then instantiate the root service in `server/index.ts`.
 5. Add or update `client/pages/**` routes that consume the feature.
 6. Load SSR data in page `setup`.
 7. Use generated controller methods from page args or `useContext()` for interactions.
@@ -814,7 +834,7 @@ When adding a feature, follow this order:
 
 When maintaining a Proteum app:
 
-- inspect `server/config/*.ts` first to understand which services actually exist
+- inspect `server/index.ts` and `server/config/*.ts` first to understand which services actually exist
 - inspect `service.json` before moving or renaming services
 - inspect `server/controllers/**/*.ts` to understand the public client API
 - inspect `client/pages/**` for the real route table

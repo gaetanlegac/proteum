@@ -660,7 +660,7 @@ export const writeGeneratedRouteModule = ({
         sourceFilepath,
     );
     const registerStatements = buildRegisterStatements(sourceFile, side, definitions, clientRoute);
-    const runtimeAppImportPath = runtime === 'client' ? '@/client/index' : '@generated/server/app';
+    const runtimeAppImportPath = runtime === 'client' ? '@/client/index' : '@/server/index';
 
     const content = `/*----------------------------------
 - GENERATED FILE

@@ -22,7 +22,7 @@ When working on Proteum itself, optimize for agent ergonomics first:
 - Prefer server-first designs that avoid shipping client JavaScript unless it is required for user-facing behavior.
 - Favor small, single-purpose files and modules that reduce context load and make edits easier for agents to scope safely.
 - Generated code should improve traceability and type safety, not obscure behavior. It should be deterministic, auditable, and easy for agents to map back to source files.
-- Prefer inference from `.proteum/app.ts` whenever possible. Treat it as the canonical type root for application services, router services, router context, and models instead of duplicating manual type declarations.
+- Prefer inference from the explicit application class in `server/index.ts` whenever possible. Treat `server/index.ts` as the canonical type root for application services, router services, router context, and models instead of duplicating manual type declarations.
 - Prefer exact end-to-end contracts for inputs, outputs, errors, side effects, and caching behavior.
 - Prefer framework features that make impact analysis, verification, and debugging easier for agents.
 - Prefer output that is fast to render, easy to crawl, semantically rich, and easy for LLMs to parse reliably.
@@ -57,14 +57,16 @@ When changing Proteum itself, always ground the work in the real apps that use i
 Future changes should preserve and extend the current explicit model instead of reintroducing runtime magic.
 
 - Strong typings are mandatory across the whole project. Do not use `any` or `unknown`; keep types explicit, precise, and consistent.
-- Prefer deriving types from `.proteum/app.ts` instead of recreating them manually in feature code, helpers, or generated output.
+- Prefer deriving types from the explicit application class in `server/index.ts` instead of recreating them manually in feature code, helpers, or generated output.
 - Server route entrypoints live in `server/controllers/**/*.ts` files.
 - Controllers extend `Controller` and read request-scoped values from `this.request`.
 - Controllers validate request input via `this.input(schema)` inside the method body. Do not use decorators for validation metadata.
+- `server/config/*.ts` should export plain typed config constants with `Services.config(ServiceClass, { ... })`, for example `export const missionsConfig = Services.config(Missions, { ... })`.
+- `server/index.ts` should default-export the app `Application` subclass and instantiate root services as public fields via `new ServiceClass(this, config, this)`.
 - Normal services extend `Service` and should use `this.services`, `this.models`, and `this.app` instead of implicit globals or magic imports.
-- App services should be inferred from the config passed into their constructor through the app type graph rooted at `.proteum/app.ts`, not hand-maintained parallel interfaces.
+- App services should be inferred from the explicit `server/index.ts` application graph and the config passed into each constructor, not hand-maintained parallel interfaces.
 - Router services and router/request context values such as `user`, `auth`, and similar request-scoped contracts should come from inferred request and app types, not ad hoc casts.
-- Models should be inferred from the app/model registry rooted at `.proteum/app.ts`, not from duplicated hand-written model maps.
+- Models should be inferred from the app/model registry rooted at `server/index.ts` and exposed through generated app types, not from duplicated hand-written model maps.
 - Controllers should own auth, input parsing, and request concerns, then pass explicit typed values into services.
 - Do not reintroduce runtime server imports or globals such as `@request`, `@models`, or `@app`.
 - Client pages use `Router.page(path, render)` or `Router.page(path, setup, render)`.

@@ -13,19 +13,12 @@ import cli from '..';
 // Specific
 import ConfigParser from './config';
 import type { TEnvConfig } from '../../server/app/container/config';
-import { logVerbose } from '../runtime/verbose';
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
 export type TAppSide = 'server' | 'client';
-
-type TServiceSetup = { id: string; name: string; config: {}; subservices: TServiceSubservices; type: 'service.setup' };
-
-type TServiceRef = { refTo: string; type: 'service.ref' };
-
-type TServiceSubservices = { [key: string]: TServiceSetup | TServiceRef };
 
 const parseRouterPortOverride = (rawPort: string | boolean | string[] | undefined): number | undefined => {
     if (rawPort === undefined || rawPort === '') return undefined;
@@ -70,8 +63,8 @@ export class App {
 
         client: { generated: path.join(cli.paths.appRoot, '.proteum', 'client') },
         server: {
+            entry: path.join(cli.paths.appRoot, 'server', 'index.ts'),
             generated: path.join(cli.paths.appRoot, '.proteum', 'server'),
-            configs: path.join(cli.paths.appRoot, 'server', 'app'),
         },
         common: { generated: path.join(cli.paths.appRoot, '.proteum', 'common') },
 
@@ -124,63 +117,8 @@ export class App {
         return fs.readJSONSync(this.paths.root + '/package.json');
     }
 
-    /*----------------------------------
-    - WARMUP (Services awareness)
-    ----------------------------------*/
-
-    public registered = {};
-
-    public use(referenceName: string): TServiceRef {
-        // We don't check because all service are not regstered when we register subservices
-        /*if (this.registered[referenceName] === undefined) {
-            throw new Error(`Service ${referenceName} is not registered`);
-        }*/
-
-        return { refTo: referenceName, type: 'service.ref' };
-    }
-
-    public setup(
-        ...args:
-            | [
-                  // { user: app.setup('Core/User') }
-                  servicePath: string,
-                  serviceConfig?: {},
-              ]
-            | [
-                  // app.setup('User', 'Core/User')
-                  serviceName: string,
-                  servicePath: string,
-                  serviceConfig?: {},
-              ]
-    ): TServiceSetup {
-        // Registration to app root
-        if (typeof args[1] === 'string') {
-            const [name, id, config] = args;
-
-            const service = { id, name, config, type: 'service.setup' } as TServiceSetup;
-
-            this.registered[name] = service;
-
-            return service;
-
-            // Scoped to a parent service
-        } else {
-            const [id, config] = args;
-
-            const service = { id, config, type: 'service.setup' } as TServiceSetup;
-
-            return service;
-        }
-    }
-
     public async warmup() {
-        // Require all config files in @/server/config
-        const configDir = path.resolve(cli.paths.appRoot, 'server', 'config');
-        const configFiles = fs.readdirSync(configDir);
-        for (const configFile of configFiles) {
-            logVerbose('Loading config file:', configFile);
-            require(path.resolve(configDir, configFile));
-        }
+        return Promise.resolve();
     }
 }
 

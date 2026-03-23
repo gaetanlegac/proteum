@@ -102,18 +102,10 @@ export type TAuthConfiguredRules = {
 
 export type TAuthTrackingContext = ProteumAuthTrackingContext | null;
 
-export type TAuthRuleErrorConstructors = {
-    InputError: typeof AuthErrors.InputError;
-    Forbidden: typeof AuthErrors.Forbidden;
-    AuthRequired: new (tracking?: TAuthTrackingContext, message?: string) => AuthErrors.AuthRequired<FeatureKeys>;
-    UpgradeRequired: new (tracking?: TAuthTrackingContext, message?: string) => AuthErrors.UpgradeRequired<FeatureKeys>;
-};
-
 export type TAuthRulesFactory<TUser extends TBasicUser, TRequest extends ServerRequest<TAnyRouter>> = (
     user: TUser,
     tracking: TAuthTrackingContext,
     request: TRequest,
-    errors: TAuthRuleErrorConstructors,
 ) => TAuthConfiguredRules;
 
 /*----------------------------------
@@ -139,7 +131,7 @@ export type TConfig<
         key: string;
         expiration: number;
     };
-    unauthenticated?: (tracking: TAuthTrackingContext, request: TRequest, errors: TAuthRuleErrorConstructors) => Error;
+    unauthenticated?: (tracking: TAuthTrackingContext, request: TRequest) => Error;
     rules?: TAuthRulesFactory<TUser, TRequest>;
 };
 
@@ -310,50 +302,8 @@ export default abstract class AuthService<
         };
     }
 
-    protected buildRuleErrorConstructors(
-        request: TRequest,
-        tracking: TAuthTrackingContext,
-    ): TAuthRuleErrorConstructors {
-        const authService = this;
-
-        class BoundAuthRequired extends AuthErrors.AuthRequired<FeatureKeys> {
-            public constructor(
-                trackingOverride: TAuthTrackingContext = tracking,
-                message: string = 'Please login to continue',
-            ) {
-                const resolved = authService.resolveErrorTrackingContext(
-                    trackingOverride,
-                    'auth' as FeatureKeys,
-                    'view',
-                );
-
-                super(message, resolved.feature, resolved.action, resolved.details);
-            }
-        }
-
-        class BoundUpgradeRequired extends AuthErrors.UpgradeRequired<FeatureKeys> {
-            public constructor(
-                trackingOverride: TAuthTrackingContext = tracking,
-                message: string = 'Please upgrade to continue',
-            ) {
-                const resolved = authService.resolveErrorTrackingContext(trackingOverride, null, 'view');
-
-                super(message, resolved.feature, resolved.action, resolved.details);
-            }
-        }
-
-        return {
-            InputError: AuthErrors.InputError,
-            Forbidden: AuthErrors.Forbidden,
-            AuthRequired: BoundAuthRequired,
-            UpgradeRequired: BoundUpgradeRequired,
-        };
-    }
-
     protected buildUnauthenticatedError(request: TRequest, tracking: TAuthTrackingContext): Error {
-        const errors = this.buildRuleErrorConstructors(request, tracking);
-
-        if (this.config.unauthenticated) return this.config.unauthenticated(tracking, request, errors);
+        if (this.config.unauthenticated) return this.config.unauthenticated(tracking, request);
 
         const resolved = this.resolveErrorTrackingContext(tracking, 'auth' as FeatureKeys, 'view');
 
@@ -405,7 +355,7 @@ export default abstract class AuthService<
 
         if (!this.config.rules) throw new AuthErrors.InputError(`Auth rules are not configured for this application.`);
 
-        const rules = this.config.rules(user, tracking, request, this.buildRuleErrorConstructors(request, tracking));
+        const rules = this.config.rules(user, tracking, request);
         const conditionRuleNames = Object.keys(conditions) as Array<Extract<keyof TAuthConfiguredRules, string>>;
 
         for (const ruleName of conditionRuleNames) {

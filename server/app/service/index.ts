@@ -16,8 +16,7 @@ export type { z } from '../../services/router/request/validation/zod';
 ----------------------------------*/
 
 export type AnyService = Service<{}, {}, Application, any>;
-
-export type { TRegisteredServicesIndex, TRegisteredService } from './container';
+export type AnyServiceClass = ClassType<AnyService>;
 
 /*----------------------------------
 - TYPES: HOOKS
@@ -62,7 +61,7 @@ export type TSetupConfig<TConfig> = TConfig extends (...args: any[]) => any
     : TConfig extends Array<infer TItem>
       ? Array<TSetupConfig<TItem>>
       : TConfig extends object
-        ? ({ [K in keyof TConfig]?: TSetupConfig<TConfig[K]> } & Record<string, unknown>)
+        ? { [K in keyof TConfig]?: TSetupConfig<TConfig[K]> }
         : TConfig;
 
 export type TServiceArgs<TService extends { config: any; app: any; parent: any }> = [
@@ -153,12 +152,12 @@ export default abstract class Service<
         useOptions: { optional?: boolean } = {},
     ): TService | undefined {
         const app = this.app as {
-            registered?: Record<string, { name: string }>;
+            findService?: (serviceId: string) => AnyService | undefined;
         } & Record<string, unknown>;
-        const registeredService = app.registered?.[serviceId];
-        if (registeredService !== undefined) return app[registeredService.name] as TService;
+        const service = app.findService?.(serviceId);
+        if (service !== undefined) return service as TService;
 
-        if (useOptions.optional === false) throw new Error(`Service ${registeredService} not registered.`);
+        if (useOptions.optional === false) throw new Error(`Service ${serviceId} not registered.`);
 
         return undefined;
     }
