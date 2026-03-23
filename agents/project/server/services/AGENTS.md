@@ -38,7 +38,7 @@ export default class ServiceName extends Service<Config, {}, AppType, ParentServ
 Replace `AppType` and `ParentServiceType` with the local app types used by neighboring services.
 If the service receives config from `app.setup(...)`, replace `Config` with the real config shape.
 
-## 2. Create the controller file in `/server/services/<service name>/<ServiceName>.controller.ts`
+## 2. Create the controller file in `/server/controllers/...`
 
 Template:
 
@@ -53,21 +53,27 @@ export default class ServiceNameController extends Controller<AppType> {
 
     public async methodName() {
         const input = this.input(MethodInput);
+        const currentUser = this.request.auth.check('USER', null);
 
-        return this.services.ServiceName.methodName(input);
+        return this.services.ServiceName.methodName({
+            ...input,
+            currentUser,
+        });
     }
 }
 ```
 
 Replace `AppType` with the local app type if the surrounding controllers use a generic.
+Place the controller under the path that should drive the public API shape, for example `/server/controllers/ServiceName.ts` or `/server/controllers/ServiceName/subFeature.ts`.
 
 Rules:
-- Only `*.controller.ts` files are indexed as callable API endpoints
+- Only files under `/server/controllers/**/*.ts` are indexed as callable API endpoints
 - Route path is derived from the controller file path and the method name
 - `this.input(schema)` is the only validation entrypoint
 - Call `this.input(...)` at most once per controller method
 - Request-scoped state exists only on `this.request`
 - Keep controllers thin and push business logic into services
+- Extract auth and request-derived values in the controller and pass explicit typed arguments into services
 
 ## 3. Create the service metas file in `/server/services/<service name>/service.json`
 
@@ -103,7 +109,8 @@ const { auth, request, user, response } = this.request;
 ```
 
 - Never import runtime request state from `@request`
-- Never access request-scoped state inside normal service methods unless the controller passes the minimal values explicitly
+- Never access request-scoped state inside normal service methods
+- If a service needs user identity, locale, cookies, or another request-derived value, compute it in the controller and pass only that value
 
 ## 7. Fetch and return data from the database
 

@@ -14,7 +14,7 @@ Use this guide for new work. Treat older patterns in the apps as legacy unless t
 Proteum is a server-first SSR framework with:
 
 - explicit `Router.page(...)` client page registration
-- explicit `*.controller.ts` server API entrypoints
+- explicit `server/controllers/**/*.ts` server API entrypoints
 - service classes for business logic
 - generated controller trees and generated route modules
 - request-scoped server context
@@ -29,7 +29,7 @@ The main rule for new work is:
 - Client pages live in `client/pages/**` and register routes with `Router.page(...)` or `Router.error(...)`.
 - Page URLs come from the explicit `Router.page('/path', ...)` call, not from the file path.
 - Server business logic lives in service classes that extend `Service`.
-- Callable API entrypoints live only in `*.controller.ts` files that extend `Controller`.
+- Callable API entrypoints live only in `server/controllers/**/*.ts` files that extend `Controller`.
 - Controllers validate input with `this.input(schema)` inside the method body.
 - Call `this.input(...)` at most once per controller method.
 - Controller methods are exposed to the client under `/api/...` and are always called as `POST` fetchers.
@@ -50,7 +50,7 @@ The framework actually reads these files and folders:
 - `env.yaml`: runtime environment config that Proteum loads directly
 - `server/config/*.ts`: service and router registration via `app.setup(...)`
 - `server/services/**/service.json`: root service or router-plugin metadata
-- `server/services/**/*.controller.ts`: generated API surface
+- `server/controllers/**/*.ts`: generated API surface
 - `server/routes/**/*.ts`: manual server routes
 - `client/pages/**/*.ts(x)`: page and error registration
 - `client/pages/**/_layout/index.tsx`: generated layouts
@@ -86,7 +86,8 @@ Use this shape for real work:
 - `client/hooks` or local hooks near the feature
 - `common`: shared types, catalogs, utilities safe across client/server
 - `server/config`: app bootstrap and service registration
-- `server/services`: business services and controller entrypoints
+- `server/services`: business services
+- `server/controllers`: callable API entrypoints
 - `server/routes`: manual HTTP routes that should not be generated from controllers
 - `public`: static assets
 - `prisma`: schema and Prisma assets
@@ -294,7 +295,6 @@ Available on a service instance:
 - `this.app`: application instance
 - `this.services`: same application instance as a service registry
 - `this.models`: runtime Prisma client, if `Models` is registered
-- `this.request`: current request context, but only when called during a controller request
 
 Example:
 
@@ -306,11 +306,9 @@ export type Config = {
 };
 
 export default class FounderService extends Service<Config, {}, MyApp, MyApp> {
-    public async ListProjects() {
-        const user = await this.request.auth.check('USER');
-
+    public async ListProjects(input: { userId: number }) {
         return this.models.project.findMany({
-            where: { userId: user.id },
+            where: { userId: input.userId },
             select: {
                 id: true,
                 name: true,
@@ -324,9 +322,9 @@ Service rules:
 
 - Prefer `this.services.OtherService` over hidden globals.
 - Prefer `this.models` or `this.app.Models.client` for Prisma runtime access.
-- Keep request-sensitive authorization and input parsing in controllers when possible.
-- It is acceptable for service methods called from controllers to use `this.request`, because Proteum binds request context through async storage.
-- Still prefer passing explicit values when that makes the contract clearer and easier to test.
+- Keep auth, input parsing, and request handling in controllers.
+- Pass explicit typed values into services instead of reading request state inside services.
+- Prefer service inputs that are easy to test without a live request context.
 
 ## Subservices
 
@@ -353,7 +351,7 @@ Use subservices when:
 
 Controller files must:
 
-- end with `.controller.ts`
+- live under `server/controllers/**/*.ts`
 - default-export a class extending `Controller`
 
 Example:
@@ -413,23 +411,22 @@ Proteum generates controller endpoints automatically.
 
 Key facts:
 
-- Only `*.controller.ts` files are indexed.
+- Only `server/controllers/**/*.ts` files are indexed.
 - Only class methods with bodies become routes.
 - The client-facing route is always prefixed with `/api/`.
 - Generated client calls use `POST`, even for read methods such as `Get`, `List`, or `Search`.
 
 Route path derivation:
 
-- if the controller lives under a directory with `service.json`, Proteum uses that service alias as the root API namespace
 - base path comes from the controller file path
 - method name becomes the final route segment
 - `export const controllerPath = 'Custom/path'` overrides the base path
 
 Examples from the reference apps:
 
-- `server/services/Users/Auth/Auth.controller.ts#Session()` becomes `Auth.Session()` on the client and maps to `/api/Auth/Session`
-- `server/services/Domains/search/search.controller.ts#Search()` becomes `Domains.search.Search()`
-- `server/services/Companies/HiringPersons/HiringPersons.controller.ts` overrides the base path with `controllerPath = 'Companies/Persons'`
+- `server/controllers/Auth.ts#Session()` becomes `Auth.Session()` on the client and maps to `/api/Auth/Session`
+- `server/controllers/Domains/search.ts#Search()` becomes `Domains.search.Search()`
+- `server/controllers/Companies/Persons.ts` can override the base path with `controllerPath = 'Companies/Persons'`
 
 Naming rule:
 
@@ -792,7 +789,7 @@ Source-to-generated mapping:
 
 - `client/pages/**` -> generated route modules and layout modules
 - `server/routes/**` -> generated server route modules
-- `server/services/**/*.controller.ts` -> `.proteum/common/controllers.ts` and server controller registry
+- `server/controllers/**/*.ts` -> `.proteum/common/controllers.ts` and server controller registry
 - `server/services/**/service.json` + `server/config/*.ts` -> `.proteum/server/app.ts`
 
 LLM rule:
@@ -806,7 +803,7 @@ When adding a feature, follow this order:
 
 1. Add or extend a root service under `server/services/<Feature>`.
 2. Add or extend subservices if the feature has distinct concerns.
-3. Add `*.controller.ts` entrypoints for callable app APIs.
+3. Add `server/controllers/**/*.ts` entrypoints for callable app APIs.
 4. Register the root service in `server/config/*.ts` if it is new.
 5. Add or update `client/pages/**` routes that consume the feature.
 6. Load SSR data in page `setup`.
@@ -819,7 +816,7 @@ When maintaining a Proteum app:
 
 - inspect `server/config/*.ts` first to understand which services actually exist
 - inspect `service.json` before moving or renaming services
-- inspect `*.controller.ts` to understand the public client API
+- inspect `server/controllers/**/*.ts` to understand the public client API
 - inspect `client/pages/**` for the real route table
 - check `_layout` folders before changing page chrome
 - check router plugins before assuming `auth`, `schema`, or `metrics` behavior
@@ -868,9 +865,9 @@ Use the real app commands already present in the reference projects when possibl
 ## Add a new app API
 
 1. Create or extend `server/services/Feature/index.ts`.
-2. Create `server/services/Feature/Feature.controller.ts`.
+2. Create `server/controllers/Feature.ts`.
 3. Validate input with `this.input(schema)`.
-4. Return data from the service method.
+4. Resolve auth or other request-derived values in the controller and pass them into the service method.
 5. Call it from the client as `Feature.MethodName(...)`.
 
 ## Add a new SSR page
@@ -895,6 +892,6 @@ If you are unsure where code belongs:
 
 - page URL and SSR data: `client/pages`
 - reusable business logic: `server/services`
-- client-callable app API: `*.controller.ts`
+- client-callable app API: `server/controllers/**/*.ts`
 - custom HTTP endpoint: `server/routes`
 - request-scoped cross-cutting concern: router plugin

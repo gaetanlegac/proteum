@@ -35,6 +35,8 @@ Start framework inspection with:
 Generated files live under `./.proteum` and should not be edited by hand.
 Project code should use the generated aliases `@generated/client/*`, `@generated/common/*`, and `@generated/server/*`.
 Client context is typically imported from `@/client/context`.
+Prefer type inference from `./.proteum/app.ts` whenever possible. Treat it as the canonical type root for app services,
+router services, router context, and models instead of duplicating manual type declarations.
 
 # Files organization
 
@@ -52,6 +54,8 @@ When implementing a feature that relies on a **curated list of items**, keep **o
 - `@models/types`: Prisma typings only. Can be imported anywhere.
 - Never use runtime value imports from `@request` or `@models`.
 - Never expose request-scoped state through imports.
+- Keep app services, router services, router context, and model contracts inferred from `./.proteum/app.ts` whenever
+possible instead of recreating parallel type maps.
 
 ## Client runtime access
 
@@ -66,11 +70,22 @@ When implementing a feature that relies on a **curated list of items**, keep **o
 ## Server runtime access
 
 - Normal business logic lives in `/server/services/**/index.ts` classes that extend `Service`.
-- Route entrypoints live in `*.controller.ts` classes that extend `Controller`.
+- Route entrypoints live in `/server/controllers/**/*.ts` classes that extend `Controller`.
 - Only controller files are indexed as callable API endpoints.
 - Controller methods validate input with `this.input(schema)` and access request scope through `this.request`.
 - Service classes access other services via `this.services` and prisma models via `this.models`.
+- App service types should be inferred from the config passed into their constructor through the app type graph rooted at
+`./.proteum/app.ts`.
+- Router services and request/context values such as `user`, `auth`, and similar request-scoped contracts should come
+from inferred request and app types, not ad hoc casts.
+- Models should be inferred from the app/model registry rooted at `./.proteum/app.ts`, not from duplicated manual model
+maps.
 - Never use request-scoped state directly inside normal service methods.
+- Controllers should resolve auth and request-derived values, then pass plain typed arguments into services.
+- When referencing an app service, a router service, or a model, expose it in the current block scope first by
+destructuring from `this.request`, `this.app`, `this.models`, or the generated app/model accessors where applicable,
+then call methods on that local binding. The service, router value, or model should be the first element of the callee
+chain.
 
 # Agent behavior
 
@@ -78,6 +93,8 @@ When implementing a feature that relies on a **curated list of items**, keep **o
 
 ## Typings
 
+- Keep strong, consistent TypeScript typings across the whole project.
+- Do not introduce `any` or `unknown`, including through casts, helper aliases, or fallback generic defaults.
 - Fix typing issues only on the code you wrote.
 - Never cast with `as any` or `as unknown`; fix the type contract or introduce an explicit typed adapter instead. If you find no other solution, tell me in the output.
 

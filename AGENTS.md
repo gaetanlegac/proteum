@@ -16,11 +16,13 @@ When tradeoffs exist, prioritize framework decisions in this order:
 When working on Proteum itself, optimize for agent ergonomics first:
 
 - Prefer explicit, typed, machine-readable contracts over implicit runtime magic, hidden conventions, ambient globals, or tribal knowledge.
+- Enforce strong, consistent TypeScript typings across the whole project. Do not introduce `any` or `unknown`.
 - Make routes, data loading, server actions / controllers, services, SEO metadata, sitemap generation, static generation, and environment contracts easy to discover, inspect, and explain.
 - Treat SSR and SEO as first-class framework primitives, not app-level patchwork.
 - Prefer server-first designs that avoid shipping client JavaScript unless it is required for user-facing behavior.
 - Favor small, single-purpose files and modules that reduce context load and make edits easier for agents to scope safely.
 - Generated code should improve traceability and type safety, not obscure behavior. It should be deterministic, auditable, and easy for agents to map back to source files.
+- Prefer inference from `.proteum/app.ts` whenever possible. Treat it as the canonical type root for application services, router services, router context, and models instead of duplicating manual type declarations.
 - Prefer exact end-to-end contracts for inputs, outputs, errors, side effects, and caching behavior.
 - Prefer framework features that make impact analysis, verification, and debugging easier for agents.
 - Prefer output that is fast to render, easy to crawl, semantically rich, and easy for LLMs to parse reliably.
@@ -54,14 +56,21 @@ When changing Proteum itself, always ground the work in the real apps that use i
 
 Future changes should preserve and extend the current explicit model instead of reintroducing runtime magic.
 
-- Server route entrypoints live in `*.controller.ts` files.
+- Strong typings are mandatory across the whole project. Do not use `any` or `unknown`; keep types explicit, precise, and consistent.
+- Prefer deriving types from `.proteum/app.ts` instead of recreating them manually in feature code, helpers, or generated output.
+- Server route entrypoints live in `server/controllers/**/*.ts` files.
 - Controllers extend `Controller` and read request-scoped values from `this.request`.
 - Controllers validate request input via `this.input(schema)` inside the method body. Do not use decorators for validation metadata.
 - Normal services extend `Service` and should use `this.services`, `this.models`, and `this.app` instead of implicit globals or magic imports.
+- App services should be inferred from the config passed into their constructor through the app type graph rooted at `.proteum/app.ts`, not hand-maintained parallel interfaces.
+- Router services and router/request context values such as `user`, `auth`, and similar request-scoped contracts should come from inferred request and app types, not ad hoc casts.
+- Models should be inferred from the app/model registry rooted at `.proteum/app.ts`, not from duplicated hand-written model maps.
+- Controllers should own auth, input parsing, and request concerns, then pass explicit typed values into services.
 - Do not reintroduce runtime server imports or globals such as `@request`, `@models`, or `@app`.
 - Client pages use `Router.page(path, render)` or `Router.page(path, setup, render)`.
 - SSR data loading belongs in the `setup` function returned object, not in `api.fetch(...)`.
 - Client-side controller access should come from the generated controller tree and client context, not from fake runtime imports.
+- When referencing an app service, a router service, or a model, expose it in the current block scope first by destructuring from `this.request`, `this.app`, or `this.app.Models.client`, then call methods on that local binding. The service, router value, or model should be the first element of the callee chain.
 
 ## Solution Proposals
 
@@ -82,6 +91,7 @@ When presenting a framework solution, make it easy to judge against the real app
 - Prefer deleting client-side code, dependencies, and emitted assets when the same capability can stay on the server or be generated statically.
 - Prefer deleting obsolete branches, compatibility layers, plugins, and dependencies over keeping dead paths around.
 - Prefer compiler logic that is deterministic, auditable, and easy for another agent to trace from source to generated output.
+- Prefer local destructuring that exposes typed app services, router services, router context values, and models in the current block scope before use, instead of chaining through `this.request`, `this.app`, or `this.app.Models.client` at each call site.
 - Reject changes that increase bundle size, runtime cost, or crawlability risk unless the benefit is concrete and validated in both reference apps.
 - When removing old behavior, also remove the related packages, config flags, typings, docs, and dead helper files in the same pass when safe.
 - If a core change breaks one of the reference apps, keep iterating until the framework and the affected app usage are both corrected.

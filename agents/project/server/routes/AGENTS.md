@@ -2,7 +2,7 @@
 
 Use `/server/routes/**` only for explicit custom routes that should not be generated from controllers.
 
-- Callable app APIs belong in `*.controller.ts` files under `/server/services`
+- Callable app APIs belong in `/server/controllers/**/*.ts`
 - `/server/routes/**` is for manual `Router.get/post/...` routes, redirects, resources, OAuth callbacks, etc.
 
 ## Generate absolute urls
