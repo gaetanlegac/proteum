@@ -1,0 +1,267 @@
+import path from 'path';
+import fs from 'fs-extra';
+import yaml from 'yaml';
+
+import app from '../../app';
+import cli from '../..';
+import { reservedRouteSetupKeys, routeSetupOptionKeys } from '../../../common/router/pageSetup';
+import {
+    TProteumManifest,
+    TProteumManifestController,
+    TProteumManifestDiagnostic,
+    TProteumManifestLayout,
+    TProteumManifestRoute,
+} from '../common/proteumManifest';
+import { writeProteumManifest } from '../common/proteumManifest';
+import { normalizeAbsolutePath, normalizePath } from './shared';
+
+const envRequiredTopLevelKeys = ['name', 'profile', 'router', 'console'];
+
+const getEnvTopLevelKeys = () => {
+    const envFilepath = path.join(app.paths.root, 'env.yaml');
+
+    if (!fs.existsSync(envFilepath)) return [];
+
+    const rawEnv = yaml.parse(fs.readFileSync(envFilepath, 'utf8'));
+
+    if (!rawEnv || typeof rawEnv !== 'object' || Array.isArray(rawEnv)) return [];
+
+    return Object.keys(rawEnv).sort((a, b) => a.localeCompare(b));
+};
+
+const collectManifestDiagnostics = ({
+    controllers,
+    routes,
+}: {
+    controllers: TProteumManifestController[];
+    routes: TProteumManifest['routes'];
+}) => {
+    const diagnostics: TProteumManifestDiagnostic[] = [];
+
+    const pushDiagnostic = (diagnostic: TProteumManifestDiagnostic) => {
+        diagnostics.push(diagnostic);
+    };
+
+    const createDuplicateDiagnostics = <
+        TEntry extends { filepath: string; sourceLocation?: { line: number; column: number } },
+    >(
+        entries: TEntry[],
+        {
+            code,
+            level,
+            message,
+        }: {
+            code: string;
+            level: TProteumManifestDiagnostic['level'];
+            message: (entry: TEntry, others: TEntry[]) => string;
+        },
+    ) => {
+        if (entries.length < 2) return;
+
+        for (const entry of entries) {
+            pushDiagnostic({
+                level,
+                code,
+                message: message(
+                    entry,
+                    entries.filter((candidate) => candidate !== entry),
+                ),
+                filepath: entry.filepath,
+                sourceLocation: entry.sourceLocation,
+                relatedFilepaths: entries.filter((candidate) => candidate !== entry).map((candidate) => candidate.filepath),
+            });
+        }
+    };
+
+    const trackDuplicates = <TEntry extends { filepath: string; sourceLocation?: { line: number; column: number } }>(
+        entries: TEntry[],
+        getKey: (entry: TEntry) => string | undefined,
+        config: {
+            code: string;
+            level: TProteumManifestDiagnostic['level'];
+            message: (entry: TEntry, others: TEntry[]) => string;
+        },
+    ) => {
+        const groups = new Map<string, TEntry[]>();
+
+        for (const entry of entries) {
+            const key = getKey(entry);
+            if (!key) continue;
+
+            const group = groups.get(key) || [];
+            group.push(entry);
+            groups.set(key, group);
+        }
+
+        for (const group of groups.values()) {
+            createDuplicateDiagnostics(group, config);
+        }
+    };
+
+    for (const route of [...routes.client, ...routes.server]) {
+        if (route.targetResolution === 'dynamic-expression') {
+            pushDiagnostic({
+                level: 'warning',
+                code: 'route.dynamic-target',
+                message:
+                    route.kind === 'client-error'
+                        ? `Proteum could not resolve this error code statically. Prefer a numeric literal or a const-only expression.`
+                        : `Proteum could not resolve this route path statically. Prefer a string literal or a const-only expression.`,
+                filepath: route.filepath,
+                sourceLocation: route.sourceLocation,
+            });
+        }
+
+        for (const optionKey of route.invalidOptionKeys) {
+            pushDiagnostic({
+                level: 'error',
+                code: 'route.invalid-option-key',
+                message: `"${optionKey}" is not a supported Router option key.`,
+                filepath: route.filepath,
+                sourceLocation: route.sourceLocation,
+            });
+        }
+
+        for (const optionKey of route.reservedOptionKeys) {
+            pushDiagnostic({
+                level: 'error',
+                code: 'route.reserved-option-key',
+                message: `"${optionKey}" is a reserved Router option key and cannot be set explicitly.`,
+                filepath: route.filepath,
+                sourceLocation: route.sourceLocation,
+            });
+        }
+    }
+
+    trackDuplicates(routes.client.filter((route) => route.kind === 'client-page'), (route) => route.path, {
+        code: 'route.duplicate-client-path',
+        level: 'warning',
+        message: (route, others) =>
+            `Duplicate client page path "${(route as TProteumManifestRoute).path}" also registered in ${others
+                .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                .join(', ')}.`,
+    });
+
+    trackDuplicates(
+        routes.client.filter((route) => route.kind === 'client-error'),
+        (route) => (typeof route.code === 'number' ? String(route.code) : undefined),
+        {
+            code: 'route.duplicate-client-error',
+            level: 'warning',
+            message: (route, others) =>
+                `Duplicate client error code "${(route as TProteumManifestRoute).code}" also registered in ${others
+                    .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                    .join(', ')}.`,
+        },
+    );
+
+    trackDuplicates(
+        routes.server,
+        (route) => (route.path ? `${route.methodName}:${route.path}` : undefined),
+        {
+            code: 'route.duplicate-server-route',
+            level: 'warning',
+            message: (route, others) =>
+                `Duplicate server route "${(route as TProteumManifestRoute).methodName.toUpperCase()} ${(route as TProteumManifestRoute).path}" also registered in ${others
+                    .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                    .join(', ')}.`,
+        },
+    );
+
+    trackDuplicates(controllers, (controller) => controller.clientAccessor, {
+        code: 'controller.duplicate-client-accessor',
+        level: 'error',
+        message: (controller, others) =>
+            `Duplicate controller accessor "${controller.clientAccessor}" also registered in ${others
+                .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                .join(', ')}.`,
+    });
+
+    trackDuplicates(controllers, (controller) => controller.httpPath, {
+        code: 'controller.duplicate-http-path',
+        level: 'error',
+        message: (controller, others) =>
+            `Duplicate controller HTTP path "${controller.httpPath}" also registered in ${others
+                .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                .join(', ')}.`,
+    });
+
+    const postServerRoutesByPath = new Map(
+        routes.server
+            .filter((route) => route.methodName === 'post' && !!route.path)
+            .map((route) => [route.path as string, route]),
+    );
+
+    for (const controller of controllers) {
+        const matchingRoute = postServerRoutesByPath.get(controller.httpPath);
+
+        if (!matchingRoute) continue;
+
+        pushDiagnostic({
+            level: 'error',
+            code: 'controller.server-route-collision',
+            message: `Controller path "${controller.httpPath}" collides with an explicit POST server route.`,
+            filepath: controller.filepath,
+            sourceLocation: controller.sourceLocation,
+            relatedFilepaths: [matchingRoute.filepath],
+        });
+    }
+
+    return diagnostics.sort((a, b) => {
+        if (a.level !== b.level) return a.level === 'error' ? -1 : 1;
+        if (a.filepath !== b.filepath) return a.filepath.localeCompare(b.filepath);
+        if ((a.sourceLocation?.line || 0) !== (b.sourceLocation?.line || 0)) {
+            return (a.sourceLocation?.line || 0) - (b.sourceLocation?.line || 0);
+        }
+        return a.code.localeCompare(b.code);
+    });
+};
+
+export const writeCurrentProteumManifest = ({
+    services,
+    controllers,
+    routes,
+    layouts,
+}: {
+    services: TProteumManifest['services'];
+    controllers: TProteumManifestController[];
+    routes: TProteumManifest['routes'];
+    layouts: TProteumManifestLayout[];
+}) => {
+    const manifest: TProteumManifest = {
+        version: 1,
+        app: {
+            root: normalizeAbsolutePath(app.paths.root),
+            coreRoot: normalizeAbsolutePath(cli.paths.core.root),
+            identityFilepath: normalizeAbsolutePath(path.join(app.paths.root, 'identity.yaml')),
+            identity: {
+                name: app.identity.name,
+                identifier: app.identity.identifier,
+                description: app.identity.description,
+                language: app.identity.language,
+                locale: app.identity.locale,
+                title: app.identity.web?.title,
+                titleSuffix: app.identity.web?.titleSuffix,
+                fullTitle: app.identity.web?.fullTitle,
+                webDescription: app.identity.web?.description,
+                version: app.identity.web?.version,
+            },
+        },
+        conventions: {
+            routeSetupOptionKeys: [...routeSetupOptionKeys],
+            reservedRouteSetupKeys: [...reservedRouteSetupKeys],
+        },
+        env: {
+            sourceFilepath: normalizeAbsolutePath(path.join(app.paths.root, 'env.yaml')),
+            loadedTopLevelKeys: getEnvTopLevelKeys(),
+            requiredTopLevelKeys: [...envRequiredTopLevelKeys],
+        },
+        services,
+        controllers,
+        routes,
+        layouts,
+        diagnostics: collectManifestDiagnostics({ controllers, routes }),
+    };
+
+    writeProteumManifest(app.paths.root, manifest);
+};

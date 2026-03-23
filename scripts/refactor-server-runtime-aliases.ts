@@ -273,7 +273,7 @@ if (!repoRoots.length)
 
 for (const repoRoot of repoRoots) {
     const serviceRoot = path.join(repoRoot, 'server', 'services');
-    const files = findFiles(serviceRoot).filter((filepath) => !filepath.endsWith('.controller.ts'));
+    const files = findFiles(serviceRoot);
 
     let changedFiles = 0;
     let replacementCount = 0;

@@ -6,7 +6,6 @@
 import type { Application } from '../index';
 import type { Command } from '../commands';
 import type { TServiceMetas } from './container';
-import context from '@server/context';
 import type { TRouterContext, TAnyRouter } from '../../services/router';
 
 export { schema } from '../../services/router/request/validation/zod';
@@ -40,6 +39,10 @@ type TServiceRouter<TApplication extends Application> = TApplication extends { R
         : TAnyRouter
     : TAnyRouter;
 
+/**
+ * @deprecated Services should not depend on request context.
+ * Resolve auth/input/request data in controllers and pass explicit typed values into services instead.
+ */
 export type TServiceRequestContext<TApplication extends Application = Application> = TRouterContext<
     TServiceRouter<TApplication>
 >;
@@ -131,18 +134,6 @@ export default abstract class Service<
             throw new Error(`${this.constructor.name} tried to access models but no Models service is registered.`);
 
         return models;
-    }
-
-    protected get request(): TServiceRequestContext<TApplication> {
-        const store = context.getStore() as { requestContext?: TServiceRequestContext<TApplication> } | undefined;
-        const requestContext = store?.requestContext;
-
-        if (!requestContext)
-            throw new Error(
-                `${this.constructor.name} tried to access request context outside of a controller request.`,
-            );
-
-        return requestContext;
     }
 
     /*----------------------------------

@@ -26,6 +26,7 @@ Router.page('/path', ({ Feature }) => ({
 - Never use `api.fetch(...)` in page files
 - Never import client service values from `@app`
 - Compose page UI from shared Shadcn-based components when the project already provides them instead of redefining common controls inline in the page file
+- Keep page-local curated copy, option sets, and registries in `/client/catalogs/**`; do not create `catalogs/` folders under `client/pages/**`
 
 ## Typings
 

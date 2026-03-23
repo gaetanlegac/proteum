@@ -57,6 +57,9 @@ class BuildCommand extends ProteumCommand {
     public prod = Option.Boolean('--prod', false, { description: 'Build in production mode.' });
     public cache = Option.Boolean('--cache', false, { description: 'Enable filesystem caching during the build.' });
     public analyze = Option.Boolean('--analyze', false, { description: 'Emit the client bundle analysis report.' });
+    public strict = Option.Boolean('--strict', false, {
+        description: 'Refresh generated typings and fail the build if TypeScript reports any error.',
+    });
     public legacyArgs = Option.Rest();
 
     public async execute() {
@@ -66,9 +69,10 @@ class BuildCommand extends ProteumCommand {
             prod: this.prod,
             cache: this.cache,
             analyze: this.analyze,
+            strict: this.strict,
         } satisfies TArgsObject;
 
-        applyLegacyBooleanArgs('build', this.legacyArgs, ['prod', 'cache', 'analyze'], args);
+        applyLegacyBooleanArgs('build', this.legacyArgs, ['prod', 'cache', 'analyze', 'strict'], args);
         this.setCliArgs(args);
         await runCommandModule(() => import('../commands/build'));
     }

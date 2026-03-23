@@ -56,7 +56,7 @@ import { loadGeneratedRuntimeBundle } from './generatedRuntime';
 export { type AnyRouterService, default as RouterService } from './service';
 export { default as RequestService } from './request/service';
 export type { default as Request, UploadedFile } from './request';
-export type { default as Response, TRouterContext } from './response';
+export type { default as Response, TRouterContext, TRouterContextServices } from './response';
 export type { TRoute, TAnyRoute } from '@common/router';
 
 export type TApiRegisterArgs<TRouter extends TServerRouter> =

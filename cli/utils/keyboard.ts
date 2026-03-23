@@ -10,7 +10,7 @@ import { logVerbose } from '../runtime/verbose';
 - TYPES
 ----------------------------------*/
 
-type TKeyboardCommand = { remove?: boolean; run: (str: string, chunk: string, key: Key) => void };
+type TKeyboardCommand = { remove?: boolean; run: (str: string, chunk: string, key: Key) => void | Promise<void> };
 
 /*----------------------------------
 - METHODS
@@ -35,13 +35,18 @@ class KeyboardCommands {
             if (key.meta) str = 'meta+' + str;
 
             const kCommand = this.commands[str] || this.commands.fallback;
-            if (kCommand) {
-                kCommand.run(str, chunk, key);
 
-                if (kCommand.remove) delete this.commands[str];
+            try {
+                if (kCommand) {
+                    await kCommand.run(str, chunk, key);
+
+                    if (kCommand.remove) delete this.commands[str];
+                }
+            } catch (error) {
+                console.error(error);
             }
 
-            if (str === 'ctrl+c') {
+            if (str === 'ctrl+c' && !kCommand) {
                 logVerbose(`Exiting ...`);
                 process.exit(0);
             }

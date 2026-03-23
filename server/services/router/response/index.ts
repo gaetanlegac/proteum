@@ -41,10 +41,27 @@ export type TBasicSSrData = {
     domains: TDomainsList;
 };
 
+type TServerRouterApplication<TRouter extends TServerRouter> =
+    TRouter extends ServerRouter<infer TApplication, any, any> ? TApplication : never;
+
+type TServerRouterPlugins<TRouter extends TServerRouter> =
+    TRouter extends ServerRouter<any, any, infer TConfig>
+        ? TConfig extends { plugins: infer TPlugins }
+            ? TPlugins
+            : {}
+        : {};
+
+type TServerRouterCustomContext<TRouter extends TServerRouter> =
+    TRouter extends ServerRouter<any, any, infer TConfig>
+        ? TConfig extends { context: (...args: any[]) => infer TContext }
+            ? TContext
+            : {}
+        : {};
+
 export type TRouterContext<TRouter extends TServerRouter> =
     // Request context
     {
-        app: TRouter['app'];
+        app: TServerRouterApplication<TRouter>;
         context: TRouterContext<TRouter>; // = this
         request: ServerRequest<TRouter>;
         api: ServerRequest<TRouter>['api'];
@@ -55,9 +72,12 @@ export type TRouterContext<TRouter extends TServerRouter> =
         Router: TRouter;
     } & TRouterContextServices<TRouter> &
         TControllers &
-        TRouterRequestContext<TRouter>;
+        TServerRouterCustomContext<TRouter>;
 
-export type TRouterContextServices<TRouter extends TServerRouter, TPlugins = TRouter['config']['plugins']> =
+export type TRouterContextServices<
+    TRouter extends TServerRouter,
+    TPlugins extends object = TServerRouterPlugins<TRouter>,
+> =
     // Custom context via servuces
     // For each roiuter service, return the request service (returned by roiuterService.requestService() )
     {
@@ -66,7 +86,7 @@ export type TRouterContextServices<TRouter extends TServerRouter, TPlugins = TRo
             : TPlugins[serviceName];
     };
 
-export type TRouterRequestContext<TRouter extends TServerRouter> = ReturnType<TRouter['config']['context']>;
+export type TRouterRequestContext<TRouter extends TServerRouter> = TServerRouterCustomContext<TRouter>;
 
 /*----------------------------------
 - CLASSE

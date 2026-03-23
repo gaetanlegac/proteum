@@ -3,6 +3,33 @@ import Application from '@generated/server/app';
 import { isServerHotReloadRequest, serverHotReloadMessageType } from '@common/dev/serverHotReload';
 
 const application = AppContainer.start(Application);
+let shutdownPromise: Promise<void> | undefined;
+
+const shutdownApplication = async (reason: string) => {
+    if (!shutdownPromise) {
+        shutdownPromise = (async () => {
+            try {
+                console.info(`[server] Shutting down (${reason}) ...`);
+                await application.runHook('cleanup');
+            } catch (error) {
+                console.error('[server] Failed to run application cleanup.', error);
+                process.exit(1);
+            }
+
+            process.exit(0);
+        })();
+    }
+
+    return shutdownPromise;
+};
+
+process.once('SIGINT', () => {
+    void shutdownApplication('SIGINT');
+});
+
+process.once('SIGTERM', () => {
+    void shutdownApplication('SIGTERM');
+});
 
 if (__DEV__ && typeof process.send === 'function') {
     process.on('message', (message: unknown) => {
@@ -24,5 +51,9 @@ if (__DEV__ && typeof process.send === 'function') {
                 });
             }
         })();
+    });
+
+    process.on('disconnect', () => {
+        void shutdownApplication('parent disconnect');
     });
 }

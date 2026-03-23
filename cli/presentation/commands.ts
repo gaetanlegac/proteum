@@ -98,15 +98,20 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'build',
         category: 'Daily workflow',
         summary: 'Build the application.',
-        usage: 'proteum build [--prod] [--cache] [--analyze] [--port <port>]',
+        usage: 'proteum build [--prod] [--strict] [--cache] [--analyze] [--port <port>]',
         bestFor: 'CI, release builds, and local verification of the production server and client output.',
         examples: [
             { description: 'Run the normal production build', command: 'proteum build --prod' },
+            {
+                description: 'Refresh typings, typecheck, then build in strict mode',
+                command: 'proteum build --prod --strict',
+            },
             { description: 'Generate bundle analysis artifacts', command: 'proteum build --prod --analyze' },
             { description: 'Reuse the filesystem cache during builds', command: 'proteum build --prod --cache' },
         ],
         notes: [
-            'Legacy positional booleans remain supported, for example `proteum build prod analyze`.',
+            'Legacy positional booleans remain supported, for example `proteum build prod strict analyze`.',
+            'Use `--strict` when the build must refresh generated typings and fail on any TypeScript error before compilation starts.',
             'The production output is emitted under `bin/`.',
         ],
         status: 'stable',

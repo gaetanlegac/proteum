@@ -1,6 +1,7 @@
 # Frontend
 
 UI components are defined in `/client/pages` and `/client/components`.
+Client-only catalogs and registries live in `/client/catalogs/**`.
 
 ## Stack
 
@@ -84,6 +85,7 @@ If a catch is needed, rethrow or surface the failure clearly.
 - Split big components (more than 1000 lines) into smaller components
 - Always use one component per file
 - Every time possible, load data and define action handlers in the directly concerned component instead of passing everything from the parent
+- Put curated lists, option registries, UI copy catalogs, and similar SSOT data under `/client/catalogs/**`, not inside page or component folders
 
 ## Split the page by sections via comments
 

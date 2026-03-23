@@ -4,11 +4,13 @@ This is a full stack monolith project using Typescript, NodeJS, Preact, and Prot
 
 `/client`: frontend
     `/assets`: CSS, images and other frontend assets
+    `/catalogs`: client-only catalogs and registries
     `/components`: reusable components
     `/pages`: page route files and page-local UI
     `/hooks`
-`/common`: shared functions, constants and typings
+`/common`: shared functions, constants, typings, and cross-runtime catalogs
 `/server`: backend
+    `/catalogs`: server-only catalogs and registries
     `/config`: service configuration
     `/services`: backend services and controllers
     `/routes`: explicit non-controller routes
@@ -48,6 +50,12 @@ needs an SSR-specific variant
 ## Centralize feature catalogs (Single Source of Truth)
 
 When implementing a feature that relies on a **curated list of items**, keep **one canonical catalog/registry file** and make all other code import it.
+
+- Client-only catalogs live in `/client/catalogs/**`
+- Server-only catalogs live in `/server/catalogs/**`
+- Shared catalogs used by both runtimes live in `/common/catalogs/**`
+- Organize those root catalog trees by business concern (mirror the feature path when useful)
+- Do not create nested `catalogs/` folders inside `/client/pages/**`, `/client/components/**`, `/server/services/**`, or similar feature folders
 
 ## Runtime access rules
 

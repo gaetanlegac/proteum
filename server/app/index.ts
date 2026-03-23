@@ -121,13 +121,8 @@ export abstract class Application<
         const startTime = Date.now();
 
         this.startServices();
-
-        console.log('----------------------------------');
-        console.log('- SERVICES');
-        console.log('----------------------------------');
         const startingServices = await this.ready();
         await Promise.all(startingServices);
-        console.log('All services are ready');
         await this.runHook('ready');
 
         const startedTime = (Date.now() - startTime) / 1000;
@@ -160,8 +155,7 @@ export abstract class Application<
     public async ready() {
         const startingServices: Promise<any>[] = [];
 
-        // Print services
-        const processService = async (propKey: string, service: AnyService, level: number = 0) => {
+        const processService = async (propKey: string, service: AnyService) => {
             if (service.status !== 'starting') return;
 
             // Services start shouldn't block app boot
@@ -169,7 +163,6 @@ export abstract class Application<
             service.starting = service.ready();
             startingServices.push(service.starting);
             service.status = 'running';
-            console.log('-' + '-'.repeat(level * 1), propKey + ': ' + service.constructor.name);
 
             // Subservices
             for (const propKey in service) {
@@ -185,7 +178,7 @@ export abstract class Application<
                 if (!isService) continue;
 
                 // Services start shouldn't block app boot
-                processService(propKey, propValue, level + 1);
+                processService(propKey, propValue);
             }
         };
 

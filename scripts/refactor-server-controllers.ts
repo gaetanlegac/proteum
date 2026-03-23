@@ -66,7 +66,7 @@ const getRelativeServiceSegments = (serviceRootDir: string, filepath: string) =>
 
 const getControllerSegments = (relativePath: string) => {
     const segments = relativePath
-        .replace(/\.controller\.ts$/, '')
+        .replace(/\.(tsx?|jsx?)$/, '')
         .split('/')
         .filter(Boolean);
 
@@ -77,14 +77,12 @@ const getControllerSegments = (relativePath: string) => {
     return segments;
 };
 
-const getControllerBasePath = (serviceRoot: TServiceRoot, controllerFilepath: string) => {
-    const segments = getControllerSegments(path.relative(serviceRoot.dir, controllerFilepath).replace(/\\/g, '/'));
+const getControllerBasePath = (repoRoot: string, controllerFilepath: string) => {
+    const segments = getControllerSegments(
+        path.relative(path.join(repoRoot, 'server', 'controllers'), controllerFilepath).replace(/\\/g, '/'),
+    );
 
-    if (segments[0]?.toLowerCase() === serviceRoot.alias.toLowerCase()) {
-        segments.shift();
-    }
-
-    return [serviceRoot.alias, ...segments].filter(Boolean).join('/');
+    return segments.join('/');
 };
 
 const findServiceAliases = (repoRoot: string) => {
@@ -254,7 +252,7 @@ const getControllerClassName = (serviceClassName: string, filepath: string) => {
 - TRANSFORM
 ----------------------------------*/
 
-const migrateServiceFile = (filepath: string, serviceRoots: TServiceRoot[]) => {
+const migrateServiceFile = (filepath: string, serviceRoots: TServiceRoot[], repoRoot: string) => {
     const code = fs.readFileSync(filepath, 'utf8');
     if (!/@Route\(|from ['"]@app['"]|from ['"]@models['"]|from ['"]@request['"]/.test(code)) return false;
 
@@ -376,16 +374,18 @@ const migrateServiceFile = (filepath: string, serviceRoots: TServiceRoot[]) => {
     const serviceSegments = getRelativeServiceSegments(serviceRoot.dir, filepath);
     const serviceAccessPath = [serviceRoot.alias, ...serviceSegments].join('.');
 
-    const controllerBasename =
-        path.basename(filepath, path.extname(filepath)) === 'index'
-            ? `${path.basename(path.dirname(filepath))}.controller.ts`
-            : `${path.basename(filepath, path.extname(filepath))}.controller.ts`;
-    const controllerFilepath = path.join(path.dirname(filepath), controllerBasename);
-    const relativeServiceImportPath = './' + path.basename(filepath, path.extname(filepath));
+    const controllerRelativePath = [serviceRoot.alias, ...serviceSegments].join('/');
+    const controllerFilepath = path.join(repoRoot, 'server', 'controllers', `${controllerRelativePath}.ts`);
+    const relativeServiceImportPath = path
+        .relative(path.dirname(controllerFilepath), filepath)
+        .replace(/\\/g, '/')
+        .replace(/\.(tsx?|jsx?)$/, '');
+    const normalizedServiceImportPath =
+        relativeServiceImportPath.startsWith('.') ? relativeServiceImportPath : `./${relativeServiceImportPath}`;
     const schemaImports = [...new Set(routeMethods.flatMap((routeMethod) => routeMethod.schemaImports))];
     const controllerClassName = getControllerClassName(serviceClassName, filepath);
     const needsSchemaHelperImport = routeMethods.some((routeMethod) => routeMethod.schemaSource?.includes('schema.'));
-    const defaultControllerPath = getControllerBasePath(serviceRoot, controllerFilepath);
+    const defaultControllerPath = getControllerBasePath(repoRoot, controllerFilepath);
     const routeBasePaths = new Set<string>();
 
     for (const routeMethod of routeMethods) {
@@ -430,10 +430,11 @@ ${inputLine}
         })
         .join('\n\n');
 
+    fs.ensureDirSync(path.dirname(controllerFilepath));
     fs.writeFileSync(
         controllerFilepath,
         `import Controller${needsSchemaHelperImport ? ', { schema }' : ''} from '@server/app/controller';
-${schemaImports.length ? `import { ${schemaImports.join(', ')} } from ${JSON.stringify(relativeServiceImportPath)};\n` : ''}
+${schemaImports.length ? `import { ${schemaImports.join(', ')} } from ${JSON.stringify(normalizedServiceImportPath)};\n` : ''}
 ${controllerPathExport}
 export default class ${controllerClassName} extends Controller {
 
@@ -463,7 +464,7 @@ for (const repoRoot of repoRoots) {
     let migratedFiles = 0;
 
     for (const serviceFile of serviceFiles) {
-        if (migrateServiceFile(serviceFile, serviceRoots)) migratedFiles++;
+        if (migrateServiceFile(serviceFile, serviceRoots, repoRoot)) migratedFiles++;
     }
 
     console.log(`[refactor-server-controllers] ${repoRoot}: migrated ${migratedFiles} service files`);

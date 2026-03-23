@@ -28,9 +28,7 @@ export type TControllerFileMeta = {
     methods: TControllerMethodMeta[];
 };
 
-export type TControllerServiceRoot = { alias: string; dir: string };
-
-type TControllerSearchDir = { importPrefix: string; root: string; serviceRoots?: TControllerServiceRoot[] };
+type TControllerSearchDir = { importPrefix: string; root: string };
 
 /*----------------------------------
 - HELPERS
@@ -38,35 +36,19 @@ type TControllerSearchDir = { importPrefix: string; root: string; serviceRoots?:
 
 const getControllerSegments = (relativePath: string) => {
     const segments = relativePath
-        .replace(/\.controller\.ts$/, '')
+        .replace(/\.ts$/, '')
         .split('/')
         .filter(Boolean);
 
-    if (segments.length > 1 && segments[segments.length - 1] === segments[segments.length - 2]) {
+    if (segments[segments.length - 1] === 'index') {
         segments.pop();
     }
 
     return segments;
 };
 
-const getControllerBasePathFromFilepath = (filepath: string, root: string, serviceRoots: TControllerServiceRoot[] = []) => {
-    const normalizedFilepath = filepath.replace(/\\/g, '/');
-    const serviceRoot = serviceRoots
-        .filter((candidate) => normalizedFilepath.startsWith(candidate.dir.replace(/\\/g, '/') + '/'))
-        .sort((a, b) => b.dir.length - a.dir.length)[0];
-
-    if (!serviceRoot) {
-        return getControllerSegments(path.relative(root, filepath).replace(/\\/g, '/')).join('/');
-    }
-
-    const segments = getControllerSegments(path.relative(serviceRoot.dir, filepath).replace(/\\/g, '/'));
-
-    if (segments[0]?.toLowerCase() === serviceRoot.alias.toLowerCase()) {
-        segments.shift();
-    }
-
-    return [serviceRoot.alias, ...segments].filter(Boolean).join('/');
-};
+const getControllerBasePathFromFilepath = (filepath: string, root: string) =>
+    getControllerSegments(path.relative(root, filepath).replace(/\\/g, '/')).join('/');
 
 const getGeneratedClassName = (filepath: string) => {
     const filename = path.basename(filepath, '.ts').replace(/[^A-Za-z0-9_$]+/g, '_');
@@ -92,7 +74,8 @@ const findControllerFiles = (dir: string): string[] => {
         }
 
         if (!dirent.isFile()) continue;
-        if (!dirent.name.endsWith('.controller.ts')) continue;
+        if (!dirent.name.endsWith('.ts')) continue;
+        if (dirent.name.endsWith('.d.ts')) continue;
 
         files.push(filepath);
     }
@@ -200,9 +183,7 @@ export const indexControllers = (searchDirs: TControllerSearchDir[]) => {
             if (!defaultClass) continue;
 
             const className = defaultClass.name?.text || getGeneratedClassName(filepath);
-            const routeBasePath =
-                controllerPathOverride ||
-                getControllerBasePathFromFilepath(filepath, searchDir.root, searchDir.serviceRoots || []);
+            const routeBasePath = controllerPathOverride || getControllerBasePathFromFilepath(filepath, searchDir.root);
             const methods: TControllerMethodMeta[] = [];
 
             for (const member of defaultClass.members) {

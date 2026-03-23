@@ -41,9 +41,176 @@ const hotReloadableServerPathPatterns = [
 const hotReloadableRoots = [() => app.paths.root, () => cli.paths.core.root];
 
 /*----------------------------------
+- STATE
+----------------------------------*/
+
+// Current server child process used by the dev loop.
+let cp: ChildProcess | undefined = undefined;
+let devSessionStopping = false;
+type TDevWatching = ReturnType<Awaited<ReturnType<Compiler['create']>>['watch']>;
+
+/*----------------------------------
+- HELPERS
+----------------------------------*/
+
+const closeWatching = async (watching: TDevWatching) =>
+    await new Promise<void>((resolve, reject) => {
+        watching.close((error?: Error | null) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+
+            resolve();
+        });
+    });
+
+const waitForChildExit = async (child: ChildProcess, timeoutMs: number) =>
+    await new Promise<boolean>((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+            resolve(true);
+            return;
+        }
+
+        let settled = false;
+
+        const finish = (result: boolean) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            child.off('exit', onExit);
+            child.off('close', onClose);
+            resolve(result);
+        };
+
+        const onExit = () => finish(true);
+        const onClose = () => finish(true);
+        const timeout = setTimeout(() => finish(false), timeoutMs);
+
+        child.once('exit', onExit);
+        child.once('close', onClose);
+    });
+
+const escapeForRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const createIgnoredWatchPattern = (outputPaths: string[]) =>
+    new RegExp(
+        [
+            ignoredWatchPathPatterns.source,
+            ...outputPaths.map((outputPath) => `(?:^${escapeForRegExp(outputPath)}(?:/|$))`),
+        ].join('|'),
+    );
+
+const signalAppProcess = (child: ChildProcess, signal: NodeJS.Signals) => {
+    try {
+        if (process.platform !== 'win32' && child.pid !== undefined) {
+            process.kill(-child.pid, signal);
+            return true;
+        }
+
+        child.kill(signal);
+        return true;
+    } catch (error) {
+        const errno = error as NodeJS.ErrnoException;
+
+        if (errno.code === 'ESRCH') return false;
+
+        throw error;
+    }
+};
+
+async function startApp(app: App) {
+    if (devSessionStopping) return;
+
+    await stopApp('Restart asked');
+
+    logVerbose('Launching new server ...');
+    cp = spawn('node', ['--preserve-symlinks', app.outputPath('dev') + '/server.js'], {
+        // stdin, stdout, stderr
+        stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+        detached: true,
+    });
+
+    const child = cp;
+
+    child.on('exit', () => {
+        if (cp === child) cp = undefined;
+    });
+
+    child.on('message', (message: unknown) => {
+        if (!isServerHotReloadResult(message)) return;
+
+        if (message.type === serverHotReloadMessageType.succeeded) {
+            logVerbose('Server hot reload applied without restarting app.');
+            return;
+        }
+
+        console.error('Server hot reload failed. Restarting app with a fresh process.', message.error || '');
+        void startApp(app);
+    });
+}
+
+async function stopApp(reason: string) {
+    const currentApp = cp;
+    if (currentApp === undefined) return;
+
+    cp = undefined;
+
+    logVerbose(`Killing current server instance (ID: ${currentApp.pid}) for the following reason:`, reason);
+
+    if (!signalAppProcess(currentApp, 'SIGTERM')) return;
+
+    if (await waitForChildExit(currentApp, 5000)) return;
+
+    logVerbose(`Server instance ${currentApp.pid} did not stop after SIGTERM. Escalating to SIGKILL.`);
+
+    if (!signalAppProcess(currentApp, 'SIGKILL')) return;
+
+    await waitForChildExit(currentApp, 2000);
+}
+
+function requestServerHotReload(changedFiles: string[]) {
+    if (!cp || !cp.connected) return false;
+
+    const message: TServerHotReloadRequest = { type: serverHotReloadMessageType.request, changedFiles };
+
+    try {
+        cp.send(message);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function isServerHotReloadEligible(changedFiles: string[]) {
+    if (changedFiles.length === 0) return false;
+
+    return changedFiles.every((changedFile) => {
+        const normalizedChangedFile = normalizeWatchPath(changedFile);
+
+        return hotReloadableRoots.some((getRootPath) => {
+            const normalizedRootPath = normalizeWatchPath(getRootPath());
+            if (
+                normalizedChangedFile !== normalizedRootPath &&
+                !normalizedChangedFile.startsWith(normalizedRootPath + '/')
+            ) {
+                return false;
+            }
+
+            const relativePath = normalizedChangedFile.substring(normalizedRootPath.length + 1);
+            return hotReloadableServerPathPatterns.some((pattern) => pattern.test(relativePath));
+        });
+    });
+}
+
+function normalizeWatchPath(watchPath: string) {
+    return path.resolve(watchPath).replace(/\\/g, '/').replace(/\/$/, '');
+}
+
+/*----------------------------------
 - MAIN PROCESS
 ----------------------------------*/
 export const run = async () => {
+    devSessionStopping = false;
     ensureProjectAgentSymlinks({ appRoot: app.paths.root, coreRoot: cli.paths.core.root });
 
     const devEventServer = await createDevEventServer(app.env.router.port + 1);
@@ -79,8 +246,9 @@ export const run = async () => {
 
     const multiCompiler = await compiler.create();
     const ignoredOutputPaths = [app.paths.bin, app.paths.dev].map(normalizeWatchPath);
+    const ignoredWatchPattern = createIgnoredWatchPattern(ignoredOutputPaths);
 
-    multiCompiler.watch(
+    const watching = multiCompiler.watch(
         {
             // Watching may not work with NFS and machines in VirtualBox
             // Uncomment next line if it is your case (use true or interval in milliseconds)
@@ -91,22 +259,14 @@ export const run = async () => {
             // - Node modules except 5HTP core (framework dev mode)
             // - Generated files during runtime (cause infinite loop. Ex: models.d.ts)
             // - Webpack output folders (`./dev`, legacy `./bin`)
-            ignored: (watchPath: string) => {
-                const normalizedPath = normalizeWatchPath(watchPath);
-                return (
-                    ignoredWatchPathPatterns.test(normalizedPath) ||
-                    ignoredOutputPaths.some(
-                        (outputPath) => normalizedPath === outputPath || normalizedPath.startsWith(outputPath + '/'),
-                    )
-                );
-            },
+            ignored: ignoredWatchPattern,
 
             //aggregateTimeout: 1000,
         },
         async (error, stats) => {
             if (error) {
                 compiler.consumeRecentCompilationResults();
-                console.error('Error in milticompiler.watch', error, stats?.toString());
+                console.error('Error in milticompiler.watch', error, stats ? stats.toString('errors-warnings') : '');
                 return;
             }
 
@@ -126,7 +286,7 @@ export const run = async () => {
                     );
                 } else {
                     logVerbose('Watch callback. Reloading app because server bundle changed ...');
-                    startApp(app);
+                    await startApp(app);
                     restartedServer = true;
                     devEventServer.broadcast({ type: 'reload', reason: 'server' });
                 }
@@ -155,92 +315,50 @@ export const run = async () => {
         },
     );
 
+    let shuttingDownPromise: Promise<void> | undefined;
+
+    const shutdown = async (reason: string) => {
+        if (shuttingDownPromise) return shuttingDownPromise;
+
+        devSessionStopping = true;
+        shuttingDownPromise = (async () => {
+            logVerbose('Stopping the Proteum dev session ...', reason);
+            await closeWatching(watching);
+            compiler.dispose();
+            await stopApp(reason);
+            await devEventServer.close();
+        })();
+
+        return shuttingDownPromise;
+    };
+
+    const exitAfterShutdown = (reason: string, exitCode: number) => {
+        void (async () => {
+            try {
+                await shutdown(reason);
+                process.exit(exitCode);
+            } catch (error) {
+                console.error(error);
+                process.exit(1);
+            }
+        })();
+    };
+
     Keyboard.input('ctrl+r', async () => {
         logVerbose('Waiting for compilers to be ready ...', Object.keys(compiler.compiling));
         await Promise.all(Object.values(compiler.compiling));
 
         logVerbose('Reloading app ...');
-        startApp(app);
+        await startApp(app);
         devEventServer.broadcast({ type: 'reload', reason: 'manual' });
     });
 
-    Keyboard.input('ctrl+c', () => {
-        stopApp('CTRL+C Pressed');
-        void devEventServer.close();
+    Keyboard.input('ctrl+c', async () => {
+        await shutdown('CTRL+C Pressed');
+        process.exit(0);
     });
+
+    process.once('SIGINT', () => exitAfterShutdown('SIGINT', 0));
+    process.once('SIGTERM', () => exitAfterShutdown('SIGTERM', 0));
+    process.once('SIGHUP', () => exitAfterShutdown('SIGHUP', 0));
 };
-
-/*----------------------------------
-- STATE
-----------------------------------*/
-
-// Current server child process used by the dev loop.
-let cp: ChildProcess | undefined = undefined;
-
-/*----------------------------------
-- HELPERS
-----------------------------------*/
-
-async function startApp(app: App) {
-    stopApp('Restart asked');
-
-    logVerbose('Launching new server ...');
-    cp = spawn('node', ['--preserve-symlinks', app.outputPath('dev') + '/server.js'], {
-        // sdin, sdout, sderr
-        stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-    });
-
-    cp.on('message', (message: unknown) => {
-        if (!isServerHotReloadResult(message)) return;
-
-        if (message.type === serverHotReloadMessageType.succeeded) {
-            logVerbose('Server hot reload applied without restarting app.');
-            return;
-        }
-
-        console.error('Server hot reload failed. Restarting app with a fresh process.', message.error || '');
-        startApp(app);
-    });
-}
-
-function stopApp(reason: string) {
-    if (cp !== undefined) {
-        logVerbose(`Killing current server instance (ID: ${cp.pid}) for the following reason:`, reason);
-        cp.kill();
-        cp = undefined;
-    }
-}
-
-function requestServerHotReload(changedFiles: string[]) {
-    if (!cp || !cp.connected) return false;
-
-    const message: TServerHotReloadRequest = { type: serverHotReloadMessageType.request, changedFiles };
-
-    cp.send(message);
-    return true;
-}
-
-function isServerHotReloadEligible(changedFiles: string[]) {
-    if (changedFiles.length === 0) return false;
-
-    return changedFiles.every((changedFile) => {
-        const normalizedChangedFile = normalizeWatchPath(changedFile);
-
-        return hotReloadableRoots.some((getRootPath) => {
-            const normalizedRootPath = normalizeWatchPath(getRootPath());
-            if (
-                normalizedChangedFile !== normalizedRootPath &&
-                !normalizedChangedFile.startsWith(normalizedRootPath + '/')
-            ) {
-                return false;
-            }
-
-            const relativePath = normalizedChangedFile.substring(normalizedRootPath.length + 1);
-            return hotReloadableServerPathPatterns.some((pattern) => pattern.test(relativePath));
-        });
-    });
-}
-
-function normalizeWatchPath(watchPath: string) {
-    return path.resolve(watchPath).replace(/\\/g, '/').replace(/\/$/, '');
-}

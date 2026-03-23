@@ -196,11 +196,11 @@ const patchCentralFiles = () => {
             ),
     );
 
-    applyLiteralReplacement(path.join(UNIQUE_ROOT, 'server/services/Domains/search/search.controller.ts'), (source) =>
+    applyLiteralReplacement(path.join(UNIQUE_ROOT, 'server/controllers/Domains/search.ts'), (source) =>
         source.includes('    public async GetLandingSeoCachedSearches() {')
             ? source
             : assertReplace(
-                  path.join(UNIQUE_ROOT, 'server/services/Domains/search/search.controller.ts'),
+                  path.join(UNIQUE_ROOT, 'server/controllers/Domains/search.ts'),
                   source,
                   `    public async GetLandingSeoCachedSearch() {
         const { Domains } = this.services;

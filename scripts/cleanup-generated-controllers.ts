@@ -14,7 +14,7 @@ const findControllerFiles = (dir: string): string[] => {
             continue;
         }
 
-        if (dirent.isFile() && dirent.name.endsWith('.controller.ts')) files.push(filepath);
+        if (dirent.isFile() && /\.(tsx?|jsx?)$/.test(dirent.name) && !dirent.name.endsWith('.d.ts')) files.push(filepath);
     }
 
     return files;
@@ -25,7 +25,7 @@ if (!repoRoots.length)
     throw new Error('Usage: ts-node scripts/cleanup-generated-controllers.ts <repo-root> [repo-root...]');
 
 for (const repoRoot of repoRoots) {
-    const controllerFiles = findControllerFiles(path.join(repoRoot, 'server', 'services'));
+    const controllerFiles = findControllerFiles(path.join(repoRoot, 'server', 'controllers'));
     let updated = 0;
 
     for (const controllerFile of controllerFiles) {

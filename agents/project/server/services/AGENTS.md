@@ -5,6 +5,13 @@ Stack:
 - NodeJS
 - Prisma 7 ORM
 
+## Catalog placement
+
+- Server-only catalogs and registries live in `/server/catalogs/**`
+- Shared cross-runtime catalogs live in `/common/catalogs/**`
+- Do not create nested `catalogs/` folders under `/server/services/**`
+- Services should import curated lists from those root catalog locations instead of redefining them locally
+
 ## 1. Create the service file in `/server/services/<service name>/index.ts`
 
 Template:

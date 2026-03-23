@@ -6,3 +6,4 @@
 - Add `data-testid` where needed
 - Keep test files clean, organized and structured
 - Test the current controller/page runtime model, not legacy `@Route` or `api.fetch` behavior
+- Reuse root catalog files from `/client/catalogs/**`, `/server/catalogs/**`, or `/common/catalogs/**` instead of duplicating catalog constants inside tests

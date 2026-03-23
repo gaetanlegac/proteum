@@ -56,7 +56,6 @@ export default abstract class Application {
     public constructor() {}
 
     public registerService(service: AnyService) {
-        console.log(`[app] Register service`, service.constructor?.name);
         this.servicesList.push(service);
     }
 
@@ -69,14 +68,9 @@ export default abstract class Application {
     public abstract boot(): void;
 
     public startServices() {
-        console.log(`[app] Starting ${this.servicesList.length} services.`);
-
         for (const service of this.servicesList) {
-            console.log(`[app] Start service`, service);
             service.start();
         }
-
-        console.log(`[app] All ${this.servicesList.length} services were started.`);
     }
 
     public bindErrorHandlers() {
