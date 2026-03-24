@@ -390,7 +390,15 @@ import type ${appClassIdentifier}Client from '@/client/index';
 
 export type ClientContext = ${appClassIdentifier}Client["Router"]["context"];
 
-export const ReactClientContext = React.createContext<ClientContext>({} as ClientContext);
+type GlobalClientContextStore = typeof globalThis & {
+    __proteumClientContexts?: Record<string, React.Context<ClientContext>>;
+};
+
+const globalClientContextStore = globalThis as GlobalClientContextStore;
+const clientContexts = (globalClientContextStore.__proteumClientContexts ??= {});
+
+export const ReactClientContext =
+    clientContexts['${appClassIdentifier}'] ?? (clientContexts['${appClassIdentifier}'] = React.createContext<ClientContext>({} as ClientContext));
 export default (): ClientContext => React.useContext<ClientContext>(ReactClientContext);`,
     );
 
