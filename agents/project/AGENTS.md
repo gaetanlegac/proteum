@@ -25,6 +25,12 @@ For request-time issues in dev, inspect traces before adding temporary logs:
 - `npx proteum trace latest`
 - `npx proteum trace arm --capture deep`
 
+If you need to diagnose or test against a running app:
+
+- read the default port from `./env.yaml`
+- check whether a server is already running on that port
+- if it is, inspect existing traces first to collect past errors and their context before reproducing the issue
+
 ## Project Structure
 
 This is a full-stack monolith project using TypeScript, Node.js, Preact, and Proteum.
@@ -77,7 +83,7 @@ When a feature depends on a curated list, keep one canonical catalog or registry
   1. evaluate or quantify the probability
   2. explain why
   3. suggest how to fix it
-- When the issue is request-time behavior in dev, prefer `npx proteum trace` over ad hoc logging.
+- When the issue is request-time behavior in dev, first check whether a server is already running on the default port from `env.yaml`. If it is, prefer `npx proteum trace` to inspect past errors and their context before reproducing the issue or adding logs.
 - When you have finished your work, summarize in one top-level short sentence the changes you made since the beginning of the conversation. Output as `Commit message`.
 
 ## High-Impact Files

@@ -19,6 +19,12 @@ proteum trace export <requestId>
 proteum trace latest --url http://127.0.0.1:3010
 ```
 
+Before reproducing a bug or starting a new test pass:
+
+- read the default port from `env.yaml`
+- check whether a dev server is already running on that port
+- if it is, inspect `proteum trace requests`, `proteum trace latest`, and `proteum trace show <requestId>` first so you can capture past errors and their context
+
 Typical debugging flow:
 
 ```bash

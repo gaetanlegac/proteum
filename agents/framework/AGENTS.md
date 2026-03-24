@@ -12,7 +12,8 @@ When you enter a Proteum app, inspect it in this order:
 2. Inspect `./server/index.ts` and `./server/config/*.ts`.
 3. Inspect the touched `./server/controllers/**/*.ts`, `./server/services/**`, `./server/routes/**`, and `./client/pages/**` files.
 4. Run `npx proteum doctor` if routing or generation looks suspicious.
-5. For request-time issues in dev, use `npx proteum trace` before adding temporary logs.
+5. If you need to diagnose or test against a running app, check the default port in `./env.yaml` first.
+6. If a server is already running on that port, use `npx proteum trace` to inspect past requests, errors, and their context before reproducing the issue or adding temporary logs.
 
 ## Non-Negotiable Rules
 
@@ -238,12 +239,17 @@ Relevant aliases:
 
 1. Run `npx proteum explain --json`.
 2. Run `npx proteum doctor`.
-3. If the issue is request-time behavior in dev, run:
-   - `npx proteum trace arm --capture deep`
+3. Read the default port from `./env.yaml` and check whether a server is already running there.
+4. If a server is already running on that default port, inspect existing traces first:
+   - `npx proteum trace requests --port <envPort>`
+   - `npx proteum trace latest --port <envPort>`
+   - `npx proteum trace show <requestId> --port <envPort>` when you need the full context for a past error
+5. If the issue is request-time behavior in dev and the existing traces are not enough, run:
+   - `npx proteum trace arm --capture deep --port <envPort>`
    - reproduce the failing request once
-   - `npx proteum trace latest` or `npx proteum trace show <requestId>`
-4. Inspect the touched controller, service, route, or page source.
-5. Only add temporary logging if the trace is insufficient.
+   - `npx proteum trace latest --port <envPort>` or `npx proteum trace show <requestId> --port <envPort>`
+6. Inspect the touched controller, service, route, or page source.
+7. Only add temporary logging if the trace is insufficient.
 
 For the full trace reference, see `node_modules/proteum/docs/request-tracing.md` in installed apps or `docs/request-tracing.md` in the framework repository.
 
@@ -273,6 +279,12 @@ Verify at the correct layer:
 - controller changes: exercise the generated client call or the generated `/api/...` endpoint
 - SSR changes: load the real page and inspect rendered HTML plus browser console
 - router/plugin changes: verify request context, auth, redirects, metrics, and validation on a running app
+
+When you need to diagnose or test against an app that may already be running:
+
+- read the default port from `env.yaml`
+- check whether a server is already running on that port
+- if it is, inspect `proteum trace requests`, `proteum trace latest`, and `proteum trace show <requestId>` before reproducing the issue
 
 Useful app commands:
 

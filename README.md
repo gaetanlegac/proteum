@@ -265,6 +265,8 @@ proteum trace latest
 
 Proteum includes a dev-only in-memory request trace buffer for routing, controller, context, SSR, and render debugging.
 
+When diagnosing or testing against an app, first read the default port from `env.yaml` and check whether a server is already running there. If it is, inspect the existing traces before reproducing the issue so you can collect past errors and their context.
+
 - `proteum trace requests`: list the most recent request summaries
 - `proteum trace latest`: show the latest captured request
 - `proteum trace show <requestId>`: inspect one trace in detail
