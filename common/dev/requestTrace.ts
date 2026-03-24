@@ -1,6 +1,7 @@
 export const traceCaptureModes = ['summary', 'resolve', 'deep'] as const;
 
 export type TTraceCaptureMode = (typeof traceCaptureModes)[number];
+type TTracePrimitive = string | number | boolean;
 
 export const traceEventTypes = [
     'request.start',
@@ -27,7 +28,7 @@ export const traceEventTypes = [
 export type TTraceEventType = (typeof traceEventTypes)[number];
 
 export type TTraceSummaryValue =
-    | PrimitiveValue
+    | TTracePrimitive
     | null
     | { kind: 'undefined' }
     | { kind: 'redacted'; reason: string }

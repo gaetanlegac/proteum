@@ -21,7 +21,6 @@ import BaseRouter, {
     TErrorRoute,
     TRouteOptions,
     TRouteModule,
-    TDomainsList,
     matchRoute,
     buildUrl,
 } from '@common/router';
@@ -136,7 +135,7 @@ export default class ClientRouter<
     // Context data
     public ssrRoutes = browserWindow.routes || [];
     public ssrContext = browserWindow.ssr;
-    public domains: TDomainsList = browserWindow.ssr?.domains || ({ current: window.location.origin } as TDomainsList);
+    public currentDomain = browserWindow.ssr?.currentDomain || window.location.origin;
     public context!: TRouterContext<this, this['app']>;
 
     public setLoading!: React.Dispatch<React.SetStateAction<boolean>>;
@@ -153,7 +152,7 @@ export default class ClientRouter<
     }
 
     public url = (path: string, params: {} = {}, absolute: boolean = true) =>
-        buildUrl(path, params, this.domains, absolute);
+        buildUrl(path, params, this.currentDomain, absolute);
 
     public go(url: string | number, data: {} = {}, opt: { newTab?: boolean } = {}) {
         // Error code

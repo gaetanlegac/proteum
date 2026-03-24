@@ -12,7 +12,7 @@ When you enter a Proteum app, inspect it in this order:
 2. Inspect `./server/index.ts` and `./server/config/*.ts`.
 3. Inspect the touched `./server/controllers/**/*.ts`, `./server/services/**`, `./server/routes/**`, and `./client/pages/**` files.
 4. Run `npx proteum doctor` if routing or generation looks suspicious.
-5. If you need to diagnose or test against a running app, check the default port in `./env.yaml` first.
+5. If you need to diagnose or test against a running app, check the default port in `PORT` or `./.proteum/manifest.json` first.
 6. If a server is already running on that port, use `npx proteum trace` to inspect past requests, errors, and their context before reproducing the issue or adding temporary logs.
 
 ## Non-Negotiable Rules
@@ -38,7 +38,7 @@ Proteum reads these source files directly:
 
 - `package.json`
 - `identity.yaml`
-- `env.yaml`
+- `process.env` via the `PORT`, `ENV_*`, `URL`, and `TRACE_*` env contract
 - `server/config/*.ts`
 - `server/index.ts`
 - `server/services/**/service.json`
@@ -239,7 +239,7 @@ Relevant aliases:
 
 1. Run `npx proteum explain --json`.
 2. Run `npx proteum doctor`.
-3. Read the default port from `./env.yaml` and check whether a server is already running there.
+3. Read the default port from `PORT` or `./.proteum/manifest.json` and check whether a server is already running there.
 4. If a server is already running on that default port, inspect existing traces first:
    - `npx proteum trace requests --port <envPort>`
    - `npx proteum trace latest --port <envPort>`
@@ -282,7 +282,7 @@ Verify at the correct layer:
 
 When you need to diagnose or test against an app that may already be running:
 
-- read the default port from `env.yaml`
+- read the default port from `PORT` or `./.proteum/manifest.json`
 - check whether a server is already running on that port
 - if it is, inspect `proteum trace requests`, `proteum trace latest`, and `proteum trace show <requestId>` before reproducing the issue
 

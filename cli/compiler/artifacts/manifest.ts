@@ -1,9 +1,10 @@
 import path from 'path';
-import fs from 'fs-extra';
-import yaml from 'yaml';
 
 import app from '../../app';
 import cli from '../..';
+import {
+    inspectProteumEnv,
+} from '../../../common/env/proteumEnv';
 import { reservedRouteSetupKeys, routeSetupOptionKeys } from '../../../common/router/pageSetup';
 import {
     TProteumManifest,
@@ -14,20 +15,6 @@ import {
 } from '../common/proteumManifest';
 import { writeProteumManifest } from '../common/proteumManifest';
 import { normalizeAbsolutePath, normalizePath } from './shared';
-
-const envRequiredTopLevelKeys = ['name', 'profile', 'router', 'console'];
-
-const getEnvTopLevelKeys = () => {
-    const envFilepath = path.join(app.paths.root, 'env.yaml');
-
-    if (!fs.existsSync(envFilepath)) return [];
-
-    const rawEnv = yaml.parse(fs.readFileSync(envFilepath, 'utf8'));
-
-    if (!rawEnv || typeof rawEnv !== 'object' || Array.isArray(rawEnv)) return [];
-
-    return Object.keys(rawEnv).sort((a, b) => a.localeCompare(b));
-};
 
 const collectManifestDiagnostics = ({
     controllers,
@@ -228,6 +215,8 @@ export const writeCurrentProteumManifest = ({
     routes: TProteumManifest['routes'];
     layouts: TProteumManifestLayout[];
 }) => {
+    const envInspection = inspectProteumEnv(app.paths.root);
+
     const manifest: TProteumManifest = {
         version: 1,
         app: {
@@ -252,9 +241,19 @@ export const writeCurrentProteumManifest = ({
             reservedRouteSetupKeys: [...reservedRouteSetupKeys],
         },
         env: {
-            sourceFilepath: normalizeAbsolutePath(path.join(app.paths.root, 'env.yaml')),
-            loadedTopLevelKeys: getEnvTopLevelKeys(),
-            requiredTopLevelKeys: [...envRequiredTopLevelKeys],
+            source: 'process.env',
+            loadedVariableKeys: envInspection.loadedVariableKeys,
+            requiredVariables: envInspection.requiredVariables.map((variable) => ({
+                key: variable.key,
+                possibleValues: [...variable.possibleValues],
+                provided: variable.provided,
+            })),
+            resolved: {
+                name: app.env.name,
+                profile: app.env.profile,
+                routerPort: app.env.router.port,
+                routerCurrentDomain: app.env.router.currentDomain,
+            },
         },
         services,
         controllers,

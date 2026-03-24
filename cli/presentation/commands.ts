@@ -202,7 +202,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         notes: [
             'This command talks to the running app over the dev-only `__proteum/trace` HTTP endpoints.',
             'Traces are stored in a bounded in-memory buffer with payload summarization and sensitive-field redaction.',
-            'Use `--port` when the app is not running on the router port declared in `env.yaml`, or `--url` when the host itself is non-standard.',
+            'Use `--port` when the app is not running on the router port declared in `PORT`, or `--url` when the host itself is non-standard.',
         ],
         status: 'experimental',
     },

@@ -80,7 +80,7 @@ export default function createCommonConfig(
                 APP_NAME: JSON.stringify(app.identity.web.title),
                 APP_OUTPUT_DIR: JSON.stringify(path.basename(app.outputPath(outputTarget))),
                 PROTEUM_DEV_EVENT_PORT: JSON.stringify(dev ? (app.devEventPort ?? null) : null),
-                PROTEUM_ROUTER_PORT_OVERRIDE: JSON.stringify(app.routerPortOverride ?? null),
+                PROTEUM_PORT_OVERRIDE: JSON.stringify(app.routerPortOverride ?? null),
             }),
 
             ...(dev ? [] : []),

@@ -21,7 +21,7 @@ proteum trace latest --url http://127.0.0.1:3010
 
 Before reproducing a bug or starting a new test pass:
 
-- read the default port from `env.yaml`
+- read the default port from `PORT` or `./.proteum/manifest.json`
 - check whether a dev server is already running on that port
 - if it is, inspect `proteum trace requests`, `proteum trace latest`, and `proteum trace show <requestId>` first so you can capture past errors and their context
 
@@ -60,15 +60,14 @@ Use `deep` selectively. It is for one-off investigation, not continuous capture.
 
 ## Configuration
 
-Add trace settings in `env.yaml`:
+Set trace behavior with env vars:
 
-```yaml
-trace:
-  enable: true
-  requestsLimit: 200
-  eventsLimit: 800
-  capture: resolve
-  persistOnError: true
+```bash
+export TRACE_ENABLE=true
+export TRACE_REQUESTS_LIMIT=200
+export TRACE_EVENTS_LIMIT=800
+export TRACE_CAPTURE=resolve
+export TRACE_PERSIST_ON_ERROR=true
 ```
 
 Notes:

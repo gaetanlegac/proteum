@@ -45,8 +45,7 @@ export async function run() {
         { spaces: 4 },
     );
 
-    // Copy config file
-    fs.copyFileSync(app.paths.root + (simulate ? '/env.yaml' : '/env.server.yaml'), temp + '/env.yaml');
+    // Deployment now relies on exported ENV_*, URL, TRACE_*, and PORT variables instead of copied env config files.
 
     // Compile & Run Docker
     await cli.shell(`docker compose up --build`);

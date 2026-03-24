@@ -32,7 +32,6 @@ import BaseRouter, {
     defaultOptions,
     matchRoute,
     buildUrl,
-    TDomainsList,
 } from '@common/router';
 import type { TSsrUnresolvedRoute, TRegisterPageArgs } from '@common/router/contracts';
 import { buildRegex, getRegisterPageArgs } from '@common/router/register';
@@ -108,7 +107,7 @@ export type Config<
 
     disk?: string; // Disk driver ID
 
-    domains: TDomainsList;
+    currentDomain: string;
 
     http: HttpServiceConfig;
 
@@ -356,7 +355,7 @@ export default class ServerRouter<
     }
 
     public url = (path: string, params: {} = {}, absolute: boolean = true) =>
-        buildUrl(path, params, this.config.domains, absolute);
+        buildUrl(path, params, this.config.currentDomain, absolute);
 
     /*----------------------------------
     - REGISTER

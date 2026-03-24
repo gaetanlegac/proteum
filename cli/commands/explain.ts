@@ -115,10 +115,11 @@ const printSection = (title: string, lines: string[]) => {
 const renderSummary = (manifest: TProteumManifest) => {
     const errorsCount = manifest.diagnostics.filter((diagnostic) => diagnostic.level === 'error').length;
     const warningsCount = manifest.diagnostics.filter((diagnostic) => diagnostic.level === 'warning').length;
+    const providedRequiredEnvVariables = manifest.env.requiredVariables.filter((variable) => variable.provided).length;
     const lines = [
         `Proteum manifest: ${formatFilepath(manifest, path.join(manifest.app.root, '.proteum', 'manifest.json'))}`,
         `App: ${manifest.app.identity.name} (${manifest.app.identity.identifier})`,
-        `Env keys: ${manifest.env.loadedTopLevelKeys.join(', ') || 'none'}`,
+        `Env vars: ${providedRequiredEnvVariables}/${manifest.env.requiredVariables.length} required provided`,
         `Services: ${manifest.services.app.length} app, ${manifest.services.routerPlugins.length} router plugins`,
         `Controllers: ${manifest.controllers.length}`,
         `Routes: ${manifest.routes.client.length} client, ${manifest.routes.server.length} server`,
@@ -163,9 +164,16 @@ const renderHuman = (manifest: TProteumManifest, sectionNames: TExplainSectionNa
         if (sectionName === 'env') {
             sections.push(
                 printSection('Env', [
-                    `- source=${formatFilepath(manifest, manifest.env.sourceFilepath)}`,
-                    `- loadedTopLevelKeys=${manifest.env.loadedTopLevelKeys.join(', ') || 'none'}`,
-                    `- requiredTopLevelKeys=${manifest.env.requiredTopLevelKeys.join(', ')}`,
+                    `- source=${manifest.env.source}`,
+                    `- loadedVariableKeys=${manifest.env.loadedVariableKeys.join(', ') || 'none'}`,
+                    ...manifest.env.requiredVariables.map(
+                        (variable) =>
+                            `- ${variable.key} possibleValues=${variable.possibleValues.join(' | ')} provided=${variable.provided ? 'yes' : 'no'}`,
+                    ),
+                    `- resolved.name=${manifest.env.resolved.name}`,
+                    `- resolved.profile=${manifest.env.resolved.profile}`,
+                    `- resolved.routerPort=${manifest.env.resolved.routerPort}`,
+                    `- resolved.routerCurrentDomain=${manifest.env.resolved.routerCurrentDomain}`,
                 ]),
             );
             continue;

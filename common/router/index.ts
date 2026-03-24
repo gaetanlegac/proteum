@@ -106,8 +106,6 @@ export type TRouteModule<TRegisteredRoute = any> = {
     __register: TAppArrowFunction<TRegisteredRoute>;
 };
 
-export type TDomainsList = { [endpointId: string]: string } & { current: string };
-
 export const defaultOptions: Pick<TRouteOptions, 'priority'> = { priority: 0 };
 
 /*----------------------------------
@@ -116,31 +114,15 @@ export const defaultOptions: Pick<TRouteOptions, 'priority'> = { priority: 0 };
 export const buildUrl = (
     path: string,
     params: { [key: string]: any },
-    domains: { [alias: string]: string },
+    currentDomain: string,
     absolute: boolean,
 ) => {
     let prefix: string = '';
 
     // Relative to domain
-    if (path[0] === '/' && absolute) prefix = domains.current;
-    // Other domains of the project
-    else if (path[0] === '@') {
-        // Extract domain ID from path
-        let domainId: string;
-        let slackPos = path.indexOf('/');
-        if (slackPos === -1) slackPos = path.length;
-        domainId = path.substring(1, slackPos);
-        path = path.substring(slackPos);
-
-        // Get domain
-        const domain = domains[domainId];
-        if (domain === undefined) throw new Error('Unknown API endpoint ID: ' + domainId);
-
-        // Return full url
-        prefix = domain;
-
-        // Absolute URL
-    }
+    if (path[0] === '/' && absolute) prefix = currentDomain;
+    else if (path[0] === '@')
+        throw new Error(`Proteum no longer supports Router.url() domain aliases. Use a root-relative path or absolute URL instead: "${path}".`);
 
     // Path parapeters
     const searchParams = new URLSearchParams();

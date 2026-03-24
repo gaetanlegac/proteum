@@ -1,7 +1,6 @@
 import fs from 'fs-extra';
 import got from 'got';
 import path from 'path';
-import yaml from 'yaml';
 import { UsageError } from 'clipanion';
 
 import cli from '..';
@@ -12,7 +11,7 @@ import type {
     TRequestTraceListItem,
     TRequestTraceListResponse,
     TRequestTraceResponse,
-} from '@common/dev/requestTrace';
+} from '../../common/dev/requestTrace';
 
 type TTraceAction = 'latest' | 'show' | 'requests' | 'arm' | 'export';
 
@@ -31,22 +30,33 @@ const getAction = () => {
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 
+const getRouterPortFromManifest = () => {
+    const manifestFilepath = path.join(cli.args.workdir as string, '.proteum', 'manifest.json');
+    if (!fs.existsSync(manifestFilepath)) return undefined;
+
+    const manifest = fs.readJsonSync(manifestFilepath, { throws: false }) as
+        | { env?: { resolved?: { routerPort?: number } } }
+        | undefined;
+    const port = manifest?.env?.resolved?.routerPort;
+
+    if (typeof port !== 'number' || port <= 0) return undefined;
+
+    return String(port);
+};
+
 const getRouterPort = () => {
     const overridePort = typeof cli.args.port === 'string' && cli.args.port ? cli.args.port : '';
     if (overridePort) return overridePort;
 
-    const envFilepath = path.join(cli.args.workdir as string, 'env.yaml');
-    if (!fs.existsSync(envFilepath)) {
-        throw new UsageError(`Could not find env.yaml in ${cli.args.workdir as string}. Pass --port or --url explicitly.`);
-    }
+    const envPort = process.env.PORT?.trim();
+    if (envPort) return envPort;
 
-    const envFile = yaml.parse(fs.readFileSync(envFilepath, 'utf8')) as { router?: { port?: number } };
-    const port = envFile.router?.port;
-    if (!port) {
-        throw new UsageError(`Could not determine the router port from ${envFilepath}. Pass --port or --url explicitly.`);
-    }
+    const manifestPort = getRouterPortFromManifest();
+    if (manifestPort) return manifestPort;
 
-    return String(port);
+    throw new UsageError(
+        `Could not determine the router port from PORT or .proteum/manifest.json in ${cli.args.workdir as string}. Pass --port or --url explicitly.`,
+    );
 };
 
 const getRouterBaseUrls = () => {

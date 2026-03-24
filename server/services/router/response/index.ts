@@ -14,7 +14,7 @@ import express from 'express';
 import context from '@server/context';
 import type { AnyRouterService, default as ServerRouter, TServerRouter, TAnyRouter } from '@server/services/router';
 import ServerRequest from '@server/services/router/request';
-import { TMatchedRoute, TRoute, TAnyRoute, TDomainsList } from '@common/router';
+import { TMatchedRoute, TRoute, TAnyRoute } from '@common/router';
 import { NotFound, Forbidden, Anomaly } from '@common/errors';
 import BaseResponse, { TResponseData } from '@common/router/response';
 import { splitRouteSetupResult } from '@common/router/pageSetup';
@@ -38,7 +38,7 @@ export type TBasicSSrData = {
     request: { data: TObjetDonnees; id: string };
     page: { chunkId: string; data?: TObjetDonnees };
     user: TBasicUser | null;
-    domains: TDomainsList;
+    currentDomain: string;
 };
 
 type TServerRouterApplication<TRouter extends TServerRouter> =
@@ -277,7 +277,7 @@ export default class ServerResponse<
             request: { id: this.request.id, data: this.request.data },
             page: { chunkId: page.chunkId || '', data: page.data },
             user: this.request.user,
-            domains: this.router.config.domains,
+            currentDomain: this.router.config.currentDomain,
             ...customSsrData,
         };
     }

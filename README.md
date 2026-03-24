@@ -36,7 +36,7 @@ Proteum combines:
 ```text
 my-app/
   identity.yaml
-  env.yaml
+  .env               # optional file for required local env vars
   package.json
   client/
     pages/
@@ -63,13 +63,32 @@ my-app/
 Important files:
 
 - `identity.yaml`: app identity, naming, locale, and SEO-facing metadata defaults
-- `env.yaml`: environment contract loaded by the app
+- `process.env` / optional `.env`: `PORT`, `ENV_*`, `URL`, and `TRACE_*` environment variables loaded by the app
 - `server/config/*.ts`: plain typed config exports consumed by the explicit app bootstrap
 - `server/index.ts`: default-exported `Application` subclass that instantiates root services and router plugins
 - `client/pages/**`: SSR page entrypoints registered through `Router.page(...)`
 - `server/controllers/**`: request handlers that extend `Controller`
 - `server/services/**`: business logic that extends `Service`
 - `.proteum/**`: framework-owned generated contracts and manifests
+
+Required Proteum env vars:
+
+- `ENV_NAME`: `local` or `server`
+- `ENV_PROFILE`: `dev`, `testing`, or `prod`
+- `PORT`: default router port
+- `URL`: canonical absolute base URL for `Router.url(..., true)`
+
+Proteum does not provide defaults for required env vars. They must be defined explicitly in `process.env` or `.env`.
+
+Use `proteum explain env` to see the required env vars, their allowed values, and whether each one is currently provided.
+
+Optional trace env vars:
+
+- `TRACE_ENABLE`
+- `TRACE_REQUESTS_LIMIT`
+- `TRACE_EVENTS_LIMIT`
+- `TRACE_CAPTURE`
+- `TRACE_PERSIST_ON_ERROR`
 
 ## Example: Server Bootstrap
 
@@ -87,7 +106,7 @@ type RouterBaseConfig = Omit<ServiceConfig<typeof Router>, 'plugins'>;
 export const usersConfig = Services.config(Users, {});
 
 export const routerBaseConfig = {
-  domains: AppContainer.Environment.router.domains,
+  currentDomain: AppContainer.Environment.router.currentDomain,
   http: {
     domain: 'example.com',
     port: AppContainer.Environment.router.port,
@@ -265,7 +284,7 @@ proteum trace latest
 
 Proteum includes a dev-only in-memory request trace buffer for routing, controller, context, SSR, and render debugging.
 
-When diagnosing or testing against an app, first read the default port from `env.yaml` and check whether a server is already running there. If it is, inspect the existing traces before reproducing the issue so you can collect past errors and their context.
+When diagnosing or testing against an app, first read the default port from `PORT` or `./.proteum/manifest.json` and check whether a server is already running there. If it is, inspect the existing traces before reproducing the issue so you can collect past errors and their context.
 
 - `proteum trace requests`: list the most recent request summaries
 - `proteum trace latest`: show the latest captured request
@@ -277,19 +296,18 @@ When diagnosing or testing against an app, first read the default port from `env
 Default behavior:
 
 - tracing is enabled only in `profile: dev`
-- traces live in memory and are bounded by `trace.requestsLimit` and `trace.eventsLimit`
+- traces live in memory and are bounded by `TRACE_REQUESTS_LIMIT` and `TRACE_EVENTS_LIMIT`
 - payloads are summarized, long strings are truncated, and sensitive fields such as cookies, passwords, and tokens are redacted
-- `persistOnError` can export crashing requests under `var/traces/`
+- `TRACE_PERSIST_ON_ERROR` can export crashing requests under `var/traces/`
 
-`env.yaml` example:
+Trace env example:
 
-```yaml
-trace:
-  enable: true
-  requestsLimit: 200
-  eventsLimit: 800
-  capture: resolve
-  persistOnError: true
+```bash
+export TRACE_ENABLE=true
+export TRACE_REQUESTS_LIMIT=200
+export TRACE_EVENTS_LIMIT=800
+export TRACE_CAPTURE=resolve
+export TRACE_PERSIST_ON_ERROR=true
 ```
 
 Capture modes:
@@ -314,7 +332,7 @@ Proteum is built so an agent can answer these questions quickly and reliably:
 Proteum answers those questions with explicit artifacts:
 
 - `identity.yaml` for app identity
-- `env.yaml` for the environment surface
+- `PORT`, `ENV_*`, `URL`, and `TRACE_*` env vars for the environment surface
 - `server/index.ts` for the explicit root service graph
 - `.proteum/manifest.json` for machine-readable app structure
 - `proteum explain --json` for structured framework introspection
@@ -323,7 +341,7 @@ Proteum answers those questions with explicit artifacts:
 If you are an LLM or automation agent, start here:
 
 1. Read `identity.yaml`.
-2. Read `env.yaml`.
+2. Read `PORT`, the relevant `ENV_*`, `URL`, and `TRACE_*` env vars, or run `proteum explain env`.
 3. Inspect `server/index.ts` and `server/config/*.ts` for the explicit app bootstrap.
 4. Read `.proteum/manifest.json` or run `proteum explain --json`.
 5. Inspect `server/controllers/**` for request entrypoints.

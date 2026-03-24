@@ -12,10 +12,10 @@ import fs from 'fs-extra';
 import yaml from 'yaml';
 
 // Types
-import type { TDomainsList } from '@common/router';
-import type { TLogProfile } from './console';
+import { parseProteumEnvConfig, type TProteumLoadedEnvConfig } from '../../../common/env/proteumEnv';
 
-declare const PROTEUM_ROUTER_PORT_OVERRIDE: number | null;
+declare const PROTEUM_PORT_OVERRIDE: number | null;
+declare const BUILD_DATE: string;
 
 /*----------------------------------
 - TYPES
@@ -31,50 +31,8 @@ declare global {
     }
 }
 
-/*
-    name: server
-    profile: prod
-
-    router:
-        port: 80
-        domains:
-            current: 'https://recruiters.becrosspath.com'
-            recruiters: 'https://recruiters.becrosspath.com'
-            landing: 'https://becrosspath.com'
-            employers: 'https://employers.becrosspath.com'
-            candidates: 'https://candidates.becrosspath.com'
-            csm: 'https://csm.becrosspath.com'
-
-    database:
-        name: 'aws'
-        databases: [railway]
-        host: 'mysql-z7vp.railway.internal'
-        port: 3306
-        login: root
-        password: "GMnVsczoyYkyzwvVqDkMUOAIjVsumEev"
-
-    console:
-        enable: false
-        debug: false
-        bufferLimit: 10000
-        level: 'log'
-*/
-
 export type TEnvName = TEnvConfig['name'];
-export type TEnvConfig = {
-    name: 'local' | 'server';
-    profile: 'dev' | 'testing' | 'prod';
-
-    router: { port: number; domains: TDomainsList };
-    console: { enable: boolean; debug: boolean; bufferLimit: number; level: TLogProfile };
-    trace: {
-        enable: boolean;
-        requestsLimit: number;
-        eventsLimit: number;
-        capture: 'summary' | 'resolve' | 'deep';
-        persistOnError: boolean;
-    };
-};
+export type TEnvConfig = TProteumLoadedEnvConfig;
 
 type AppIdentityConfig = {
     name: string;
@@ -105,8 +63,7 @@ export type AppConfig = { env: Config.Env; identity: Config.Identity };
 const debug = false;
 
 const getRouterPortOverride = () => {
-    if (typeof PROTEUM_ROUTER_PORT_OVERRIDE !== 'undefined' && PROTEUM_ROUTER_PORT_OVERRIDE !== null)
-        return PROTEUM_ROUTER_PORT_OVERRIDE;
+    if (typeof PROTEUM_PORT_OVERRIDE !== 'undefined' && PROTEUM_PORT_OVERRIDE !== null) return PROTEUM_PORT_OVERRIDE;
 
     return undefined;
 };
@@ -127,23 +84,13 @@ export default class ConfigParser {
     }
 
     public env(): TEnvConfig {
-        // We assume that when we run 5htp dev, we're in local
-        // Otherwise, we're in production environment (docker)
-        debug && console.info('[app] Using environment:', process.env.NODE_ENV);
-        const envFileName = this.appDir + '/env.yaml';
-        const envFile = this.loadYaml(envFileName);
-        const routerPortOverride = getRouterPortOverride();
-        const traceConfig = envFile.trace || {};
+        debug && console.info('[app] Loading Proteum env vars from process.env');
+
         return {
-            ...envFile,
-            router: routerPortOverride === undefined ? envFile.router : { ...envFile.router, port: routerPortOverride },
-            trace: {
-                enable: traceConfig.enable ?? envFile.profile === 'dev',
-                requestsLimit: traceConfig.requestsLimit ?? 200,
-                eventsLimit: traceConfig.eventsLimit ?? 800,
-                capture: traceConfig.capture ?? 'resolve',
-                persistOnError: traceConfig.persistOnError ?? envFile.profile === 'dev',
-            },
+            ...parseProteumEnvConfig({
+                appDir: this.appDir,
+                routerPortOverride: getRouterPortOverride(),
+            }),
             version: BUILD_DATE,
         };
     }

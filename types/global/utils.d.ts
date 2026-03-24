@@ -43,24 +43,17 @@ declare type PrimitiveValue = string | number | boolean;
 /*type TEnvConfig = {
     name: 'local' | 'server',
     profile: 'dev' | 'testing' | 'prod',
-    
+
     router: {
         port: number,
-        domains: TDomainsList
+        currentDomain: string
     },
-    database: {
-        name: string,
-        databases: string[],
-        host: string,
-        port: number,
-        login: string,
-        password: string,
-    },
-    console: {
+    trace: {
         enable: boolean,
-        debug: boolean,
-        bufferLimit: number,
-        level: TLogProfile,
+        requestsLimit: number,
+        eventsLimit: number,
+        capture: 'summary' | 'resolve' | 'deep',
+        persistOnError: boolean,
     },
 }*/
 

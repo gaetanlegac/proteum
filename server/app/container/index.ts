@@ -14,7 +14,7 @@ import type Application from '..';
 import type { StartedServicesIndex } from '../service';
 import Services, { ServicesContainer } from '../service/container';
 import ConfigParser, { TEnvConfig } from './config';
-import Console from './console';
+import Console, { defaultConsoleConfig } from './console';
 import Trace from './trace';
 import type ServerRequest from '@server/services/router/request';
 
@@ -53,7 +53,7 @@ export class ApplicationContainer<TServicesIndex extends StartedServicesIndex = 
         const configParser = new ConfigParser(this.path.root);
         this.Environment = configParser.env();
         this.Identity = configParser.identity();
-        this.Console = new Console(this, this.Environment.console);
+        this.Console = new Console(this, defaultConsoleConfig);
         this.Trace = new Trace(this, this.Environment.trace);
     }
 

@@ -27,7 +27,7 @@ For request-time issues in dev, inspect traces before adding temporary logs:
 
 If you need to diagnose or test against a running app:
 
-- read the default port from `./env.yaml`
+- read the default port from `PORT` or `./.proteum/manifest.json`
 - check whether a server is already running on that port
 - if it is, inspect existing traces first to collect past errors and their context before reproducing the issue
 
@@ -83,13 +83,13 @@ When a feature depends on a curated list, keep one canonical catalog or registry
   1. evaluate or quantify the probability
   2. explain why
   3. suggest how to fix it
-- When the issue is request-time behavior in dev, first check whether a server is already running on the default port from `env.yaml`. If it is, prefer `npx proteum trace` to inspect past errors and their context before reproducing the issue or adding logs.
+- When the issue is request-time behavior in dev, first check whether a server is already running on the default port from `PORT` or `./.proteum/manifest.json`. If it is, prefer `npx proteum trace` to inspect past errors and their context before reproducing the issue or adding logs.
 - When you have finished your work, summarize in one top-level short sentence the changes you made since the beginning of the conversation. Output as `Commit message`.
 
 ## High-Impact Files
 
 - `tsconfig*.json`
-- `env*.yaml`
+- `PORT`, `ENV_*`, `URL`, and `TRACE_*` env setup
 - Prisma-generated files
 - symbolic links
 

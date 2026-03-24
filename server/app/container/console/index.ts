@@ -23,9 +23,10 @@ import type ServerRequest from '@server/services/router/request';
 - SERVICE CONFIG
 ----------------------------------*/
 
-export type TLogProfile = 'silly' | 'info' | 'warn' | 'error';
+export type TLogProfile = 'silly' | 'log' | 'info' | 'warn' | 'error';
 
 export type Config = { debug?: boolean; enable: boolean; bufferLimit: number; level: TLogProfile };
+export const defaultConsoleConfig: Config = { enable: false, debug: false, bufferLimit: 10000, level: 'log' };
 
 export type Hooks = {};
 

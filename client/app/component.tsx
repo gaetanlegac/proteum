@@ -38,16 +38,9 @@ export default function App({ context }: { context: ClientContext }) {
             <DialogManager />
 
             {!layout ? (
-                <>
-                    {/* TODO: move to app, because here, we're not aware that the router service has been defined */}
-                    <RouterComponent service={context.Router} />
-                </>
+                <RouterComponent service={context.Router} />
             ) : (
-                <>
-                    {' '}
-                    {/* Same as router/components/Page.tsx */}
-                    <layout.Component {...layoutProps} />
-                </>
+                <layout.Component {...layoutProps} />
             )}
         </ReactClientContext.Provider>
     );

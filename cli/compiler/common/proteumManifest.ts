@@ -100,9 +100,19 @@ export type TProteumManifest = {
         reservedRouteSetupKeys: string[];
     };
     env: {
-        sourceFilepath: string;
-        loadedTopLevelKeys: string[];
-        requiredTopLevelKeys: string[];
+        source: string;
+        loadedVariableKeys: string[];
+        requiredVariables: {
+            key: string;
+            possibleValues: string[];
+            provided: boolean;
+        }[];
+        resolved: {
+            name: string;
+            profile: string;
+            routerPort: number;
+            routerCurrentDomain: string;
+        };
     };
     services: {
         app: TProteumManifestService[];
