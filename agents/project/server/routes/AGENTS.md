@@ -1,13 +1,15 @@
-# Server routes
+# Server Routes
 
-Use `/server/routes/**` only for explicit custom routes that should not be generated from controllers.
+This file adds route-area local rules on top of the canonical framework contract:
 
-- Callable app APIs belong in `/server/controllers/**/*.ts`
-- `/server/routes/**` is for manual `Router.get/post/...` routes, redirects, resources, OAuth callbacks, etc.
-- If a route needs a curated list or registry, keep server-only data in `/server/catalogs/**` and shared data in `/common/catalogs/**`
+- framework repo: `agents/framework/AGENTS.md`
+- installed app: `./node_modules/proteum/agents/framework/AGENTS.md`
 
-## Generate absolute urls
+- Use `/server/routes/**` only for explicit custom HTTP behavior that should not be generated from controllers.
+- If the endpoint is just a normal app API, prefer `/server/controllers/**/*.ts`.
+- Good fits include redirects, resources, OAuth callbacks, webhooks, sitemap-like output, and custom public endpoints.
+- If a route needs a curated registry, keep server-only data in `/server/catalogs/**` and shared data in `/common/catalogs/**`.
 
-The absolute urls are generated via `Router.url()`:
+## Absolute URLs
 
-`const absoluteUrl = Router.url('/relative/path')`
+Use `Router.url('/relative/path')` to generate absolute URLs.

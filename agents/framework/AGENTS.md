@@ -1,487 +1,118 @@
-# Proteum Framework Guide
+# Proteum App Contract
 
-This document is the framework-level contract for building and maintaining a Proteum project.
+This is the canonical framework contract for Proteum-based projects.
 
-It is based on the current Proteum core plus the two real apps used as the reference surface:
+Local project `AGENTS.md` files should only add project-specific deltas. They should not restate the framework contract.
 
-- `crosspath/platform`
-- `unique.domains/website`
+## Fast Start
 
-Use this guide for new work. Treat older patterns in the apps as legacy unless they are explicitly described here as still-supported.
+When you enter a Proteum app, inspect it in this order:
 
-# What Proteum is
+1. Run `npx proteum explain --json` or read `./.proteum/manifest.json`.
+2. Inspect `./server/index.ts` and `./server/config/*.ts`.
+3. Inspect the touched `./server/controllers/**/*.ts`, `./server/services/**`, `./server/routes/**`, and `./client/pages/**` files.
+4. Run `npx proteum doctor` if routing or generation looks suspicious.
+5. For request-time issues in dev, use `npx proteum trace` before adding temporary logs.
 
-Proteum is a server-first SSR framework with:
+## Non-Negotiable Rules
 
-- explicit `Router.page(...)` client page registration
-- explicit `server/controllers/**/*.ts` server API entrypoints
-- service classes for business logic
-- generated controller trees and generated route modules
-- request-scoped server context
-- strong bias toward SEO-friendly SSR HTML and minimal client runtime assumptions
-
-The main rule for new work is:
-
-- keep routing, data loading, validation, request access, and service boundaries explicit
-
-# Non-negotiable rules
-
-- Client pages live in `client/pages/**` and register routes with `Router.page(...)` or `Router.error(...)`.
+- Client pages live in `client/pages/**` and register routes with top-level `Router.page(...)` or `Router.error(...)` calls.
 - Page URLs come from the explicit `Router.page('/path', ...)` call, not from the file path.
-- Server business logic lives in service classes that extend `Service`.
-- Callable API entrypoints live only in `server/controllers/**/*.ts` files that extend `Controller`.
+- Callable app APIs live only in `server/controllers/**/*.ts` files that extend `Controller`.
+- Manual HTTP endpoints live in `server/routes/**`.
 - Controllers validate input with `this.input(schema)` inside the method body.
 - Call `this.input(...)` at most once per controller method.
-- Controller methods are exposed to the client under `/api/...` and are always called as `POST` fetchers.
-- Manual server routes belong in `server/routes/**` and use `Router.get/post/put/patch/delete(...)`.
-- Import Prisma types from `@models/types`.
+- Request-scoped state exists only on `this.request` and router/manual-route context objects.
+- SSR page data belongs in the page `setup` return object, not in `api.fetch(...)`.
+- Normal service methods do not read request state directly.
 - Do not import runtime values from `@models`.
 - Do not use `@request` runtime globals.
 - Do not use `@app` on the client.
-- Do not use `api.fetch(...)` inside page route files for SSR data loading.
 - Do not edit generated files under `.proteum` by hand.
+- Prefer type inference rooted in the explicit application graph in `server/index.ts`.
 
-# Source Of Truth Files
+## Source Of Truth
 
-The framework actually reads these files and folders:
+Proteum reads these source files directly:
 
-- `package.json`: CLI scripts and dependency entrypoint
-- `identity.yaml`: app identity and web metadata
-- `env.yaml`: runtime environment config that Proteum loads directly
-- `server/config/*.ts`: plain typed config exports consumed by the explicit app bootstrap
-- `server/index.ts`: default-exported `Application` subclass that instantiates root services and router plugins
-- `server/services/**/service.json`: root service or router-plugin metadata
-- `server/controllers/**/*.ts`: generated API surface
-- `server/routes/**/*.ts`: manual server routes
-- `client/pages/**/*.ts(x)`: page and error registration
-- `client/pages/**/_layout/index.tsx`: generated layouts
-- `public/**`: copied or symlinked to dev/build output
+- `package.json`
+- `identity.yaml`
+- `env.yaml`
+- `server/config/*.ts`
+- `server/index.ts`
+- `server/services/**/service.json`
+- `server/controllers/**/*.ts`
+- `server/routes/**/*.ts`
+- `client/pages/**/*.ts(x)`
+- `client/pages/**/_layout/index.tsx`
+- `public/**`
 
-Files Proteum generates and owns:
+Proteum generates and owns:
 
 - `.proteum/manifest.json`
-- `.proteum/client/routes*`
-- `.proteum/client/layouts*`
-- `.proteum/client/context.ts`
-- `.proteum/client/models.ts`
-- `.proteum/client/services.d.ts`
-- `.proteum/common/controllers.ts`
-- `.proteum/common/models.ts`
-- `.proteum/server/routes*`
-- `.proteum/server/models.ts`
+- `.proteum/client/*`
+- `.proteum/common/*`
+- `.proteum/server/*`
 
-The `.proteum` directory should be ignored by git.
+Project code should use:
 
-Generated files now live physically under `.proteum/client/*`, `.proteum/common/*`, and `.proteum/server/*`.
-Project code should reference the generated surface through `@generated/client/*`, `@generated/common/*`, and `@generated/server/*`.
-Keep `@/client/context` mapped to `.proteum/client/context.ts`.
-The legacy `@/client/.generated/*`, `@/common/.generated/*`, and `@/server/.generated/*` aliases may exist temporarily as migration shims, but new code should not use them.
+- `@generated/client/*`
+- `@generated/common/*`
+- `@generated/server/*`
+- `@/client/context` for the generated client context entrypoint
 
-# Project Structure
+Use the structured CLI surfaces instead of re-deriving framework facts from source whenever possible:
 
-Use this shape for real work:
+- `npx proteum explain --json`: app structure, services, controllers, routes, layouts, diagnostics
+- `npx proteum doctor --json`: manifest-backed diagnostics
+- `npx proteum trace ...`: live dev-only request traces
 
-- `client/pages`: route files and page-local UI
-- `client/components`: reusable UI
-- `client/hooks` or local hooks near the feature
-- `common`: shared types, catalogs, utilities safe across client/server
-- `server/config`: typed service config exports used by `server/index.ts`
-- `server/index.ts`: explicit app bootstrap and root service graph
-- `server/services`: business services
-- `server/controllers`: callable API entrypoints
-- `server/routes`: manual HTTP routes that should not be generated from controllers
-- `public`: static assets
-- `prisma`: schema and Prisma assets
-- `tests/e2e`: end-to-end tests
+## App Bootstrap And Services
 
-The two reference apps both follow this split even when their internal feature folders differ.
-
-# Project Creation Today
-
-What the code says today:
-
-- Proteum exposes `proteum init`.
-- The current `init` command expects a `cli/skeleton` directory.
-- This repository currently does not contain that `cli/skeleton` directory.
-
-Practical consequence:
-
-- In this checkout, the reliable way to start a new app is to copy a working Proteum project structure from an existing app, then replace the identity, env, config, services, pages, and Prisma schema.
-
-If `proteum init` is restored later, re-check the skeleton before relying on it.
-
-# Required Root Files
-
-## `package.json`
-
-The reference apps use these Proteum commands:
-
-- `proteum dev`
-- `npx proteum build prod`
-- `npx proteum refresh`
-- `npx proteum doctor`
-- `npx proteum explain`
-- `npx proteum typecheck`
-- `npx proteum lint`
-- `npx proteum check`
-
-## `proteum explain`
-
-Proteum now generates a machine-readable manifest at `.proteum/manifest.json` during refresh/build/dev/explain flows.
-
-Use `proteum explain` as the first inspection command when an agent needs to understand a project without re-deriving framework conventions from source.
-
-Useful commands:
-
-- `npx proteum explain`
-- `npx proteum explain --json`
-- `npx proteum explain routes --json`
-- `npx proteum explain services`
-- `npx proteum explain controllers`
-- `npx proteum explain env`
-
-What the manifest exposes:
-
-- app root and installed Proteum root
-- identity file path and identity summary
-- env file path plus loaded and required top-level keys
-- top-level services and router plugins with source file ownership and scope
-- generated controller endpoints with client accessor and HTTP path
-- client pages, error pages, and manual server routes with explicit route expressions
-- route and controller source locations
-- static route-target resolution state: literal, statically-resolved expression, or dynamic expression
-- client layout ownership and chunk ids
-- manifest-backed diagnostics for duplicate routes, invalid option keys, and controller/server-route collisions
-
-## `proteum doctor`
-
-Use `npx proteum doctor` to inspect manifest diagnostics in a human-readable form.
-
-Use:
-
-- `npx proteum doctor`
-- `npx proteum doctor --json`
-- `npx proteum doctor --strict`
-
-Current strict-mode behavior:
-
-- exits non-zero if any manifest warning or error exists
-- intended for CI and agent guardrails
-
-## `identity.yaml`
-
-Proteum loads `identity.yaml` directly. It must define:
-
-- `name`
-- `identifier`
-- `description`
-- `author`
-- `language`
-- optional `locale`
-- `maincolor`
-- optional `iconsPack`
-- `web.title`
-- `web.titleSuffix`
-- `web.fullTitle`
-- `web.description`
-- `web.version`
-- optional `web.metas`
-- optional `web.jsonld`
-
-The generated app type uses `identifier`.
-
-## `env.yaml`
-
-Proteum currently loads `env.yaml` directly through `ConfigParser`.
-
-The core parser expects at least:
-
-- `name`
-- `profile`
-- `router.port`
-- `router.domains`
-- `console`
-
-Observed reality:
-
-- the apps also keep files like `env.prod.yaml` and `env.testing.yaml`
-- the current core parser shown here does not automatically merge those files
-
-So for framework-level correctness:
-
-- treat `env.yaml` as the authoritative runtime config file unless you also own a custom deploy flow around it
-
-# App Bootstrap
-
-Bootstrap is explicit.
-
-Use `server/config/*.ts` for typed config exports and `server/index.ts` for the application class that wires services together.
-
-Example config module:
-
-```ts
-import { Services, type ServiceConfig } from '@server/app';
-import AppContainer from '@server/app/container';
-import Router from '@server/services/router';
-import Users from '@/server/services/Users';
-
-type RouterBaseConfig = Omit<ServiceConfig<typeof Router>, 'plugins'>;
-
-export const usersConfig = Services.config(Users, {});
-
-export const routerBaseConfig = {
-    domains: AppContainer.Environment.router.domains,
-    http: {
-        domain: 'example.com',
-        port: AppContainer.Environment.router.port,
-        ssl: true,
-        upload: { maxSize: '10mb' },
-    },
-    context: () => ({}),
-} satisfies RouterBaseConfig;
-```
-
-Example app bootstrap:
-
-```ts
-import { Application } from '@server/app';
-import Router from '@server/services/router';
-import SchemaRouter from '@server/services/schema/router';
-import Users from '@/server/services/Users';
-import * as userConfig from '@/server/config/user';
-
-export default class MyApp extends Application {
-    public Users = new Users(this, userConfig.usersConfig, this);
-    public Router = new Router(this, {
-        ...userConfig.routerBaseConfig,
-        plugins: {
-            schema: new SchemaRouter({}, this),
-        },
-    }, this);
-}
-```
-
-Important bootstrap rules:
-
-- `server/index.ts` must default-export the app `Application` subclass.
-- Each root service is a public class field instantiated with `new ServiceClass(this, config, this)`.
-- `server/config/*.ts` should export plain typed constants with `Services.config(ServiceClass, { ... })`.
-- Router base config can use `Omit<ServiceConfig<typeof Router>, 'plugins'>` so router plugins are instantiated explicitly in `server/index.ts`.
-- Router plugins are configured inside the `Router` config `plugins` object as explicit `new PluginClass(config, this)` instances.
-- Router `context(request, app)` returns SSR-safe values exposed to both page setup/render and the client runtime.
-- Both reference apps expose a SSR-safe `user` object through `Router.context(...)`.
-- Generated service typings and manifests are derived from `server/index.ts` plus `server/services/**/service.json`.
-
-# Services
-
-## Root service contract
-
-Each root app service normally has:
-
-- `server/services/<Feature>/index.ts`
-- `server/services/<Feature>/service.json`
-
-Example `service.json`:
-
-```json
-{
-    "id": "UniqueDomains/Founder",
-    "name": "UniqueDomainsFounder",
-    "parent": "app",
-    "dependences": []
-}
-```
+`server/index.ts` is the canonical type root and the explicit application graph.
 
 Rules:
 
-- `parent` is `"app"` for normal root services.
-- `id` is the service identifier declared in `service.json` and used by manifests plus `Service.use('Service/Id')`.
-- `name` is metadata for generated registration.
-- `priority` is optional and used by some services.
-
-## Service class contract
-
-Service classes extend `Service<Config, Hooks, App, Parent>`.
-
-Use services for:
-
-- database reads and writes
-- orchestration
-- feature logic
-- subservice composition
-- startup work in `ready()`
-
-Available on a service instance:
-
-- `this.app`: application instance
-- `this.services`: same application instance as a service registry
-- `this.models`: runtime Prisma client, if `Models` is registered
-
-Example:
-
-```ts
-import Service from '@server/app/service';
-
-export type Config = {
-    pageSize: number;
-};
-
-export default class FounderService extends Service<Config, {}, MyApp, MyApp> {
-    public async ListProjects(input: { userId: number }) {
-        return this.models.project.findMany({
-            where: { userId: input.userId },
-            select: {
-                id: true,
-                name: true,
-            },
-        });
-    }
-}
-```
+- `server/index.ts` must default-export the app `Application` subclass
+- root services are public class fields instantiated with `new ServiceClass(this, config, this)`
+- typed root-service config lives in `server/config/*.ts` via `Services.config(ServiceClass, { ... })`
+- router plugins are instantiated explicitly inside the `Router` config `plugins` object
+- `server/services/**/service.json` plus `server/index.ts` drive generated service typings and manifest service entries
 
 Service rules:
 
-- Prefer `this.services.OtherService` over hidden globals.
-- Prefer `this.models` or `this.app.Models.client` for Prisma runtime access.
-- Keep auth, input parsing, and request handling in controllers.
-- Pass explicit typed values into services instead of reading request state inside services.
-- Prefer service inputs that are easy to test without a live request context.
+- business logic lives in classes that extend `Service`
+- use `this.services`, `this.models`, and `this.app`
+- keep auth, input parsing, locale, cookies, and request-derived values in controllers, then pass explicit typed arguments into services
+- use subservices when a feature has multiple coherent domains and the root class is growing
 
-## Subservices
+## Controllers
 
-Both reference apps use service-owned subservices heavily.
+Controller rules:
 
-Example:
+- files live under `server/controllers/**/*.ts`
+- each file default-exports a class extending `Controller`
+- methods with bodies become generated client-callable endpoints
+- route path comes from the controller file path plus the method name
+- `export const controllerPath = 'Custom/path'` can override the base path when needed
+- generated client calls use `POST`
 
-```ts
-export default class DomainsService extends Service<Config, {}, UniqueDomains, UniqueDomains> {
-    public search = new DomainsSearchService(this, this.config, this.app);
-    public radar = new DomainsRadarService(this, null, this.app);
-}
-```
+Controller workflow:
 
-Use subservices when:
+1. destructure the service or router helper you need
+2. validate once with `this.input(schema)`
+3. resolve auth and other request-derived values from `this.request`
+4. pass explicit typed values into a service method
 
-- a feature has multiple coherent domains
-- you want controller paths like `Domains.search.*` or `Founder.projects.*`
-- you want smaller files and explicit ownership
+## Client Pages
 
-# Controllers
+Compiler rules:
 
-## File contract
-
-Controller files must:
-
-- live under `server/controllers/**/*.ts`
-- default-export a class extending `Controller`
-
-Example:
-
-```ts
-import Controller, { schema } from '@server/app/controller';
-
-export default class FounderProjectsController extends Controller<MyApp> {
-    public async createProject() {
-        const { Founder } = this.services;
-
-        const data = this.input(
-            schema.object({
-                name: schema.string(),
-            }),
-        );
-
-        return Founder.projects.createProject(data);
-    }
-}
-```
-
-## Validation contract
-
-Use `this.input(...)` exactly once per controller method.
-
-Supported forms:
-
-- `this.input(zodSchema)`
-- `this.input({ ...shape })`
-
-Do not:
-
-- validate in decorators
-- call `this.input(...)` twice
-- parse request data manually unless you are in a manual `server/routes` handler
-
-## Request contract
-
-Controllers receive request scope through `this.request`.
-
-Typical values:
-
-- `this.request.request`: raw request object wrapper
-- `this.request.response`
-- `this.request.user`
-- `this.request.auth`
-- `this.request.schema`
-- `this.request.metrics`
-- `this.request.request.data`
-
-The exact plugin fields depend on the router plugins configured in `server/index.ts`.
-
-## Route generation
-
-Proteum generates controller endpoints automatically.
-
-Key facts:
-
-- Only `server/controllers/**/*.ts` files are indexed.
-- Only class methods with bodies become routes.
-- The client-facing route is always prefixed with `/api/`.
-- Generated client calls use `POST`, even for read methods such as `Get`, `List`, or `Search`.
-
-Route path derivation:
-
-- base path comes from the controller file path
-- method name becomes the final route segment
-- `export const controllerPath = 'Custom/path'` overrides the base path
-
-Examples from the reference apps:
-
-- `server/controllers/Auth.ts#Session()` becomes `Auth.Session()` on the client and maps to `/api/Auth/Session`
-- `server/controllers/Domains/search.ts#Search()` becomes `Domains.search.Search()`
-- `server/controllers/Companies/Persons.ts` can override the base path with `controllerPath = 'Companies/Persons'`
-
-Naming rule:
-
-- method names become public API names
-- choose method names deliberately because client code will call them directly
-
-# Client Pages
-
-## File contract
-
-Client pages live in `client/pages/**`.
-
-Proteum scans page files for top-level `Router.page(...)` and `Router.error(...)` calls.
-
-Important compiler rule:
-
+- Proteum scans page files for top-level `Router.page(...)` and `Router.error(...)` calls
 - the file path controls chunk identity and layout discovery
-- the URL comes from the explicit route path string in `Router.page(...)`
+- the route path comes from the explicit string in `Router.page(...)`
 
-Do not hide route registration inside helper abstractions that remove the direct top-level `Router.page(...)` call.
-
-## Import contract
-
-Use:
-
-```ts
-import Router from '@/client/router';
-```
-
-Do not use `@app` on the client.
-
-## Supported signatures
-
-Proteum supports these `Router.page(...)` signatures:
+Supported signatures:
 
 ```ts
 Router.page('/path', render);
@@ -490,262 +121,75 @@ Router.page('/path', options, render);
 Router.page('/path', options, setup, render);
 ```
 
-New work should usually prefer:
+For new work, prefer:
 
 ```ts
 Router.page('/path', setup, render);
-```
-
-or:
-
-```ts
 Router.page('/path', options, setup, render);
 ```
 
-## Setup function
+`setup` rules:
 
-`setup` is the SSR contract. It receives:
-
-- router context
-- generated controller tree
-- custom router context values like `user`
-- request query/path params in `data`
-
-Return one flat object.
-
-Proteum splits that object into:
-
-- route options
-- SSR data providers
-
-Supported route option keys are:
-
-- `_priority`
-- `_preload`
-- `_domain`
-- `_accept`
-- `_raw`
-- `_auth`
-- `_redirectLogged`
-- `_static`
-- `_whenStatic`
-- `_canonicalParams`
-- `_layout`
-- `_TESTING`
-- `_logging`
-
-The underscore is optional in the framework code, but both reference apps use the underscore form and new work should do the same.
-
-Everything else returned from `setup` is treated as page data.
-
-Example:
-
-```ts
-Router.page('/pricing', ({ Plans }) => ({
-    _auth: false,
-    _layout: false,
-    plans: Plans.getPlans(),
-}), ({ plans }) => <PricingPage plans={plans} />);
-```
-
-## Data loading rules
-
-Use page `setup` for SSR data.
-
-Good:
-
-```ts
-Router.page('/app/projects/:projectId', ({ Founder }) => ({
-    _auth: 'USER',
-    projectsResponse: Founder.projects.getProjects(),
-}), ({ projectsResponse }) => <ProjectsPage projects={projectsResponse.projects} />);
-```
-
-Bad:
-
-- calling `api.fetch(...)` inside the page file to preload SSR data
-- moving SSR data fetching into random effects when the page can know it up front
-
-How setup data works:
-
+- return one flat object
+- keys like `_auth`, `_layout`, `_static`, `_redirectLogged`, and other reserved setup keys are route options
+- every other key is SSR data
 - controller fetchers and promises are resolved before render
-- SSR fetchers are batched through a single `/api` request internally
-- plain values can also be returned from `setup`
+- plain values may also be returned
 
-## Render function
+`render` rules:
 
-`render` receives:
+- consume resolved setup data there
+- use generated controller methods from the render args or `@/client/context`
+- use `api.reload(...)` or `api.set(...)` only when intentionally mutating active page setup state
 
-- the same router context
-- resolved setup data
-- the generated controller tree
-- `page`
-- `request`
-- `api`
-- custom router context like `user`
+Error pages:
 
-Use it for:
+- use `Router.error(code, options, render)` in `client/pages/_messages/**`
 
-- page-local React/Preact state
-- calling controller methods on interaction
-- assigning page metadata on `page`
+## Client Context And Controller Calls
 
-Example:
-
-```ts
-({ request, page, Founder }) => {
-    page.metas.robots = 'noindex';
-
-    return <Page />;
-}
-```
-
-## Error pages
-
-Use `Router.error(code, options, render)` in `client/pages/_messages/**`.
-
-Example:
-
-```ts
-Router.error(404, { layout: false }, ({ data }) => <ErrorScreen code={404} data={data} />);
-```
-
-# Client Context And Controller Calls
-
-Proteum generates a client context and controller tree.
-
-Use:
+Use the generated client context entrypoint:
 
 ```ts
 import useContext from '@/client/context';
-
-const { Founder, user, Router, api } = useContext();
 ```
 
-Generated controller methods are promise-like fetchers:
-
-- `then`
-- `catch`
-- `finally`
-- `run()`
-
-So all of these are valid:
+Then call generated controllers directly:
 
 ```ts
-Founder.projects.getProjects().then(...);
+const { Founder } = useContext();
 await Founder.projects.updateProject(payload);
-await Founder.projects.updateProject(payload).run();
 ```
 
-Modern usage in both apps is mostly direct `await` or `.then(...)`.
+Use direct controller calls for interactions. Do not recreate fake runtime imports or client-side `@app` access.
 
-Use `api.reload(...)` and `api.set(...)` only when you intentionally want to refresh or mutate page setup data that already belongs to the active page response.
+## Manual Server Routes
 
-# Layouts
+Use `server/routes/**` only for explicit HTTP behavior that should not be a generated controller action.
 
-Layouts come from `client/pages/**/_layout/index.tsx`.
-
-How Proteum resolves them:
-
-- if `_layout: false`, no layout is used
-- if `_layout: 'convert'`, a named generated layout with id `convert` is used
-- otherwise Proteum picks the nearest matching `_layout` folder by file chunk identity
-- if no generated layout matches, the internal root layout is used
-
-Observed patterns:
-
-- CrossPath has root, `convert`, and `employer` layouts
-- Unique Domains mostly uses the internal/root layout and sets `_layout: false` for public landing pages
-
-Practical rule:
-
-- use `_layout: false` for standalone landing or embed-like pages
-- use a named layout only when a matching `_layout` folder exists
-
-# Manual Server Routes
-
-Use `server/routes/**` for routes that should stay explicit HTTP endpoints rather than generated controller actions.
-
-Typical uses from the reference apps:
+Good fits:
 
 - redirects
-- webhook-like endpoints
-- sitemap and RSS
-- landing-page tracking
-- public API endpoints with custom semantics
+- sitemap or RSS
 - OAuth callbacks
+- webhooks
+- public resources with custom semantics
 
-Example:
+Rules:
 
-```ts
-import { Router, Navigation } from '@app';
+- import server-side app services from `@app`
+- use route handler context for `request`, `response`, router plugins, and custom router context
+- if the route is just a normal app API, prefer a controller instead
 
-Router.get('/sitemap.xml', async ({ response }) => {
-    return response.xml(await Navigation.Sitemap());
-});
-```
+## Models And Aliases
 
-Manual route rules:
-
-- import server services from `@app`
-- use route handler context for request/response and router-plugin services
-- validate with `schema.validate(...)` when the schema router plugin is installed
-- return `response.redirect(...)`, `response.json(...)`, `response.xml(...)`, `response.html(...)`, `response.file(...)`, or raw serializable data
-
-Route handler context includes:
-
-- `request`
-- `response`
-- `Router`
-- app services
-- generated controller tree
-- router plugin request services such as `auth`, `schema`, `metrics`
-- custom router context values from `Router.context(...)`
-
-# Router Plugins
-
-Router plugins are special services attached under `Router.config.plugins`.
-
-They extend `RouterService`.
-
-Use them for:
-
-- authentication
-- validation helpers
-- metrics/tracking
-- other request-scoped helpers
-
-A router plugin usually has:
-
-- `server/services/<Feature>/router/index.ts`
-- optional `server/services/<Feature>/router/request.ts`
-- `service.json` with `"parent": "router"`
-
-Example `service.json`:
-
-```json
-{
-    "id": "UniqueDomains/Users/Metrics/Router",
-    "name": "Metrics",
-    "parent": "router",
-    "dependences": []
-}
-```
-
-Router plugin rules:
-
-- implement `requestService(request)` to expose a request-scoped helper to route/controller context
-- use `this.parent.on('request' | 'resolved' | 'render', ...)` inside `ready()` when you need router lifecycle hooks
-
-# Models And Prisma
-
-For typings:
+Use Prisma typings from:
 
 ```ts
 import type * as Models from '@models/types';
 ```
 
-For runtime access:
+Use runtime models through:
 
 - `this.models`
 - `this.app.Models.client`
@@ -753,165 +197,88 @@ For runtime access:
 Rules:
 
 - do not import runtime values from `@models`
-- keep Prisma model access inside services
+- keep Prisma runtime access inside services when possible
 - prefer explicit `select` or narrow `include`
 - do not edit generated Prisma client files
 
-Both apps instantiate `Models` explicitly in `server/index.ts` with config imported from `server/config/*.ts`.
+Relevant aliases:
 
-# Aliases
-
-These aliases matter in real projects:
-
-- `@/client/...`: app client code
-- `@/server/...`: app server code
-- `@/common/...`: app shared code
+- `@/client/...`, `@/server/...`, `@/common/...`: app code
 - `@client/...`, `@server/...`, `@common/...`: Proteum core modules
-- `@app`: server-side application services for manual routes
-- `@models/types`: Prisma typings only
+- `@app`: server-side application services for manual routes only
+- `@generated/*`: generated app surfaces
 
-Import rules:
+## Task Playbooks
 
-- client pages: use `@/client/router`, `@/client/context`, app-local components, and generated controller tree from context
-- controllers/services: use `@server/app/controller`, `@server/app/service`, app-local services, and `@models/types`
-- manual server routes: use `@app` plus app-local utilities
+### Add A New App API
 
-# SEO And Static Output
+1. Add or extend a root service under `server/services/<Feature>/index.ts`.
+2. Add or update `server/services/<Feature>/service.json`.
+3. Add a controller under `server/controllers/**`.
+4. Validate once with `this.input(schema)`.
+5. Resolve auth and request-derived values in the controller.
+6. Call the service from the client through the generated controller tree.
 
-Proteum is built for SSR and crawlable HTML.
+### Add A New SSR Page
 
-Observed patterns in the apps:
+1. Create or update `client/pages/.../index.tsx`.
+2. Register `Router.page('/real-url', setup, render)`.
+3. Return `_auth`, `_layout`, and SSR data from `setup`.
+4. Read resolved data in `render`.
+5. Use `@/client/context` or render args only for interactive follow-up actions.
 
-- public landing pages use `Router.page(..., { _layout: false, ... })`
-- sitemap is produced explicitly through a service, then exposed with `Router.get('/sitemap.xml', ...)`
-- canonical behavior is available through `_canonicalParams`
-- static caching exists through `_static`
-- manual routes can opt into running even for static pages with `whenStatic: true`
+### Add A New Manual Route
 
-Use these rules:
+1. Create `server/routes/...`.
+2. Import `Router` and needed app services from `@app`.
+3. Register `Router.get/post/put/patch/delete(...)`.
+4. Return response helpers or raw serializable data.
 
-- prefer SSR page setup for crawlable content
-- keep metadata and structured output on the server-rendered path
-- use manual routes for sitemap, RSS, redirects, and resource endpoints
+### Diagnose A Runtime Issue
 
-# Generated Code Mental Model
+1. Run `npx proteum explain --json`.
+2. Run `npx proteum doctor`.
+3. If the issue is request-time behavior in dev, run:
+   - `npx proteum trace arm --capture deep`
+   - reproduce the failing request once
+   - `npx proteum trace latest` or `npx proteum trace show <requestId>`
+4. Inspect the touched controller, service, route, or page source.
+5. Only add temporary logging if the trace is insufficient.
 
-Proteum is not magic, but it is generation-heavy.
+For the full trace reference, see `node_modules/proteum/docs/request-tracing.md` in installed apps or `docs/request-tracing.md` in the framework repository.
 
-When you change source files, Proteum regenerates:
+## Preferred Patterns
 
-- route wrapper modules for client pages and server routes
-- layout registries
-- controller client tree
-- typed server app shim
-
-Source-to-generated mapping:
-
-- `client/pages/**` -> generated route modules and layout modules
-- `server/routes/**` -> generated server route modules
-- `server/controllers/**/*.ts` -> `.proteum/common/controllers.ts` and server controller registry
-- `server/services/**/service.json` + `server/index.ts` -> generated service typings and manifest service entries
-
-LLM rule:
-
-- edit source files only
-- never patch generated output directly
-
-# Maintenance Workflow For New Features
-
-When adding a feature, follow this order:
-
-1. Add or extend a root service under `server/services/<Feature>`.
-2. Add or extend subservices if the feature has distinct concerns.
-3. Add `server/controllers/**/*.ts` entrypoints for callable app APIs.
-4. Add or extend typed config exports in `server/config/*.ts`, then instantiate the root service in `server/index.ts`.
-5. Add or update `client/pages/**` routes that consume the feature.
-6. Load SSR data in page `setup`.
-7. Use generated controller methods from page args or `useContext()` for interactions.
-8. Add manual `server/routes/**` only if you need explicit HTTP behavior that should not be a controller endpoint.
-
-# Maintenance Checklist For Existing Projects
-
-When maintaining a Proteum app:
-
-- inspect `server/index.ts` and `server/config/*.ts` first to understand which services actually exist
-- inspect `service.json` before moving or renaming services
-- inspect `server/controllers/**/*.ts` to understand the public client API
-- inspect `client/pages/**` for the real route table
-- check `_layout` folders before changing page chrome
-- check router plugins before assuming `auth`, `schema`, or `metrics` behavior
-- trace generated controller calls back to controller files, not to ad-hoc fetch URLs
-
-# Preferred Patterns For New Work
-
+- explicit `server/index.ts` bootstrap over hidden registration
 - `Router.page(path, setup, render)` over page-local fetch hacks
-- controller-backed APIs over ad-hoc manual `/api/...` route files
+- controller-backed app APIs over ad hoc manual `/api/...` route files
 - service classes over random server helpers with hidden dependencies
-- `controllerPath` only when the file path would produce the wrong public API shape
-- `useContext()` or page render args for controller access on the client
-- one clear source of truth for catalogs and shared types
-- when a project already includes a Shadcn-based `client/components/ui/**` layer, reuse those components for standard UI primitives before creating custom ones
+- one canonical source of truth for catalogs, registries, and shared types
+- project-local Shadcn-based UI primitives when the app already provides them
 
-# Legacy Or Discouraged Patterns
+## Discouraged Patterns
 
-These exist in the codebase but should not be the default for new work:
-
-- older pages that overuse `api.reload(...)` and `api.set(...)`
-- older pages with deeply mixed UI and data responsibilities
-- legacy code that leans on manual `/api/...` routes for app APIs
-- any attempt to reintroduce `api.fetch(...)` for SSR page loading
+- `api.fetch(...)` inside page files for SSR loading
 - client-side `@app` imports
 - runtime `@models` imports
+- request-scoped state inside normal service methods
+- hiding route registration behind abstractions that remove the top-level `Router.page(...)` call
+- editing `.proteum` directly
 
-# Testing And Verification
+## Verification
 
-For app work, verify at the correct layer:
+Verify at the correct layer:
 
 - route additions: boot the app and hit the real URL
-- controller changes: exercise the generated client call or `/api/...` endpoint
-- SSR changes: load the real page and inspect the rendered HTML and browser console
-- router/plugin changes: verify request context behavior, auth, redirects, metrics, and validation on a running app
+- controller changes: exercise the generated client call or the generated `/api/...` endpoint
+- SSR changes: load the real page and inspect rendered HTML plus browser console
+- router/plugin changes: verify request context, auth, redirects, metrics, and validation on a running app
 
-Use the real app commands already present in the reference projects when possible:
+Useful app commands:
 
 - `proteum dev`
-- `npx proteum build prod`
+- `npx proteum refresh`
 - `npx proteum typecheck`
 - `npx proteum lint`
 - `npx proteum check`
-
-# Minimal Recipes
-
-## Add a new app API
-
-1. Create or extend `server/services/Feature/index.ts`.
-2. Create `server/controllers/Feature.ts`.
-3. Validate input with `this.input(schema)`.
-4. Resolve auth or other request-derived values in the controller and pass them into the service method.
-5. Call it from the client as `Feature.MethodName(...)`.
-
-## Add a new SSR page
-
-1. Create `client/pages/.../index.tsx`.
-2. Register `Router.page('/real-url', setup, render)`.
-3. Return `_auth`, `_layout`, and SSR fetchers from `setup`.
-4. Read resolved data in `render`.
-5. Use `useContext()` only for interactive follow-up actions.
-
-## Add a new manual route
-
-1. Create `server/routes/.../file.ts`.
-2. Import `Router` and needed services from `@app`.
-3. Register `Router.get/post/...`.
-4. Use `schema.validate(...)` if the schema plugin is installed.
-5. Return a response helper or raw JSON-safe data.
-
-# Summary Rule
-
-If you are unsure where code belongs:
-
-- page URL and SSR data: `client/pages`
-- reusable business logic: `server/services`
-- client-callable app API: `server/controllers/**/*.ts`
-- custom HTTP endpoint: `server/routes`
-- request-scoped cross-cutting concern: router plugin
+- `npx proteum build prod`

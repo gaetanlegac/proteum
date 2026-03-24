@@ -328,6 +328,8 @@ If you are an LLM or automation agent, start here:
 6. Inspect `server/services/**` for business logic.
 7. Inspect `client/pages/**` for SSR routes and page setup contracts.
 
+For implementation rules in a real Proteum app, treat the local `AGENTS.md` files plus `proteum explain`, `proteum doctor`, and `proteum trace` as the task contract. This README is the framework overview, not the project-local instruction layer.
+
 ## What Proteum Avoids
 
 Proteum intentionally avoids several patterns that make frameworks harder to inspect and harder to trust:
