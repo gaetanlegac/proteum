@@ -23,6 +23,62 @@ import { NotFound } from '@common/errors';
 
 export type SqlQuery = ReturnType<ModelsManager['SQL']>;
 
+type DecimalLike = {
+    constructor?: { name?: string };
+    equals: (value: number) => boolean;
+    toNumber: () => number;
+    toString: () => string;
+};
+
+/*----------------------------------
+- HELPERS
+----------------------------------*/
+
+const isDecimalLike = (value: object): value is DecimalLike =>
+    'constructor' in value &&
+    'equals' in value &&
+    'toNumber' in value &&
+    'toString' in value &&
+    typeof value.constructor === 'function' &&
+    value.constructor.name === 'Decimal' &&
+    typeof value.equals === 'function' &&
+    typeof value.toNumber === 'function' &&
+    typeof value.toString === 'function';
+
+const isPlainObject = (value: object) => {
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+};
+
+const normalizeBigInt = (value: bigint) => {
+    const number = Number(value);
+    return Number.isSafeInteger(number) ? number : value.toString();
+};
+
+const normalizeDecimal = (value: DecimalLike) => {
+    const number = value.toNumber();
+    return Number.isFinite(number) && value.equals(number) ? number : value.toString();
+};
+
+const normalizeSqlScalar = (value: bigint | DecimalLike) =>
+    typeof value === 'bigint' ? normalizeBigInt(value) : normalizeDecimal(value);
+
+const normalizeSqlResult = <T>(value: T): T => {
+    if (typeof value === 'bigint') return normalizeSqlScalar(value) as T;
+
+    if (Array.isArray(value)) return value.map((item) => normalizeSqlResult(item)) as T;
+
+    if (value === null || value === undefined || typeof value !== 'object' || value instanceof Date) return value;
+
+    if (isDecimalLike(value)) return normalizeSqlScalar(value) as T;
+
+    if (!isPlainObject(value)) return value;
+
+    return Object.fromEntries(
+        Object.entries(value).map(([key, nestedValue]) => [key, normalizeSqlResult(nestedValue)]),
+    ) as T;
+};
+
 /*----------------------------------
 - SERVICE CONFIG
 ----------------------------------*/
@@ -35,8 +91,7 @@ export type Services = {};
 
 // Fix: Do not know how to serialize a BigInt
 BigInt.prototype.toJSON = function () {
-    const int = Number.parseInt(this.toString());
-    return int ?? this.toString();
+    return normalizeBigInt(this.valueOf());
 };
 
 /*----------------------------------
@@ -80,9 +135,10 @@ export default class ModelsManager extends Service<Config, Hooks, Application, A
     public SQL<TRowData extends {} | number | string>(strings: TemplateStringsArray, ...data: any[]) {
         const string = this.string(strings, ...data);
 
-        const query = () => {
-            return this.client.$queryRawUnsafe(string) as Promise<TRowData[]>;
-        };
+        const query = () =>
+            this.client.$queryRawUnsafe(string).then((resultatRequetes) => normalizeSqlResult(resultatRequetes)) as Promise<
+                TRowData[]
+            >;
 
         query.all = query;
         query.value = <TValue extends any = number>() =>
