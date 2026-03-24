@@ -581,14 +581,29 @@ export default class ServerRouter<
             this,
         );
 
+        this.app.container.Trace.startRequest({
+            id: request.id,
+            method: request.method,
+            path: request.path,
+            url: request.url,
+            headers: request.headers,
+            data: request.data,
+        });
+
         let response: ServerResponse<this>;
         try {
             // Hook
             await this.runHook('request', request);
+            this.app.container.Trace.setRequestUser(request.id, request.user?.email);
 
             // Bulk API Requests
             if (request.path === '/api' && typeof request.data.fetchers === 'object') {
-                return await this.resolveApiBatch(request.data.fetchers, request);
+                await this.resolveApiBatch(request.data.fetchers, request);
+                this.app.container.Trace.finishRequest(request.id, {
+                    statusCode: request.res.statusCode || 200,
+                    user: request.user?.email,
+                });
+                return;
             } else {
                 response = await this.resolve(
                     request,
@@ -604,7 +619,17 @@ export default class ServerRouter<
             // Static pages
             if (cachedPage) {
                 console.log('[router] Get static page from cache', req.path);
+                this.app.container.Trace.record(
+                    request.id,
+                    'response.send',
+                    { cached: true, statusCode: response.statusCode, contentType: 'text/html' },
+                    'summary',
+                );
                 res.send(cachedPage.rendered);
+                this.app.container.Trace.finishRequest(request.id, {
+                    statusCode: response.statusCode,
+                    user: request.user?.email,
+                });
                 return;
             }
 
@@ -613,9 +638,34 @@ export default class ServerRouter<
             // Headers
             res.header(response.headers);
             // Data
+            this.app.container.Trace.record(
+                request.id,
+                'response.send',
+                {
+                    cached: false,
+                    statusCode: response.statusCode,
+                    contentType: response.headers['Content-Type'] || '',
+                    headerKeys: Object.keys(response.headers),
+                },
+                'summary',
+            );
             res.send(response.data);
+            this.app.container.Trace.finishRequest(request.id, {
+                statusCode: response.statusCode,
+                user: request.user?.email,
+            });
         } else if (response.data !== 'true') {
+            this.app.container.Trace.finishRequest(request.id, {
+                statusCode: res.statusCode || response.statusCode,
+                user: request.user?.email,
+                errorMessage: "Can't return data from the controller since response has already been sent via express.",
+            });
             throw new Error("Can't return data from the controller since response has already been sent via express.");
+        } else {
+            this.app.container.Trace.finishRequest(request.id, {
+                statusCode: res.statusCode || response.statusCode,
+                user: request.user?.email,
+            });
         }
     }
 
@@ -655,6 +705,16 @@ export default class ServerRouter<
                 },
                 async () => {
                     const timeStart = Date.now();
+                    const routeStats = {
+                        total: this.routes.length,
+                        staticSkipped: 0,
+                        methodMismatch: 0,
+                        acceptMismatch: 0,
+                        pathMismatch: 0,
+                        matched: 0,
+                    };
+
+                    this.app.container.Trace.record(request.id, 'resolve.start', { isStatic: Boolean(isStatic) }, 'summary');
 
                     if (this.status === 'starting') {
                         console.log(LogPrefix, `Waiting for servert to be resdy before resolving request`);
@@ -669,6 +729,16 @@ export default class ServerRouter<
                         // Controller route
                         const controllerRoute = this.controllers[request.path];
                         if (controllerRoute !== undefined) {
+                            this.app.container.Trace.record(
+                                request.id,
+                                'resolve.controller-route',
+                                {
+                                    path: request.path,
+                                    accept: controllerRoute.options.accept || '',
+                                    filepath: controllerRoute.options.filepath || '',
+                                },
+                                'summary',
+                            );
                             // Create response
                             await response.runController(controllerRoute);
                             if (response.wasProvided) return resolve(response);
@@ -679,21 +749,81 @@ export default class ServerRouter<
 
                         // Classic routes
                         for (const route of this.routes) {
-                            if (isStatic && !route.options.whenStatic) continue;
+                            if (isStatic && !route.options.whenStatic) {
+                                routeStats.staticSkipped++;
+                                continue;
+                            }
 
                             // Match Method
-                            if (request.method !== route.method && route.method !== '*') continue;
+                            if (request.method !== route.method && route.method !== '*') {
+                                routeStats.methodMismatch++;
+                                if (this.app.container.Trace.shouldCapture(request.id, 'deep')) {
+                                    this.app.container.Trace.record(
+                                        request.id,
+                                        'resolve.route-skip',
+                                        {
+                                            reason: 'method',
+                                            routeMethod: route.method,
+                                            requestMethod: request.method,
+                                            routePath: route.path || '',
+                                            routeId: route.options.id || '',
+                                            filepath: route.options.filepath || '',
+                                        },
+                                        'deep',
+                                    );
+                                }
+                                continue;
+                            }
 
                             // Match Response format
-                            if (!request.accepts(route.options.accept)) continue;
+                            if (!request.accepts(route.options.accept)) {
+                                routeStats.acceptMismatch++;
+                                if (this.app.container.Trace.shouldCapture(request.id, 'deep')) {
+                                    this.app.container.Trace.record(
+                                        request.id,
+                                        'resolve.route-skip',
+                                        {
+                                            reason: 'accept',
+                                            routeAccept: route.options.accept || '',
+                                            routePath: route.path || '',
+                                            routeId: route.options.id || '',
+                                            filepath: route.options.filepath || '',
+                                        },
+                                        'deep',
+                                    );
+                                }
+                                continue;
+                            }
 
                             const isMatching = matchRoute(route, request);
-                            if (!isMatching) continue;
+                            if (!isMatching) {
+                                routeStats.pathMismatch++;
+                                if (this.app.container.Trace.shouldCapture(request.id, 'deep')) {
+                                    this.app.container.Trace.record(
+                                        request.id,
+                                        'resolve.route-skip',
+                                        {
+                                            reason: 'path',
+                                            routePath: route.path || '',
+                                            routeId: route.options.id || '',
+                                            filepath: route.options.filepath || '',
+                                        },
+                                        'deep',
+                                    );
+                                }
+                                continue;
+                            }
 
+                            routeStats.matched++;
                             await this.resolvedRoute(route, response, timeStart);
-                            if (response.wasProvided) return resolve(response);
+                            if (response.wasProvided) {
+                                this.app.container.Trace.record(request.id, 'resolve.routes-evaluated', routeStats, 'resolve');
+                                return resolve(response);
+                            }
                         }
 
+                        this.app.container.Trace.record(request.id, 'resolve.routes-evaluated', routeStats, 'resolve');
+                        this.app.container.Trace.record(request.id, 'resolve.not-found', { path: request.path }, 'summary');
                         reject(new NotFound());
                     } catch (error) {
                         const typedError =
@@ -720,6 +850,19 @@ export default class ServerRouter<
 
     private async resolvedRoute(route: TMatchedRoute, response: ServerResponse<this>, timeStart: number) {
         route = await response.resolveRouteOptions(route);
+
+        this.app.container.Trace.record(
+            response.request.id,
+            'resolve.route-match',
+            {
+                routePath: route.path || '',
+                routeId: route.options.id || '',
+                filepath: route.options.filepath || '',
+                accept: route.options.accept || '',
+                method: route.method,
+            },
+            'summary',
+        );
 
         // Run on resolution hooks. Ex: authentication check
         await this.runHook('resolved', route, response.request, response);
@@ -781,6 +924,16 @@ export default class ServerRouter<
         const code = 'http' in error ? error.http : 500;
 
         const response = new ServerResponse(request).status(code);
+
+        this.app.container.Trace.record(
+            request.id,
+            'error',
+            {
+                code,
+                error: error instanceof Error ? error : new Error(error.message),
+            },
+            'summary',
+        );
 
         // Rapport / debug
         if (code === 500) {

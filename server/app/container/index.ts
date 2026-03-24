@@ -15,6 +15,7 @@ import type { StartedServicesIndex } from '../service';
 import Services, { ServicesContainer } from '../service/container';
 import ConfigParser, { TEnvConfig } from './config';
 import Console from './console';
+import Trace from './trace';
 import type ServerRequest from '@server/services/router/request';
 
 /*----------------------------------
@@ -29,6 +30,7 @@ export class ApplicationContainer<TServicesIndex extends StartedServicesIndex = 
     public Environment: TEnvConfig;
     public Identity: Config.Identity;
     public Console: Console;
+    public Trace: Trace;
 
     public application?: Application;
 
@@ -52,6 +54,7 @@ export class ApplicationContainer<TServicesIndex extends StartedServicesIndex = 
         this.Environment = configParser.env();
         this.Identity = configParser.identity();
         this.Console = new Console(this, this.Environment.console);
+        this.Trace = new Trace(this, this.Environment.trace);
     }
 
     /*----------------------------------

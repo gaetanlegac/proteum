@@ -182,6 +182,22 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
         const ssrData = response.forSsr(page);
         const context = safeStringify(ssrData);
         const routesForClient = JSON.stringify(this.router.ssrRoutes);
+        const customContextKeys = Object.keys(ssrData).filter((key) => !['request', 'page', 'user', 'domains'].includes(key));
+
+        this.app.container.Trace.record(
+            response.request.id,
+            'ssr.payload',
+            {
+                chunkId: page.chunkId || '',
+                topLevelKeys: Object.keys(ssrData),
+                requestDataKeys: Object.keys(ssrData.request.data || {}),
+                pageDataKeys: Object.keys(ssrData.page.data || {}),
+                customContextKeys,
+                serializedBytes: Buffer.byteLength(context, 'utf8'),
+                routeCount: this.router.ssrRoutes.length,
+            },
+            'resolve',
+        );
 
         return (
             <>

@@ -185,6 +185,35 @@ class ExplainCommand extends ProteumCommand {
     }
 }
 
+class TraceCommand extends ProteumCommand {
+    public static paths = [['trace']];
+
+    public static usage = buildUsage('trace');
+
+    public port = Option.String('--port', { description: 'Override the router port used to query the running dev server.' });
+    public url = Option.String('--url', { description: 'Override the full base URL used to query the running dev server.' });
+    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public capture = Option.String('--capture', { description: 'Capture mode used by `proteum trace arm`.' });
+    public output = Option.String('--output', { description: 'Output filepath used by `proteum trace export`.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [action = 'latest', id = ''] = this.args;
+
+        this.setCliArgs({
+            action,
+            id,
+            port: this.port ?? '',
+            url: this.url ?? '',
+            json: this.json,
+            capture: this.capture ?? '',
+            output: this.output ?? '',
+        });
+
+        await runCommandModule(() => import('../commands/trace'));
+    }
+}
+
 export const registeredCommands = {
     init: InitCommand,
     dev: DevCommand,
@@ -195,6 +224,7 @@ export const registeredCommands = {
     check: CheckCommand,
     doctor: DoctorCommand,
     explain: ExplainCommand,
+    trace: TraceCommand,
 } as const;
 
 export const createCli = (version: string) => {
@@ -216,6 +246,7 @@ export const createCli = (version: string) => {
     clipanion.register(CheckCommand);
     clipanion.register(DoctorCommand);
     clipanion.register(ExplainCommand);
+    clipanion.register(TraceCommand);
 
     return clipanion;
 };

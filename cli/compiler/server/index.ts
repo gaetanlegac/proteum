@@ -49,6 +49,25 @@ const getDevGeneratedRuntimeEntries = (app: App) => ({
     __proteum_dev_routes: [app.paths.server.generated + '/routes.ts'],
     __proteum_dev_controllers: [app.paths.server.generated + '/controllers.ts'],
 });
+const normalizeModulePath = (value?: string) => (value || '').replace(/\\/g, '/');
+const rewriteFrameworkAliasTargets = (app: App, aliases: Record<string, string | string[]>) => {
+    const installedCoreRoot = normalizeModulePath(app.paths.root + '/node_modules/proteum');
+    const activeCoreRoot = normalizeModulePath(cli.paths.core.root);
+
+    if (installedCoreRoot === activeCoreRoot) return aliases;
+
+    const rewriteCandidate = (candidate: string) =>
+        normalizeModulePath(candidate).startsWith(installedCoreRoot + '/')
+            ? activeCoreRoot + normalizeModulePath(candidate).substring(installedCoreRoot.length)
+            : candidate;
+
+    return Object.fromEntries(
+        Object.entries(aliases).map(([alias, value]) => [
+            alias,
+            Array.isArray(value) ? value.map(rewriteCandidate) : rewriteCandidate(value),
+        ]),
+    );
+};
 
 /*----------------------------------
 - CONFIG
@@ -61,14 +80,17 @@ export default function createCompiler(
     debug && console.info(`Creating compiler for server (${mode}).`);
     const dev = mode === 'dev';
     const outputPath = app.outputPath(outputTarget);
+    const installedCoreRoot = app.paths.root + '/node_modules/proteum';
+    const frameworkRoots = [cli.paths.core.root, installedCoreRoot];
 
     const commonConfig = createCommonConfig(app, 'server', mode, outputTarget);
     const { aliases } = app.aliases.server.forWebpack({ modulesPath: app.paths.root + '/node_modules' });
+    const resolvedAliases = rewriteFrameworkAliasTargets(app, aliases);
 
     // We're not supposed in any case to import client services from server
-    delete aliases['@client/services'];
-    delete aliases['@/client/services'];
-    const rspackAliases = toRspackAliases(aliases);
+    delete resolvedAliases['@client/services'];
+    delete resolvedAliases['@/client/services'];
+    const rspackAliases = toRspackAliases(resolvedAliases);
     rspackAliases['@/client/router$'] = cli.paths.core.root + '/client/router.ts';
 
     debug &&
@@ -154,11 +176,9 @@ export default function createCompiler(
                     test: regex.scripts,
                     include: [
                         app.paths.root + '/client',
-                        cli.paths.core.root + '/client',
                         app.paths.client.generated,
 
                         app.paths.root + '/common',
-                        cli.paths.core.root + '/common',
                         app.paths.common.generated,
 
                         // Prisma 7 generates TypeScript entrypoints under var/prisma.
@@ -166,8 +186,10 @@ export default function createCompiler(
 
                         // Dossiers server uniquement pour le bundle server
                         app.paths.root + '/server',
-                        cli.paths.core.root + '/server',
                         app.paths.server.generated,
+                        ...frameworkRoots.map((rootPath) => rootPath + '/client'),
+                        ...frameworkRoots.map((rootPath) => rootPath + '/common'),
+                        ...frameworkRoots.map((rootPath) => rootPath + '/server'),
 
                         // Complle 5HTP modules so they can refer to the framework instance and aliases
                         // Temp disabled because compile issue on vercel

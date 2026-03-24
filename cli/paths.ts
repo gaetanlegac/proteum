@@ -43,13 +43,28 @@ export const staticAssetName = /*isDebug ? '[name].[ext].[hash:8]' :*/ '[hash:8]
 
 const pathInfosDefaultOpts = { shortenExtensions: ['ts', 'js', 'tsx', 'jsx'], trimIndex: true };
 
+const safeRealpath = (filepath: string) => {
+    try {
+        return fs.realpathSync(filepath);
+    } catch {
+        return path.resolve(filepath);
+    }
+};
+
 const resolveCoreRoot = (appRoot: string) => {
+    const currentPackageRoot = path.resolve(__dirname, '..');
+    const currentBin = path.join(currentPackageRoot, 'cli', 'bin.js');
+    const invokedScript = process.argv[1] ? safeRealpath(process.argv[1]) : '';
+    const invokedCurrentPackage = invokedScript === safeRealpath(currentBin);
+
+    if (invokedCurrentPackage) return currentPackageRoot;
+
     const localInstall = path.join(appRoot, 'node_modules', 'proteum');
     if (fs.existsSync(localInstall)) return localInstall;
 
     // When running `npx`/global installs, there may be no local `node_modules/proteum` yet.
     // Fall back to the installed package root (this file lives in `<root>/cli`).
-    return path.resolve(__dirname, '..');
+    return currentPackageRoot;
 };
 
 const normalizeImportPath = (value: string) => value.replace(/\\/g, '/');

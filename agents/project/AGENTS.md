@@ -34,6 +34,12 @@ Start framework inspection with:
 - `npx proteum explain`
 - `npx proteum doctor`
 
+For runtime-only issues in dev, inspect the request trace before adding temporary logs:
+
+- `npx proteum trace requests`
+- `npx proteum trace latest`
+- `npx proteum trace arm --capture deep`
+
 Generated files live under `./.proteum` and should not be edited by hand.
 Project code should use the generated aliases `@generated/client/*`, `@generated/common/*`, and `@generated/server/*`.
 Client context is typically imported from `@/client/context`.
@@ -113,6 +119,7 @@ Instead, investigate the potential causes of the errors, and for each:
     1. Evaluate / quantify the probabilities
     2. Give why and
     3. Suggest how to fix it
+- When the issue is request-time behavior in dev, prefer `npx proteum trace` over ad hoc logging. Treat traces as dev-only, redacted, and memory-bounded.
 - When you have finished your work, summarize in one top-level short sentence the changes you made since the beginning of the conversation. Output as "Commit message".
 
 ## High-impact files

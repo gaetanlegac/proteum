@@ -88,6 +88,11 @@ export type TRouterContextServices<
 
 export type TRouterRequestContext<TRouter extends TServerRouter> = TServerRouterCustomContext<TRouter>;
 
+const getRouteTraceTarget = (route: TAnyRoute<TRouterContext<TServerRouter>>) => {
+    if ('code' in route) return String(route.code);
+    return route.path || '';
+};
+
 /*----------------------------------
 - CLASSE
 ----------------------------------*/
@@ -129,6 +134,18 @@ export default class ServerResponse<
         // Update canonical url
         this.updateCanonicalUrl(route);
 
+        this.app.container.Trace.record(
+            this.request.id,
+            'controller.start',
+            {
+                target: getRouteTraceTarget(route as TAnyRoute<TRouterContext<TServerRouter>>),
+                routeId: route.options.id || '',
+                filepath: route.options.filepath || '',
+                accept: route.options.accept || '',
+            },
+            'summary',
+        );
+
         // Create response context for controllers
         const requestContext = await this.createContext(route);
         const contextStore = context.getStore() as
@@ -141,16 +158,41 @@ export default class ServerResponse<
 
         // Run controller
         const content = await this.route.controller(requestContext);
-        if (content === undefined) return;
+        if (content === undefined) {
+            this.app.container.Trace.record(this.request.id, 'controller.result', { kind: 'undefined' }, 'summary');
+            return;
+        }
 
         // No need to process the content
-        if (content instanceof ServerResponse) return;
+        if (content instanceof ServerResponse) {
+            this.app.container.Trace.record(this.request.id, 'controller.result', { kind: 'response' }, 'summary');
+            return;
+        }
         // Render react page to html
-        else if (content instanceof Page) await this.render(content, requestContext, additionnalData);
+        else if (content instanceof Page) {
+            this.app.container.Trace.record(
+                this.request.id,
+                'controller.result',
+                { kind: 'page', chunkId: content.chunkId || '' },
+                'summary',
+            );
+            await this.render(content, requestContext, additionnalData);
+        }
         // Return HTML
-        else if (typeof content === 'string' && this.route.options.accept === 'html') await this.html(content);
+        else if (typeof content === 'string' && this.route.options.accept === 'html') {
+            this.app.container.Trace.record(
+                this.request.id,
+                'controller.result',
+                { kind: 'html', length: content.length },
+                'summary',
+            );
+            await this.html(content);
+        }
         // Return JSON
-        else await this.json(content);
+        else {
+            this.app.container.Trace.record(this.request.id, 'controller.result', { kind: 'json', data: content }, 'resolve');
+            await this.json(content);
+        }
     }
 
     private updateCanonicalUrl(route: TAnyRoute<TRouterContext<TRouter>>) {
@@ -175,13 +217,20 @@ export default class ServerResponse<
         const requestContext = await this.createContext(route);
         const { options } = splitRouteSetupResult(((setup as any)({ ...requestContext, data: this.request.data }) as {}) || {});
 
+        this.app.container.Trace.record(
+            this.request.id,
+            'setup.options',
+            { optionKeys: Object.keys(options) },
+            'resolve',
+        );
+
         return { ...route, options: { ...route.options, ...options } };
     }
 
     // Start controller services
     private async createContext(route: TAnyRoute<TRouterContext<TRouter>>): Promise<TRequestContext> {
         const contextServices = this.router.createContextServices(this.request);
-
+        const controllers = createControllers(this.request.api);
         const customSsrData = this.router.config.context(this.request, this.app) as TRouterRequestContext<TRouter>;
 
         // TODO: transmiss safe data (especially for Router), as Router info could be printed on client side
@@ -196,7 +245,7 @@ export default class ServerResponse<
 
             Router: this.router,
             ...(this.app as {}),
-            ...createControllers(this.request.api),
+            ...controllers,
 
             // Router services
             ...(contextServices as TRouterContextServices<TRouter>),
@@ -204,6 +253,19 @@ export default class ServerResponse<
         } as TRequestContext;
 
         requestContext.context = requestContext;
+
+        this.app.container.Trace.record(
+            this.request.id,
+            'context.create',
+            {
+                target: getRouteTraceTarget(route as TAnyRoute<TRouterContext<TServerRouter>>),
+                routeId: route.options.id || '',
+                routerServiceKeys: Object.keys(contextServices),
+                controllerKeys: Object.keys(controllers),
+                customContextKeys: Object.keys(customSsrData as object),
+            },
+            'resolve',
+        );
 
         return requestContext;
     }
@@ -248,6 +310,17 @@ export default class ServerResponse<
         if (additionnalData !== undefined)
             // Example: error message for error pages
             page.data = { ...page.data, ...additionnalData };
+
+        this.app.container.Trace.record(
+            this.request.id,
+            'page.data',
+            {
+                chunkId: page.chunkId || '',
+                dataKeys: Object.keys(page.data || {}),
+                data: page.data || {},
+            },
+            'resolve',
+        );
 
         // Render page
         await this.router.runHook('render', page);

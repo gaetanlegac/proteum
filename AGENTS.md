@@ -25,6 +25,7 @@ When working on Proteum itself, optimize for agent ergonomics first:
 - Prefer inference from the explicit application class in `server/index.ts` whenever possible. Treat `server/index.ts` as the canonical type root for application services, router services, router context, and models instead of duplicating manual type declarations.
 - Prefer exact end-to-end contracts for inputs, outputs, errors, side effects, and caching behavior.
 - Prefer framework features that make impact analysis, verification, and debugging easier for agents.
+- Prefer typed request traces and generated provenance over ad hoc runtime logging when debugging request-time behavior.
 - Prefer output that is fast to render, easy to crawl, semantically rich, and easy for LLMs to parse reliably.
 - Avoid introducing abstractions that require broad codebase memory to use correctly.
 
@@ -93,6 +94,7 @@ When presenting a framework solution, make it easy to judge against the real app
 - Prefer deleting client-side code, dependencies, and emitted assets when the same capability can stay on the server or be generated statically.
 - Prefer deleting obsolete branches, compatibility layers, plugins, and dependencies over keeping dead paths around.
 - Prefer compiler logic that is deterministic, auditable, and easy for another agent to trace from source to generated output.
+- Request tracing must stay dev-only, redacted, and memory-bounded. Do not introduce unbounded raw payload capture.
 - Prefer local destructuring that exposes typed app services, router services, router context values, and models in the current block scope before use, instead of chaining through `this.request`, `this.app`, or `this.app.Models.client` at each call site.
 - Reject changes that increase bundle size, runtime cost, or crawlability risk unless the benefit is concrete and validated in both reference apps.
 - When removing old behavior, also remove the related packages, config flags, typings, docs, and dead helper files in the same pass when safe.
@@ -105,6 +107,7 @@ Do not stop at static analysis or isolated core compilation when the change affe
 - Validate framework changes against the two reference apps whenever the change touches routing, controllers, generated code, SSR, client runtime, services, webpack, Babel, or emitted assets.
 - Preferred runtime validation:
   - run `npx proteum dev --no-cache -port 3xxx` in both apps on explicit ports
+  - use `proteum trace arm --capture deep`, reproduce the request once, then inspect it with `proteum trace latest` or `proteum trace show <requestId>` when the issue is in routing, SSR, context, or render behavior
   - open the real pages with Playwright
   - inspect browser console errors and warnings
   - inspect server startup and runtime errors

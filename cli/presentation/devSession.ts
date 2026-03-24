@@ -43,6 +43,8 @@ export const renderDevSession = async ({
                 { label: 'root', value: appRoot },
                 { label: 'router', value: `http://localhost:${routerPort}` },
                 { label: 'hmr', value: `http://localhost:${devEventPort}/__proteum_hmr` },
+                { label: 'trace', value: `proteum trace latest --port ${routerPort}` },
+                { label: 'trace deep', value: `proteum trace arm --capture deep --port ${routerPort}` },
                 { label: 'hotkeys', value: 'Ctrl+R reload, Ctrl+C stop' },
             ],
             { minLabelWidth: 12, maxLabelWidth: 12 },
@@ -52,9 +54,11 @@ export const renderDevSession = async ({
 export const renderServerReadyBanner = async ({
     appName,
     publicUrl,
+    routerPort,
 }: {
     appName: string;
     publicUrl: string;
+    routerPort: number;
 }) =>
     renderInk(({ Box, Text }) => {
         const createElement = React.createElement;
@@ -66,5 +70,6 @@ export const renderServerReadyBanner = async ({
             createElement(Text, { bold: true, color: 'green' }, appName),
             createElement(Text, { bold: true }, publicUrl),
             createElement(Text, { dimColor: true }, 'SSR server is listening for requests and hot reloads.'),
+            createElement(Text, { dimColor: true }, `Trace latest: proteum trace latest --port ${routerPort}`),
         );
     });

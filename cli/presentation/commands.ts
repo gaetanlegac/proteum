@@ -13,6 +13,7 @@ export const proteumCommandNames = [
     'check',
     'doctor',
     'explain',
+    'trace',
 ] as const;
 
 export type TProteumCommandName = (typeof proteumCommandNames)[number];
@@ -45,7 +46,7 @@ export const proteumRecommendedFlow: TRow[] = [
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
-    { title: 'Manifest and contracts', names: ['doctor', 'explain'] },
+    { title: 'Manifest and contracts', names: ['doctor', 'explain', 'trace'] },
     { title: 'Project scaffolding', names: ['init'] },
 ];
 
@@ -183,6 +184,27 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         ],
         notes: ['Legacy positional section selection remains supported, for example `proteum explain routes services`.'],
         status: 'stable',
+    },
+    trace: {
+        name: 'trace',
+        category: 'Manifest and contracts',
+        summary: 'Inspect live in-memory request traces from a running Proteum dev server.',
+        usage: 'proteum trace [latest|show <requestId>|requests|arm|export <requestId>] [--port <port>|--url <baseUrl>] [--json]',
+        bestFor:
+            'Debugging route resolution, context creation, SSR payloads, renders, and runtime errors without attaching a debugger.',
+        examples: [
+            { description: 'Show the latest request trace', command: 'proteum trace latest' },
+            { description: 'List recent trace summaries', command: 'proteum trace requests' },
+            { description: 'Arm the next request for deep capture', command: 'proteum trace arm --capture deep' },
+            { description: 'Export a request trace to disk', command: 'proteum trace export <requestId>' },
+            { description: 'Target a custom dev base URL directly', command: 'proteum trace latest --url http://127.0.0.1:3010' },
+        ],
+        notes: [
+            'This command talks to the running app over the dev-only `__proteum/trace` HTTP endpoints.',
+            'Traces are stored in a bounded in-memory buffer with payload summarization and sensitive-field redaction.',
+            'Use `--port` when the app is not running on the router port declared in `env.yaml`, or `--url` when the host itself is non-standard.',
+        ],
+        status: 'experimental',
     },
 };
 

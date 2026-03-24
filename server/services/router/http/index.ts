@@ -206,6 +206,7 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
             }),
         );
 
+        this.registerDevTraceRoutes(routes);
         routes.use(routeRequest);
 
         /*----------------------------------
@@ -226,5 +227,44 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
 
     public async cleanup() {
         this.http.close();
+    }
+
+    private registerDevTraceRoutes(routes: express.Express) {
+        if (!this.app.container.Trace.isEnabled()) return;
+
+        routes.get('/__proteum/trace/requests', (req, res) => {
+            const rawLimit = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+            const parsedLimit = typeof rawLimit === 'string' ? Number.parseInt(rawLimit, 10) : NaN;
+            const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20;
+
+            res.json({ requests: this.app.container.Trace.listRequests(limit) });
+        });
+
+        routes.get('/__proteum/trace/latest', (_req, res) => {
+            const request = this.app.container.Trace.getLatestRequest();
+            if (!request) {
+                res.status(404).json({ error: 'No request trace is available yet.' });
+                return;
+            }
+
+            res.json({ request });
+        });
+
+        routes.get('/__proteum/trace/requests/:id', (req, res) => {
+            const request = this.app.container.Trace.getRequest(req.params.id);
+            if (!request) {
+                res.status(404).json({ error: `Trace ${req.params.id} was not found.` });
+                return;
+            }
+
+            res.json({ request });
+        });
+
+        routes.post('/__proteum/trace/arm', (req, res) => {
+            const rawCapture = typeof req.body.capture === 'string' ? req.body.capture : 'deep';
+            const capture = this.app.container.Trace.armNextRequest(rawCapture);
+
+            res.json({ armed: true, capture });
+        });
     }
 }

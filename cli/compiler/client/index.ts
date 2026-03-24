@@ -27,6 +27,24 @@ const hmrClientEntry = path.join(cli.paths.core.root, 'client', 'dev', 'hmr.ts')
 const normalizeModulePath = (value?: string) => (value || '').replace(/\\/g, '/');
 const resolveFromAppOrCore = (app: App, request: string) =>
     require.resolve(request, { paths: [app.paths.root, cli.paths.core.root] });
+const rewriteFrameworkAliasTargets = (app: App, aliases: Record<string, string | string[]>) => {
+    const installedCoreRoot = normalizeModulePath(path.join(app.paths.root, 'node_modules', 'proteum'));
+    const activeCoreRoot = normalizeModulePath(cli.paths.core.root);
+
+    if (installedCoreRoot === activeCoreRoot) return aliases;
+
+    const rewriteCandidate = (candidate: string) =>
+        normalizeModulePath(candidate).startsWith(installedCoreRoot + '/')
+            ? activeCoreRoot + normalizeModulePath(candidate).substring(installedCoreRoot.length)
+            : candidate;
+
+    return Object.fromEntries(
+        Object.entries(aliases).map(([alias, value]) => [
+            alias,
+            Array.isArray(value) ? value.map(rewriteCandidate) : rewriteCandidate(value),
+        ]),
+    );
+};
 
 const getModulePath = (module: Module) => {
     const resource = typeof module.nameForCondition === 'function' ? module.nameForCondition() : undefined;
@@ -58,6 +76,8 @@ export default function createCompiler(
     logVerbose(`Creating compiler for client (${mode}).`);
     const dev = mode === 'dev';
     const outputPath = app.outputPath(outputTarget);
+    const installedCoreRoot = path.join(app.paths.root, 'node_modules', 'proteum');
+    const frameworkRoots = [cli.paths.core.root, installedCoreRoot];
 
     const commonConfig = createCommonConfig(app, 'client', mode, outputTarget);
 
@@ -73,11 +93,12 @@ export default function createCompiler(
 
     // Convert tsconfig paths into bundler aliases.
     const { aliases } = app.aliases.client.forWebpack({ modulesPath: app.paths.root + '/node_modules' });
+    const resolvedAliases = rewriteFrameworkAliasTargets(app, aliases);
 
     // We're not supposed in any case to import server libs from client
-    delete aliases['@server'];
-    delete aliases['@/server'];
-    const rspackAliases = toRspackAliases(aliases);
+    delete resolvedAliases['@server'];
+    delete resolvedAliases['@/server'];
+    const rspackAliases = toRspackAliases(resolvedAliases);
     rspackAliases['@/client/router$'] = cli.paths.core.root + '/client/router.ts';
     rspackAliases['preact/jsx-runtime$'] = resolveFromAppOrCore(app, 'preact/jsx-runtime');
     rspackAliases['react/jsx-runtime$'] = resolveFromAppOrCore(app, 'preact/jsx-runtime');
@@ -133,16 +154,16 @@ export default function createCompiler(
                     test: ssrScriptPattern,
                     include: [
                         app.paths.root + '/client',
-                        cli.paths.core.root + '/client',
                         app.paths.client.generated,
 
                         app.paths.root + '/common',
-                        cli.paths.core.root + '/common',
                         app.paths.common.generated,
 
                         app.paths.root + '/server',
-                        cli.paths.core.root + '/server',
                         app.paths.server.generated,
+                        ...frameworkRoots.map((rootPath) => rootPath + '/client'),
+                        ...frameworkRoots.map((rootPath) => rootPath + '/common'),
+                        ...frameworkRoots.map((rootPath) => rootPath + '/server'),
                     ],
                     loader: path.join(
                         cli.paths.core.root,
@@ -157,17 +178,18 @@ export default function createCompiler(
                     test: regex.scripts,
                     include: [
                         app.paths.root + '/client',
-                        cli.paths.core.root + '/client',
                         app.paths.client.generated,
 
                         app.paths.root + '/common',
-                        cli.paths.core.root + '/common',
                         app.paths.common.generated,
 
                         // Prisma 7 generates browser-safe TypeScript entrypoints under var/prisma.
                         app.paths.root + '/var/prisma',
 
                         app.paths.server.generated + '/models.ts',
+                        ...frameworkRoots.map((rootPath) => rootPath + '/client'),
+                        ...frameworkRoots.map((rootPath) => rootPath + '/common'),
+                        ...frameworkRoots.map((rootPath) => rootPath + '/server'),
                     ],
                     rules: require('../common/scripts')({ app, side: 'client', dev }),
                 },

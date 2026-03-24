@@ -155,6 +155,7 @@ async function startApp(app: App) {
                         await renderServerReadyBanner({
                             appName: getDevAppName(app),
                             publicUrl: message.publicUrl,
+                            routerPort: app.env.router.port,
                         }),
                     );
                 })();

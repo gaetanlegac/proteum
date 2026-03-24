@@ -28,7 +28,7 @@ Proteum combines:
 - **Explicit request entrypoints.** Controllers are classes. Request access is explicit through `this.request`.
 - **Local validation.** Validate handler input inside the handler with `this.input(schema)`.
 - **Deterministic generation.** Proteum owns `.proteum/` and regenerates it from source.
-- **Explainability matters.** `proteum explain` and `proteum doctor` expose the framework view of your app.
+- **Explainability matters.** `proteum explain`, `proteum doctor`, and `proteum trace` expose the framework view of your app and its live requests.
 - **SEO is not an afterthought.** Identity, routes, layouts, and SSR data are part of the app contract.
 
 ## What a Proteum App Looks Like
@@ -236,6 +236,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum build --prod` | Produce the production server and client bundles into `bin/` |
 | `proteum doctor` | Inspect manifest diagnostics |
 | `proteum explain` | Explain routes, controllers, services, layouts, conventions, and env |
+| `proteum trace` | Inspect live dev-only request traces from the running SSR server |
 | `proteum init` | Experimental project scaffolding when scaffold assets are installed |
 
 Recommended daily workflow:
@@ -255,7 +256,47 @@ proteum doctor --json
 proteum explain
 proteum explain --routes --controllers
 proteum explain --all --json
+proteum trace requests
+proteum trace arm --capture deep
+proteum trace latest
 ```
+
+## Request Tracing
+
+Proteum includes a dev-only in-memory request trace buffer for routing, controller, context, SSR, and render debugging.
+
+- `proteum trace requests`: list the most recent request summaries
+- `proteum trace latest`: show the latest captured request
+- `proteum trace show <requestId>`: inspect one trace in detail
+- `proteum trace arm --capture deep`: force the next request into deep capture mode
+- `proteum trace export <requestId>`: write one trace to disk
+- `proteum trace latest --url http://127.0.0.1:3010`: target a non-standard dev base URL directly
+
+Default behavior:
+
+- tracing is enabled only in `profile: dev`
+- traces live in memory and are bounded by `trace.requestsLimit` and `trace.eventsLimit`
+- payloads are summarized, long strings are truncated, and sensitive fields such as cookies, passwords, and tokens are redacted
+- `persistOnError` can export crashing requests under `var/traces/`
+
+`env.yaml` example:
+
+```yaml
+trace:
+  enable: true
+  requestsLimit: 200
+  eventsLimit: 800
+  capture: resolve
+  persistOnError: true
+```
+
+Capture modes:
+
+- `summary`: request lifecycle plus high-signal events
+- `resolve`: adds route resolution and controller/context steps
+- `deep`: adds route skip reasons and deeper payload summaries for one request investigation
+
+The trace CLI talks to the running dev server over the dev-only `__proteum/trace` HTTP endpoints. Use `--port` for a different local port or `--url` when the host itself is non-standard. For the full guide, see [docs/request-tracing.md](docs/request-tracing.md).
 
 ## LLM-Friendly By Design
 

@@ -62,6 +62,17 @@ export default class ServerPage<TRouter extends TServerRouter = TServerRouter> e
         // Ex: runtime added scripts, title, metas, ....
 
         const context = this.context as TPageRenderContext & TRouterContext<TRouter>;
+        const requestId = context.response.request.id;
+        this.app.container.Trace.record(
+            requestId,
+            'render.start',
+            {
+                chunkId: this.chunkId || '',
+                title: this.title || '',
+                routeId: this.route.options['id'] || '',
+            },
+            'summary',
+        );
         const html = renderToString(
             <App context={context as Parameters<typeof App>[0]['context'] & TRouterContext<TRouter>} />,
         );
@@ -82,7 +93,22 @@ export default class ServerPage<TRouter extends TServerRouter = TServerRouter> e
         if (page.theme)
             attrsBody.className += ' ' + page.theme;*/
 
-        return this.router.render.page(html, this, context.response);
+        return this.router.render.page(html, this, context.response).then((document) => {
+            this.app.container.Trace.record(
+                requestId,
+                'render.end',
+                {
+                    chunkId: this.chunkId || '',
+                    htmlLength: html.length,
+                    documentLength: document.length,
+                    styleCount: this.style.length,
+                    scriptCount: this.scripts.length,
+                },
+                'summary',
+            );
+
+            return document;
+        });
     }
 
     /*----------------------------------

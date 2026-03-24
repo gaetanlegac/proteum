@@ -67,6 +67,13 @@ export type TEnvConfig = {
 
     router: { port: number; domains: TDomainsList };
     console: { enable: boolean; debug: boolean; bufferLimit: number; level: TLogProfile };
+    trace: {
+        enable: boolean;
+        requestsLimit: number;
+        eventsLimit: number;
+        capture: 'summary' | 'resolve' | 'deep';
+        persistOnError: boolean;
+    };
 };
 
 type AppIdentityConfig = {
@@ -126,9 +133,17 @@ export default class ConfigParser {
         const envFileName = this.appDir + '/env.yaml';
         const envFile = this.loadYaml(envFileName);
         const routerPortOverride = getRouterPortOverride();
+        const traceConfig = envFile.trace || {};
         return {
             ...envFile,
             router: routerPortOverride === undefined ? envFile.router : { ...envFile.router, port: routerPortOverride },
+            trace: {
+                enable: traceConfig.enable ?? envFile.profile === 'dev',
+                requestsLimit: traceConfig.requestsLimit ?? 200,
+                eventsLimit: traceConfig.eventsLimit ?? 800,
+                capture: traceConfig.capture ?? 'resolve',
+                persistOnError: traceConfig.persistOnError ?? envFile.profile === 'dev',
+            },
             version: BUILD_DATE,
         };
     }
