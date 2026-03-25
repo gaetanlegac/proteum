@@ -7,9 +7,6 @@ import type { default as sharp, Sharp } from 'sharp';
 import fs from 'fs-extra';
 import got, { Method, Options, Response as GotResponse } from 'got';
 
-// Node
-import request from 'request';
-
 // Core: general
 import type { Application } from '@server/app/index';
 import Service from '@server/app/service';
@@ -109,14 +106,10 @@ export default class FetchService extends Service<Config, Hooks, Application, Ap
     ----------------------------------*/
 
     public toBuffer(uri: string): Promise<Buffer> {
-        return new Promise<Buffer>((resolve, reject) => {
-            request(uri, { encoding: null }, (err, res, body) => {
-                if (err) return reject(err);
+        return got(uri, { responseType: 'buffer', throwHttpErrors: false }).then((response) => {
+            if (!response.body || response.body.length === 0) throw new Error(`Body is empty for ${uri}.`);
 
-                if (!body) return reject(`Body is empty for ${uri}.`);
-
-                resolve(body);
-            });
+            return response.body;
         });
     }
 

@@ -135,8 +135,6 @@ export default class Console {
         private container: typeof ApplicationContainer,
         private config: Config,
     ) {
-        console.log('Setting up Console shell module.');
-
         const origLog = console.log;
 
         const Env = container.Environment;

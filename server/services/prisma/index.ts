@@ -104,7 +104,7 @@ export default class ModelsManager extends Service<Config, Hooks, Application, A
     public constructor(...args: TServiceArgs<ModelsManager>) {
         super(...args);
 
-        dotenv.config();
+        dotenv.config({ quiet: true });
 
         const databaseUrl = process.env.DATABASE_URL;
         if (!databaseUrl)
