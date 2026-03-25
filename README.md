@@ -299,6 +299,7 @@ Default behavior:
 - traces live in memory and are bounded by `TRACE_REQUESTS_LIMIT` and `TRACE_EVENTS_LIMIT`
 - payloads are summarized, long strings are truncated, and sensitive fields such as cookies, passwords, and tokens are redacted
 - `TRACE_PERSIST_ON_ERROR` can export crashing requests under `var/traces/`
+- `proteum dev` removes auto-persisted crash traces from `var/traces/` when the dev session stops
 
 Trace env example:
 

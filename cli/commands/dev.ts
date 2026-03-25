@@ -5,6 +5,7 @@
 // Npm
 import path from 'path';
 import { spawn, ChildProcess } from 'child_process';
+import fs from 'fs-extra';
 
 // Cor elibs
 import cli from '..';
@@ -31,7 +32,7 @@ import { app, App } from '../app';
 ----------------------------------*/
 
 // Watch rules shared by the dev compiler and hot reload gate.
-const ignoredWatchPathPatterns = /(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)|(\.proteum\/)/;
+const ignoredWatchPathPatterns = /(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)|(\.proteum\/)|(\/var\/traces\/)/;
 const hotReloadableServerPathPatterns = [
     /^client\/pages\//,
     /^client\/components\//,
@@ -109,6 +110,22 @@ const createIgnoredWatchPattern = (outputPaths: string[]) =>
     );
 const getDevAppName = (app: App) =>
     app.identity.web?.fullTitle || app.identity.web?.title || app.identity.name || app.packageJson.name || app.paths.root;
+
+const cleanupPersistedDevTraces = async (app: App) => {
+    const tracesRoot = path.join(app.paths.root, 'var', 'traces');
+    if (!(await fs.pathExists(tracesRoot))) return;
+
+    const entries = await fs.readdir(tracesRoot);
+    const removableEntries = entries.filter((entry) => entry !== 'exports');
+    if (removableEntries.length === 0) return;
+
+    await Promise.all(removableEntries.map((entry) => fs.remove(path.join(tracesRoot, entry))));
+
+    const remainingEntries = await fs.readdir(tracesRoot).catch(() => []);
+    if (remainingEntries.length === 0) {
+        await fs.remove(tracesRoot);
+    }
+};
 
 const signalAppProcess = (child: ChildProcess, signal: NodeJS.Signals) => {
     try {
@@ -353,6 +370,7 @@ export const run = async () => {
             await closeWatching(watching);
             compiler.dispose();
             await stopApp(reason);
+            await cleanupPersistedDevTraces(app);
             await devEventServer.close();
         })();
 

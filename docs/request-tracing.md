@@ -76,6 +76,8 @@ Notes:
 - `capture` defaults to `resolve`
 - `requestsLimit` defaults to `200`
 - `eventsLimit` defaults to `800`
+- `proteum dev` removes auto-persisted crash traces from `var/traces/` when the dev session stops
+- explicit `proteum trace export` files under `var/traces/exports/` are left in place
 
 ## Memory Model
 
