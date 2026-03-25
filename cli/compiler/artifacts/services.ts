@@ -33,6 +33,14 @@ type TParsedAppBootstrap = {
 };
 
 type TServicesAvailable = Record<string, TServiceMetas>;
+type TCommandServiceStubSource = {
+    aliasImportPath: string;
+    filepath: string;
+};
+type TGeneratedCommandServiceStubs = {
+    declarations: string;
+    typeNamesByAliasImportPath: Map<string, string>;
+};
 
 const buildServicesAvailable = (): TServicesAvailable => {
     const searchDirs = [
@@ -309,6 +317,251 @@ const parseAppBootstrap = (servicesAvailable: TServicesAvailable): TParsedAppBoo
     return { rootServices, routerPlugins };
 };
 
+const commandServiceSearchRoots = [
+    { root: normalizeAbsolutePath(path.join(cli.paths.core.root, 'server', 'services')), prefix: '@server/services/' },
+    { root: normalizeAbsolutePath(path.join(app.paths.root, 'server', 'services')), prefix: '@/server/services/' },
+];
+
+const resolveExistingModuleFilepath = (importPath: string) => {
+    const candidates = [importPath, `${importPath}.ts`, `${importPath}.tsx`, path.join(importPath, 'index.ts'), path.join(importPath, 'index.tsx')];
+
+    for (const candidate of candidates) {
+        if (!fs.existsSync(candidate)) continue;
+        if (!fs.statSync(candidate).isFile()) continue;
+
+        return normalizeAbsolutePath(candidate);
+    }
+
+    return undefined;
+};
+
+const getCommandServiceAliasFromFilepath = (filepath: string) => {
+    const normalizedFilepath = normalizeAbsolutePath(filepath);
+
+    for (const searchRoot of commandServiceSearchRoots) {
+        if (!normalizedFilepath.startsWith(searchRoot.root + '/')) continue;
+
+        let relativePath = normalizedFilepath.substring(searchRoot.root.length + 1).replace(/\.(ts|tsx)$/, '');
+        if (relativePath.endsWith('/index')) relativePath = relativePath.substring(0, relativePath.length - '/index'.length);
+
+        return searchRoot.prefix + relativePath;
+    }
+
+    return undefined;
+};
+
+const resolveCommandServiceStubSource = (
+    importPath: string,
+    sourceFilepath?: string,
+): TCommandServiceStubSource | undefined => {
+    if (importPath.startsWith('./') || importPath.startsWith('../')) {
+        if (!sourceFilepath) return undefined;
+
+        const resolvedFilepath = resolveExistingModuleFilepath(path.resolve(path.dirname(sourceFilepath), importPath));
+        if (!resolvedFilepath) return undefined;
+
+        const aliasImportPath = getCommandServiceAliasFromFilepath(resolvedFilepath);
+        if (!aliasImportPath) return undefined;
+
+        return { aliasImportPath, filepath: resolvedFilepath };
+    }
+
+    const searchRoot = commandServiceSearchRoots.find((entry) => importPath.startsWith(entry.prefix));
+    if (!searchRoot) return undefined;
+
+    const relativeImportPath = importPath.substring(searchRoot.prefix.length);
+    const resolvedFilepath = resolveExistingModuleFilepath(path.join(searchRoot.root, relativeImportPath));
+    if (!resolvedFilepath) return undefined;
+
+    const aliasImportPath = getCommandServiceAliasFromFilepath(resolvedFilepath);
+    if (!aliasImportPath) return undefined;
+
+    return { aliasImportPath, filepath: resolvedFilepath };
+};
+
+const getCommandServiceStubTypeName = (aliasImportPath: string) =>
+    `ProteumCommandService_${aliasImportPath.replace(/[^A-Za-z0-9_$]+/g, '_')}`;
+
+const isPrivateOrProtectedInstanceMember = (member: ts.ClassElement) =>
+    hasModifier(member, ts.SyntaxKind.PrivateKeyword) ||
+    hasModifier(member, ts.SyntaxKind.ProtectedKeyword) ||
+    hasModifier(member, ts.SyntaxKind.StaticKeyword);
+
+const getPropertyDeclarationType = (
+    property: ts.PropertyDeclaration,
+    imports: Map<string, string>,
+    sourceFilepath: string,
+    getStubTypeName: (source: TCommandServiceStubSource) => string,
+    enqueueStub: (source: TCommandServiceStubSource) => void,
+) => {
+    const initializer = property.initializer ? unwrapExpression(property.initializer) : undefined;
+
+    if (initializer && ts.isNewExpression(initializer)) {
+        if (ts.isIdentifier(initializer.expression)) {
+            const nestedImportPath = imports.get(initializer.expression.text);
+            if (nestedImportPath) {
+                const nestedSource = resolveCommandServiceStubSource(nestedImportPath, sourceFilepath);
+
+                if (nestedSource) {
+                    enqueueStub(nestedSource);
+                    return getStubTypeName(nestedSource);
+                }
+            }
+        }
+    }
+
+    if (!initializer) return 'any';
+    if (ts.isArrayLiteralExpression(initializer)) return 'any[]';
+    if (ts.isObjectLiteralExpression(initializer)) return 'Record<string, any>';
+    if (ts.isStringLiteral(initializer) || ts.isNoSubstitutionTemplateLiteral(initializer)) return 'string';
+    if (ts.isNumericLiteral(initializer)) return 'number';
+    if (initializer.kind === ts.SyntaxKind.TrueKeyword || initializer.kind === ts.SyntaxKind.FalseKeyword) return 'boolean';
+    if (initializer.kind === ts.SyntaxKind.NullKeyword) return 'null';
+
+    return 'any';
+};
+
+const getCommandMethodParameter = (parameter: ts.ParameterDeclaration, index: number) => {
+    const parameterName = ts.isIdentifier(parameter.name) ? parameter.name.text : `arg${index}`;
+
+    if (parameter.dotDotDotToken) return `...${parameterName}: any[]`;
+
+    return `${parameterName}${parameter.questionToken || parameter.initializer ? '?' : ''}: any`;
+};
+
+const isPromiseTypeNode = (typeNode?: ts.TypeNode) =>
+    !!typeNode &&
+    ts.isTypeReferenceNode(typeNode) &&
+    ts.isIdentifier(typeNode.typeName) &&
+    typeNode.typeName.text === 'Promise';
+
+const isArrayLikeTypeNode = (typeNode?: ts.TypeNode): boolean => {
+    if (!typeNode) return false;
+    if (ts.isArrayTypeNode(typeNode)) return true;
+
+    if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
+        if (typeNode.typeName.text === 'Array' || typeNode.typeName.text === 'ReadonlyArray') return true;
+
+        if (typeNode.typeName.text === 'Promise' && typeNode.typeArguments?.[0]) {
+            return isArrayLikeTypeNode(typeNode.typeArguments[0]);
+        }
+    }
+
+    return false;
+};
+
+const getCommandMethodReturnType = (method: ts.MethodDeclaration) => {
+    const isPromise = hasModifier(method, ts.SyntaxKind.AsyncKeyword) || isPromiseTypeNode(method.type);
+    const containsArrayResult = isArrayLikeTypeNode(method.type);
+
+    if (isPromise && containsArrayResult) return 'Promise<any[]>';
+    if (isPromise) return 'Promise<any>';
+    if (containsArrayResult) return 'any[]';
+
+    return 'any';
+};
+
+const createCommandServiceStubDeclarations = (rootServices: TParsedService[]): TGeneratedCommandServiceStubs => {
+    const stubs = new Map<string, string>();
+    const typeNamesByAliasImportPath = new Map<string, string>();
+    const pendingSources: TCommandServiceStubSource[] = [];
+    const seenSources = new Set<string>();
+    const getStubTypeName = (source: TCommandServiceStubSource) => {
+        const existingTypeName = typeNamesByAliasImportPath.get(source.aliasImportPath);
+        if (existingTypeName) return existingTypeName;
+
+        const typeName = getCommandServiceStubTypeName(source.aliasImportPath);
+        typeNamesByAliasImportPath.set(source.aliasImportPath, typeName);
+
+        return typeName;
+    };
+    const enqueueStub = (source: TCommandServiceStubSource) => {
+        if (seenSources.has(source.aliasImportPath)) return;
+
+        seenSources.add(source.aliasImportPath);
+        pendingSources.push(source);
+    };
+
+    for (const rootService of rootServices) {
+        const source = resolveCommandServiceStubSource(rootService.meta.importationPath);
+        if (source) enqueueStub(source);
+    }
+
+    while (pendingSources.length > 0) {
+        const source = pendingSources.shift()!;
+        const sourceFile = createSourceFile(source.filepath);
+        const imports = buildImportIndex(sourceFile);
+        let defaultClass: ts.ClassDeclaration | undefined;
+
+        try {
+            defaultClass = getDefaultExportClassDeclaration(sourceFile);
+        } catch {
+            defaultClass = undefined;
+        }
+
+        if (!defaultClass) {
+            stubs.set(
+                source.aliasImportPath,
+                `declare class ${getStubTypeName(source)} {
+    app: import("@/server/index").default;
+    [key: string]: any;
+}`,
+            );
+            continue;
+        }
+
+        const className = getStubTypeName(source);
+        const classMembers = [`    app: import("@/server/index").default;`];
+
+        for (const member of defaultClass.members) {
+            if (isPrivateOrProtectedInstanceMember(member)) continue;
+
+            if (ts.isPropertyDeclaration(member)) {
+                const propertyName = getPropertyNameText(member.name);
+                if (!propertyName) continue;
+
+                classMembers.push(
+                    `    ${propertyName}: ${getPropertyDeclarationType(member, imports, source.filepath, getStubTypeName, enqueueStub)};`,
+                );
+                continue;
+            }
+
+            if (ts.isGetAccessorDeclaration(member)) {
+                const propertyName = getPropertyNameText(member.name);
+                if (!propertyName) continue;
+
+                classMembers.push(`    ${propertyName}: any;`);
+                continue;
+            }
+
+            if (ts.isMethodDeclaration(member)) {
+                const methodName = getPropertyNameText(member.name);
+                if (!methodName) continue;
+
+                const parameters = member.parameters.map((parameter, index) => getCommandMethodParameter(parameter, index)).join(', ');
+                const returnType = getCommandMethodReturnType(member);
+
+                classMembers.push(`    ${methodName}(${parameters}): ${returnType};`);
+            }
+        }
+
+        stubs.set(
+            source.aliasImportPath,
+            `declare class ${className} {
+${classMembers.join('\n')}
+}`,
+        );
+    }
+
+    return {
+        declarations: Array.from(stubs.entries())
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([, declaration]) => declaration)
+            .join('\n\n'),
+        typeNamesByAliasImportPath,
+    };
+};
+
 const resolveManifestService = (service: TParsedService, parent: string): TProteumManifestService => ({
     kind: 'service',
     id: service.meta.id,
@@ -329,6 +582,7 @@ export const generateServiceArtifacts = () => {
     const containerServices = app.containerServices.map((serviceName) => "'" + serviceName + "'").join('|');
     const appServices = rootServices.map((service) => resolveManifestService(service, 'app'));
     const routerPluginServices = routerPlugins.map((service) => resolveManifestService(service, 'Router.plugins'));
+    const commandServiceStubs = createCommandServiceStubDeclarations(rootServices);
 
     writeIfChanged(
         path.join(app.paths.client.generated, 'services.d.ts'),
@@ -418,6 +672,43 @@ declare module '@models/types' {
     );
 
     fs.removeSync(path.join(app.paths.server.generated, 'app.ts'));
+
+    writeIfChanged(
+        path.join(app.paths.server.generated, 'commands.d.ts'),
+        `declare type ${appClassIdentifier} = import("@/server/index").default;
+
+declare module "@models/types" {
+    const Models: any;
+    export = Models;
+}
+
+export {};
+`,
+    );
+
+    writeIfChanged(
+        path.join(app.paths.server.generated, 'commands.app.d.ts'),
+        `${commandServiceStubs.declarations}
+
+declare class ${appClassIdentifier} implements import("@server/app/commands").TCommandApplication {
+    env: import("@server/app/commands").TCommandApplication["env"];
+    identity: import("@server/app/commands").TCommandApplication["identity"];
+    getRootServices: import("@server/app/commands").TCommandApplication["getRootServices"];
+    findService?: import("@server/app/commands").TCommandApplication["findService"];
+    models?: import("@server/app/commands").TCommandApplication["models"];
+    Models?: import("@server/app/commands").TCommandApplication["Models"];
+${rootServices
+    .map((service) => {
+        const typeName = commandServiceStubs.typeNamesByAliasImportPath.get(service.meta.importationPath) || 'any';
+
+        return `    ${service.registeredName}: ${typeName};`;
+    })
+    .join('\n')}
+}
+
+export default ${appClassIdentifier};
+`,
+    );
 
     writeIfChanged(
         path.join(app.paths.server.generated, 'models.ts'),

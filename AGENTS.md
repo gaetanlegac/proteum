@@ -1,71 +1,59 @@
 # Proteum Core
 
-This file governs work in the Proteum framework repository itself.
+This file governs work in the Proteum framework repository itself. For downstream app rules, use `agents/framework/AGENTS.md`.
 
-For the canonical Proteum app contract used by downstream projects, use `agents/framework/AGENTS.md`.
+## Priorities
 
-## Vision
-
-Proteum aims to become the first SSR / SEO / TypeScript framework built primarily for non-human developers and AI agents.
-
-When tradeoffs exist, prioritize framework decisions in this order:
+When tradeoffs exist, optimize in this order:
 
 1. Reduce shipped client bundle size and unnecessary runtime code.
-2. Increase build-time, server-time, and browser-time performance.
-3. Improve SEO output and LLM-friendly, crawlable, semantic HTML.
+2. Improve build-time, server-time, and browser-time performance.
+3. Improve SEO output and crawlable, semantic HTML.
 4. Preserve explicit, typed, machine-readable contracts for agents.
 
-When working on Proteum itself:
+## Core Rules
 
-- prefer explicit, typed, machine-readable contracts over runtime magic or hidden conventions
-- keep `server/index.ts` as the canonical type root for app services, router services, request context, and models
-- keep generated code deterministic, auditable, and easy to map back to source files
-- prefer typed request traces and manifest-backed diagnostics over ad hoc runtime logging
-- prefer deleting obsolete compatibility layers, helper indirection, and unused packages over preserving dead paths
+- Prefer explicit typed contracts over runtime magic or hidden conventions.
+- Keep `server/index.ts` as the canonical type root for services, router context, request context, and models.
+- Keep generated code deterministic, auditable, and easy to map back to source.
+- Prefer typed traces and manifest-backed diagnostics over ad hoc logging.
+- Check existing repo dependencies and npm before inventing a new helper, runtime, plugin, or abstraction.
+- Prefer established, flexible, well-typed packages; build custom only when packages fail on bundle size, performance, SSR behavior, typing, flexibility, or maintenance risk.
+- Delete obsolete compatibility layers, helper indirection, and unused packages when safe.
 
 ## Workflow
 
-- Every time I input error messages without any instructions, do not implement fixes. Instead, investigate the potential causes and, for each one:
-  1. evaluate or quantify the probability
-  2. explain why
-  3. suggest how to fix it
-- When you have finished your work, summarize in one top-level short sentence all the changes you made since the beginning of the conversation. Output as `Commit message`. Max 90 characters.
+- If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it.
+- End your work with `Commit message`: one short top-level sentence, max 90 characters.
 
-## Framework Change Rules
+## Core Changes
 
-When changing Proteum itself:
-
-- validate the change against these two reference apps:
+- Validate framework changes against both reference apps:
   - `/Users/gaetan/Desktop/Projets/crosspath/platform`
   - `/Users/gaetan/Desktop/Projets/unique.domains/website`
-- inspect how both apps currently use the feature, runtime, API, compiler behavior, or generated files before proposing or implementing a core change
-- prefer removing framework magic when the same result can be expressed with explicit runtime contracts, generated code, or typed context
-- if a webpack plugin, Babel plugin, alias, helper, runtime service, or npm package is not meaningfully used by both apps, challenge its existence
-- keep core changes aligned with the explicit controller/page architecture described in `agents/framework/AGENTS.md`
-- remove related dead docs, config flags, helper files, and compatibility branches in the same pass when safe
+- Inspect how both apps currently use the touched feature, runtime, API, compiler behavior, or generated output before proposing or implementing changes.
+- Keep core changes aligned with the explicit controller/page architecture in `agents/framework/AGENTS.md`.
+- Prefer removing framework magic when the same result can be expressed with explicit contracts, generated code, or typed context.
+- Challenge any webpack plugin, Babel plugin, alias, helper, runtime service, or npm package that is not meaningfully used by both apps.
+- Remove dead docs, flags, helper files, and compatibility branches in the same pass when safe.
 
-## Proposal Rules
+## Proposals
 
-When proposing a core change:
+- Start from the concrete mismatch or risk visible in the reference apps.
+- Name the npm packages or package categories evaluated first when adding capability or infrastructure.
+- Show the target API with real Proteum-style client and server usage.
+- Separate the ideal end state from any migration rule.
+- Name the source files that drive generated artifacts when generation changes.
+- Explicitly name removed behavior and why it is obsolete.
 
-- start from the concrete mismatch or risk seen in the reference apps
-- show the target API with real client and server usage examples that match current Proteum conventions
-- distinguish the ideal end-state API from any transitional migration rule
-- explain which source files drive generated artifacts when generation changes
-- explicitly name removed behavior and why it is obsolete
+## Runtime Validation
 
-## Validation
+Do not stop at static analysis for routing, controllers, generated code, SSR, client runtime, services, webpack, Babel, or emitted assets.
 
-Do not stop at static analysis when the change affects runtime behavior.
+- Run `npx proteum dev --no-cache --port 3xxx` in both reference apps on explicit ports.
+- For request-time behavior, arm traces with `proteum trace arm --capture deep`, reproduce once, then inspect `proteum trace latest` or `proteum trace show <requestId>`.
+- Open the real pages with Playwright.
+- Inspect browser console errors and warnings.
+- Inspect server startup and runtime errors.
 
-If a change touches routing, controllers, generated code, SSR, client runtime, services, webpack, Babel, or emitted assets:
-
-- run `npx proteum dev --no-cache --port 3xxx` in both reference apps on explicit ports
-- use `proteum trace arm --capture deep`, reproduce the request once, then inspect `proteum trace latest` or `proteum trace show <requestId>` when the issue is request-time behavior
-- open the real pages with Playwright
-- inspect browser console errors and warnings
-- inspect server startup and runtime errors
-
-Build-only checks are supplements, not final proof.
-
-Keep iterating until both apps boot and the browser console shows no new framework regressions. Treat unrelated environment warnings separately and call them out clearly.
+Build-only checks are supplementary. Iterate until both apps boot and show no new framework regressions, and call unrelated environment warnings out separately.

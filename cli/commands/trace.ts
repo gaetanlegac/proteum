@@ -118,6 +118,7 @@ const renderTraceSummary = (request: TRequestTraceListItem) =>
         `status=${request.statusCode ?? 'pending'}`,
         `capture=${request.capture}`,
         `events=${request.eventCount}`,
+        `calls=${request.callCount}`,
         request.user ? `user=${request.user}` : '',
         request.errorMessage ? `error=${request.errorMessage}` : '',
     ]
@@ -131,6 +132,13 @@ const renderTrace = (request: TRequestTrace) =>
         `- started=${request.startedAt} durationMs=${request.durationMs ?? 'pending'} events=${request.events.length} dropped=${request.droppedEvents}`,
         ...(request.user ? [`- user=${request.user}`] : []),
         ...(request.persistedFilepath ? [`- persisted=${request.persistedFilepath}`] : []),
+        'Calls',
+        ...(request.calls.length === 0
+            ? ['- none']
+            : request.calls.map(
+                  (call) =>
+                      `- ${call.origin} ${call.label} ${call.method} ${call.path} status=${call.statusCode ?? 'pending'} durationMs=${call.durationMs ?? 'pending'} req=${call.requestDataKeys.join(',')} res=${call.resultKeys.join(',')}`,
+              )),
         'Events',
         ...request.events.map(
             (event) =>

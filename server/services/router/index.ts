@@ -36,6 +36,12 @@ import BaseRouter, {
 import type { TSsrUnresolvedRoute, TRegisterPageArgs } from '@common/router/contracts';
 import { buildRegex, getRegisterPageArgs } from '@common/router/register';
 import { layoutsList, getLayout } from '@common/router/layouts';
+import {
+    profilerOriginHeader,
+    profilerParentRequestIdHeader,
+    profilerSessionIdHeader,
+    profilerTraceRequestIdHeader,
+} from '@common/dev/profiler';
 import { TFetcherList } from '@common/router/request/api';
 import type { TFrontRenderer } from '@common/router/response/page';
 
@@ -587,7 +593,11 @@ export default class ServerRouter<
             url: request.url,
             headers: request.headers,
             data: request.data,
+            profilerSessionId: request.headers[profilerSessionIdHeader] || undefined,
+            profilerOrigin: request.headers[profilerOriginHeader] || undefined,
+            profilerParentRequestId: request.headers[profilerParentRequestIdHeader] || undefined,
         });
+        if (this.app.container.Trace.isEnabled()) res.setHeader(profilerTraceRequestIdHeader, request.id);
 
         let response: ServerResponse<this>;
         try {
@@ -899,10 +909,36 @@ export default class ServerRouter<
             if (!fetcher || !('method' in fetcher)) continue;
 
             const { method, path, data } = fetcher;
+            const callId = this.app.container.Trace.startCall(request.id, {
+                origin: 'api-batch-fetcher',
+                label: id,
+                method,
+                path,
+                fetcherId: id,
+                requestDataKeys: data && typeof data === 'object' ? Object.keys(data) : [],
+                requestData: data,
+            });
 
-            const response = await this.resolve(request.children(method, path, data));
-
-            responseData[id] = response.data;
+            try {
+                const response = await this.resolve(request.children(method, path, data));
+                responseData[id] = response.data;
+                this.app.container.Trace.finishCall(request.id, callId, {
+                    statusCode: response.statusCode,
+                    resultKeys:
+                        response.data && typeof response.data === 'object' && !Array.isArray(response.data)
+                            ? Object.keys(response.data as Record<string, unknown>)
+                            : [],
+                    result: response.data,
+                });
+            } catch (error) {
+                const typedError = error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown error');
+                const statusCode = 'http' in typedError ? Number((typedError as Error & { http?: number }).http) : undefined;
+                this.app.container.Trace.finishCall(request.id, callId, {
+                    statusCode: Number.isFinite(statusCode) ? statusCode : undefined,
+                    errorMessage: typedError.message,
+                });
+                throw error;
+            }
 
             // TODO: merge response.headers ?
         }
@@ -929,7 +965,7 @@ export default class ServerRouter<
             'error',
             {
                 code,
-                error: error instanceof Error ? error : new Error(error.message),
+                error,
             },
             'summary',
         );

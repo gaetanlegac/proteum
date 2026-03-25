@@ -18,6 +18,12 @@ declare module '@/server' {
     export = InstanceType<ServerApplicationClass>;
 }
 
+declare module '@/server/index' {
+    import ServerApplicationBase from '../server/app';
+
+    export default class ServerApplication extends ServerApplicationBase {}
+}
+
 declare module '@/client' {
     const ClientApplicationClass: import('../client/app').default;
     export = InstanceType<ClientApplicationClass>;

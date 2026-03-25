@@ -14,6 +14,7 @@ export const proteumCommandNames = [
     'doctor',
     'explain',
     'trace',
+    'command',
 ] as const;
 
 export type TProteumCommandName = (typeof proteumCommandNames)[number];
@@ -46,7 +47,7 @@ export const proteumRecommendedFlow: TRow[] = [
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
-    { title: 'Manifest and contracts', names: ['doctor', 'explain', 'trace'] },
+    { title: 'Manifest and contracts', names: ['doctor', 'explain', 'trace', 'command'] },
     { title: 'Project scaffolding', names: ['init'] },
 ];
 
@@ -171,14 +172,14 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'explain',
         category: 'Manifest and contracts',
         summary: 'Explain the generated Proteum manifest.',
-        usage: 'proteum explain [--all|--app|--conventions|--env|--services|--controllers|--routes|--layouts|--diagnostics] [--json]',
+        usage: 'proteum explain [--all|--app|--conventions|--env|--services|--controllers|--commands|--routes|--layouts|--diagnostics] [--json]',
         bestFor:
-            'Inspecting how source files became generated routes, controllers, layouts, services, and diagnostics without reading compiler internals.',
+            'Inspecting how source files became generated routes, controllers, commands, layouts, services, and diagnostics without reading compiler internals.',
         examples: [
             { description: 'Show the default human summary', command: 'proteum explain' },
             {
-                description: 'Inspect generated routes and controllers together',
-                command: 'proteum explain --routes --controllers',
+                description: 'Inspect generated routes, controllers, and commands together',
+                command: 'proteum explain --routes --controllers --commands',
             },
             { description: 'Emit the selected manifest sections as JSON', command: 'proteum explain --routes --json' },
         ],
@@ -203,6 +204,37 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'This command talks to the running app over the dev-only `__proteum/trace` HTTP endpoints.',
             'Traces are stored in a bounded in-memory buffer with payload summarization and sensitive-field redaction.',
             'Use `--port` when the app is not running on the router port declared in `PORT`, or `--url` when the host itself is non-standard.',
+        ],
+        status: 'experimental',
+    },
+    command: {
+        name: 'command',
+        category: 'Manifest and contracts',
+        summary: 'Run a dev-only app command from /commands or against an existing dev instance.',
+        usage: 'proteum command <path> [--port <port>|--url <baseUrl>] [--json]',
+        bestFor:
+            'Internal testing, debugging, and one-off service execution that should not be exposed as a normal controller or route.',
+        examples: [
+            {
+                description: 'Run a local command through a temporary bundled dev server',
+                command: 'proteum command proteum/diagnostics/ping',
+            },
+            {
+                description: 'Run a command against an existing dev server',
+                command: 'proteum command proteum/diagnostics/ping --port 3101',
+            },
+            {
+                description: 'Emit the command execution as JSON',
+                command: 'proteum command proteum/diagnostics/ping --json',
+            },
+        ],
+        notes: [
+            'Commands live under `./commands/**/*.ts` and default-export a class that extends `{ Commands }` from `@server/app/commands`.',
+            'Methods are addressed by file path plus method name, mirroring controller path generation.',
+            'Proteum creates `./commands/tsconfig.json` and `.proteum/server/commands.d.ts` so `/commands` gets a command-specific alias/type project.',
+            'Prefer `extends Commands` directly inside `/commands`; importing the app class is still supported through a generated command-only `@/server/index` type alias.',
+            'Without `--port` or `--url`, Proteum refreshes generated artifacts, builds the dev output, starts a temporary local dev server, runs the command, and exits.',
+            'With `--port` or `--url`, Proteum talks to the running app over the dev-only `__proteum/commands` HTTP endpoints.',
         ],
         status: 'experimental',
     },

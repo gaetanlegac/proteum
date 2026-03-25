@@ -21,9 +21,16 @@ export default function App({ context }: { context: ClientContext }) {
     const curLayout = context.page?.layout;
     const [layout, setLayout] = React.useState<Layout | false | undefined>(curLayout);
     const [apiData, setApiData] = React.useState<{ [k: string]: any } | null>(context.page?.data || {});
+    const shouldEnableDevProfiler = __DEV__ && typeof window !== 'undefined' && window.dev;
+    const [isDevProfilerMounted, setDevProfilerMounted] = React.useState(false);
 
     // TODO: context.page is always provided in the context on the client side
     if (context.app.side === 'client') context.app.setLayout = setLayout;
+
+    React.useEffect(() => {
+        if (!shouldEnableDevProfiler) return;
+        setDevProfilerMounted(true);
+    }, [shouldEnableDevProfiler]);
 
     const layoutProps: LayoutProps = {
         ...context,
@@ -32,10 +39,14 @@ export default function App({ context }: { context: ClientContext }) {
         menu: undefined,
         children: undefined,
     };
+    const DevProfiler = shouldEnableDevProfiler
+        ? ((require('@client/dev/profiler') as typeof import('@client/dev/profiler')).default as React.ComponentType)
+        : null;
 
     return (
         <ReactClientContext.Provider value={context}>
             <DialogManager />
+            {DevProfiler && isDevProfilerMounted ? <DevProfiler /> : null}
 
             {!layout ? (
                 <RouterComponent service={context.Router} />

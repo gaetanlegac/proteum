@@ -8,6 +8,7 @@ import {
 import { reservedRouteSetupKeys, routeSetupOptionKeys } from '../../../common/router/pageSetup';
 import {
     TProteumManifest,
+    TProteumManifestCommand,
     TProteumManifestController,
     TProteumManifestDiagnostic,
     TProteumManifestLayout,
@@ -17,9 +18,11 @@ import { writeProteumManifest } from '../common/proteumManifest';
 import { normalizeAbsolutePath, normalizePath } from './shared';
 
 const collectManifestDiagnostics = ({
+    commands,
     controllers,
     routes,
 }: {
+    commands: TProteumManifestCommand[];
     controllers: TProteumManifestController[];
     routes: TProteumManifest['routes'];
 }) => {
@@ -173,6 +176,15 @@ const collectManifestDiagnostics = ({
                 .join(', ')}.`,
     });
 
+    trackDuplicates(commands, (command) => command.path, {
+        code: 'command.duplicate-path',
+        level: 'error',
+        message: (command, others) =>
+            `Duplicate command path "${command.path}" also registered in ${others
+                .map((other) => normalizePath(path.relative(app.paths.root, other.filepath)))
+                .join(', ')}.`,
+    });
+
     const postServerRoutesByPath = new Map(
         routes.server
             .filter((route) => route.methodName === 'post' && !!route.path)
@@ -207,18 +219,20 @@ const collectManifestDiagnostics = ({
 export const writeCurrentProteumManifest = ({
     services,
     controllers,
+    commands,
     routes,
     layouts,
 }: {
     services: TProteumManifest['services'];
     controllers: TProteumManifestController[];
+    commands: TProteumManifestCommand[];
     routes: TProteumManifest['routes'];
     layouts: TProteumManifestLayout[];
 }) => {
     const envInspection = inspectProteumEnv(app.paths.root);
 
     const manifest: TProteumManifest = {
-        version: 1,
+        version: 2,
         app: {
             root: normalizeAbsolutePath(app.paths.root),
             coreRoot: normalizeAbsolutePath(cli.paths.core.root),
@@ -257,9 +271,10 @@ export const writeCurrentProteumManifest = ({
         },
         services,
         controllers,
+        commands,
         routes,
         layouts,
-        diagnostics: collectManifestDiagnostics({ controllers, routes }),
+        diagnostics: collectManifestDiagnostics({ commands, controllers, routes }),
     };
 
     writeProteumManifest(app.paths.root, manifest);

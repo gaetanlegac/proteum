@@ -29,9 +29,12 @@
         "outDir": "./bin",
 
         "paths": {
+            "@client/*": [ "../client/*" ],
             "@cli/*": [ "./*" ],
             "@cli/app": [ "./app" ],
-            "@cli": [ "./" ]
+            "@cli": [ "./" ],
+            "@common/*": [ "../common/*" ],
+            "@server/*": [ "../server/*" ]
         },
     },
 

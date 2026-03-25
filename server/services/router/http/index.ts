@@ -21,8 +21,11 @@ import * as csp from 'express-csp-header';
 
 // Core
 import Container from '@server/app/container';
+import type CronManager from '@server/services/cron';
+import type CronTask from '@server/services/cron/CronTask';
 import type { TServerRouter } from '..';
 import { serverHotReloadMessageType } from '@common/dev/serverHotReload';
+import { explainSectionNames } from '@common/dev/diagnostics';
 
 // Middlewaees (core)
 import { isMutipart, MiddlewareFormData } from './multipart';
@@ -230,41 +233,149 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
     }
 
     private registerDevTraceRoutes(routes: express.Express) {
-        if (!this.app.container.Trace.isEnabled()) return;
+        if (!__DEV__ || this.app.env.profile !== 'dev') return;
 
-        routes.get('/__proteum/trace/requests', (req, res) => {
-            const rawLimit = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
-            const parsedLimit = typeof rawLimit === 'string' ? Number.parseInt(rawLimit, 10) : NaN;
-            const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20;
+        if (this.app.container.Trace.isEnabled()) {
+            routes.get('/__proteum/trace/requests', (req, res) => {
+                const rawLimit = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+                const parsedLimit = typeof rawLimit === 'string' ? Number.parseInt(rawLimit, 10) : NaN;
+                const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20;
 
-            res.json({ requests: this.app.container.Trace.listRequests(limit) });
+                res.json({ requests: this.app.container.Trace.listRequests(limit) });
+            });
+
+            routes.get('/__proteum/trace/latest', (_req, res) => {
+                const request = this.app.container.Trace.getLatestRequest();
+                if (!request) {
+                    res.status(404).json({ error: 'No request trace is available yet.' });
+                    return;
+                }
+
+                res.json({ request });
+            });
+
+            routes.get('/__proteum/trace/requests/:id', (req, res) => {
+                const request = this.app.container.Trace.getRequest(req.params.id);
+                if (!request) {
+                    res.status(404).json({ error: `Trace ${req.params.id} was not found.` });
+                    return;
+                }
+
+                res.json({ request });
+            });
+
+            routes.post('/__proteum/trace/arm', (req, res) => {
+                const rawCapture = typeof req.body.capture === 'string' ? req.body.capture : 'deep';
+                const capture = this.app.container.Trace.armNextRequest(rawCapture);
+
+                res.json({ armed: true, capture });
+            });
+        }
+
+        routes.get('/__proteum/explain', (req, res) => {
+            const rawSections = [
+                ...(Array.isArray(req.query.section) ? req.query.section : req.query.section ? [req.query.section] : []),
+                ...(Array.isArray(req.query.sections)
+                    ? req.query.sections.flatMap((value) => (typeof value === 'string' ? value.split(',') : []))
+                    : typeof req.query.sections === 'string'
+                      ? req.query.sections.split(',')
+                      : []),
+            ]
+                .map((value) => (typeof value === 'string' ? value.trim() : ''))
+                .filter(Boolean);
+
+            try {
+                const diagnostics = this.app.getDevDiagnostics();
+                const sections = diagnostics.normalizeExplainSections(rawSections);
+                res.json(diagnostics.explain(sections));
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                const isBadRequest = explainSectionNames.some((sectionName) => message.includes(sectionName)) || message.includes('Unknown explain section');
+                res.status(isBadRequest ? 400 : 500).json({ error: message });
+            }
         });
 
-        routes.get('/__proteum/trace/latest', (_req, res) => {
-            const request = this.app.container.Trace.getLatestRequest();
-            if (!request) {
-                res.status(404).json({ error: 'No request trace is available yet.' });
+        routes.get('/__proteum/doctor', (req, res) => {
+            const rawStrict = Array.isArray(req.query.strict) ? req.query.strict[0] : req.query.strict;
+            const strict = rawStrict === '1' || rawStrict === 'true';
+
+            try {
+                res.json(this.app.getDevDiagnostics().doctor(strict));
+            } catch (error) {
+                res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+            }
+        });
+
+        routes.get('/__proteum/cron/tasks', (_req, res) => {
+            const cron = this.getCronManager();
+            res.json({
+                automaticExecution: cron?.isAutomaticExecutionEnabled() ?? false,
+                tasks: cron?.listTasks() ?? [],
+            });
+        });
+
+        routes.get('/__proteum/commands', (_req, res) => {
+            res.json({ commands: this.app.getDevCommands().list() });
+        });
+
+        routes.post('/__proteum/commands/run', async (req, res) => {
+            const commandPath = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
+            if (!commandPath) {
+                res.status(400).json({ error: 'Command path is required.' });
                 return;
             }
 
-            res.json({ request });
+            try {
+                const execution = await this.app.getDevCommands().run(commandPath);
+                res.json({ execution });
+            } catch (error) {
+                const execution =
+                    error instanceof Error && 'execution' in error && typeof error.execution === 'object'
+                        ? error.execution
+                        : undefined;
+                const statusCode = error instanceof Error && error.name === 'NotFound' ? 404 : 500;
+
+                res.status(statusCode).json({
+                    error: error instanceof Error ? error.message : String(error),
+                    execution,
+                });
+            }
         });
 
-        routes.get('/__proteum/trace/requests/:id', (req, res) => {
-            const request = this.app.container.Trace.getRequest(req.params.id);
-            if (!request) {
-                res.status(404).json({ error: `Trace ${req.params.id} was not found.` });
+        routes.post('/__proteum/cron/tasks/run', async (req, res) => {
+            const cron = this.getCronManager();
+            if (!cron) {
+                res.status(404).json({ error: 'Cron service is not registered for this app.' });
                 return;
             }
 
-            res.json({ request });
-        });
+            const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+            if (!name) {
+                res.status(400).json({ error: 'Cron task name is required.' });
+                return;
+            }
 
-        routes.post('/__proteum/trace/arm', (req, res) => {
-            const rawCapture = typeof req.body.capture === 'string' ? req.body.capture : 'deep';
-            const capture = this.app.container.Trace.armNextRequest(rawCapture);
+            let task: CronTask;
+            try {
+                task = cron.get(name);
+            } catch (error) {
+                res.status(404).json({ error: error instanceof Error ? error.message : String(error) });
+                return;
+            }
 
-            res.json({ armed: true, capture });
+            try {
+                await cron.exec(name);
+                res.json({ task: task.toProfilerTask() });
+            } catch (error) {
+                res.status(500).json({
+                    error: error instanceof Error ? error.message : String(error),
+                    task: task.toProfilerTask(),
+                });
+            }
         });
+    }
+
+    private getCronManager() {
+        return (this.app as typeof this.app & { Cron?: CronManager }).Cron;
     }
 }

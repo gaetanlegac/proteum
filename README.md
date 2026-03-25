@@ -38,6 +38,7 @@ my-app/
   identity.yaml
   .env               # optional file for required local env vars
   package.json
+  commands/
   client/
     pages/
       _layout/
@@ -68,6 +69,7 @@ Important files:
 - `server/index.ts`: default-exported `Application` subclass that instantiates root services and router plugins
 - `client/pages/**`: SSR page entrypoints registered through `Router.page(...)`
 - `server/controllers/**`: request handlers that extend `Controller`
+- `commands/**`: dev-only internal commands that extend `Commands`
 - `server/services/**`: business logic that extends `Service`
 - `.proteum/**`: framework-owned generated contracts and manifests
 
@@ -200,6 +202,35 @@ Controller rules:
 - call business logic through `this.services`, `this.models`, or `this.app`
 - return explicit values instead of relying on ambient globals
 
+## Example: Command
+
+Proteum commands are explicit dev-only internal entrypoints.
+
+```ts
+import { Commands } from '@server/app/commands';
+
+export default class DiagnosticsCommands extends Commands {
+  public async ping() {
+    const { Stats } = this.services;
+
+    return {
+      app: this.app.identity.identifier,
+      domains: await Stats.general(),
+    };
+  }
+}
+```
+
+Command rules:
+
+- files live under `commands/**/*.ts`
+- each file default-exports a class extending `Commands` from `@server/app/commands`
+- methods with bodies become generated dev commands
+- command path comes from the file path plus the method name
+- `export const commandPath = 'Custom/path'` can override the base path when needed
+- `commands/tsconfig.json` and `.proteum/server/commands.d.ts` give `/commands` its own dev-only alias and app typing surface
+- commands run only in dev contexts: `proteum command ...`, the dev profiler, or dev-only `__proteum/commands` endpoints
+
 ## Example: Service
 
 Proteum services keep business logic out of request handlers.
@@ -234,6 +265,7 @@ Typical generated artifacts:
 - `.proteum/client/controllers.ts`
 - `.proteum/client/layouts.ts`
 - `.proteum/common/controllers.ts`
+- `.proteum/server/commands.ts`
 - `.proteum/server/routes.ts`
 - `.proteum/server/controllers.ts`
 
@@ -256,6 +288,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum doctor` | Inspect manifest diagnostics |
 | `proteum explain` | Explain routes, controllers, services, layouts, conventions, and env |
 | `proteum trace` | Inspect live dev-only request traces from the running SSR server |
+| `proteum command` | Run a dev-only internal command locally or against a running dev server |
 | `proteum init` | Experimental project scaffolding when scaffold assets are installed |
 
 Recommended daily workflow:
@@ -273,12 +306,28 @@ Useful inspection commands:
 proteum doctor
 proteum doctor --json
 proteum explain
-proteum explain --routes --controllers
+proteum explain --routes --controllers --commands
 proteum explain --all --json
+proteum command proteum/diagnostics/ping
+proteum command proteum/diagnostics/ping --port 3101
 proteum trace requests
 proteum trace arm --capture deep
 proteum trace latest
 ```
+
+## Dev Commands
+
+Proteum includes a dev-only command surface for internal testing, debugging, and one-off execution that should not become a normal controller or route.
+
+- commands live under `./commands/**/*.ts`
+- each file default-exports a class extending `Commands` from `@server/app/commands`
+- each method is addressed by `file/path/methodName`
+- Proteum creates `commands/tsconfig.json` when the folder exists so command files inherit the server alias/type project
+- `proteum command foo/bar` refreshes generated artifacts, builds the dev output, starts a temporary local dev server, runs the command, prints the result, and exits
+- `proteum command foo/bar --port 3101` runs the same command against an existing `proteum dev` instance
+- the dev profiler exposes the same command list and run action through the `Commands` tab
+
+Proteum itself also ships a small built-in diagnostic command at `proteum/diagnostics/ping`, so the command surface is never empty in dev.
 
 ## Request Tracing
 
@@ -338,6 +387,7 @@ Proteum answers those questions with explicit artifacts:
 - `.proteum/manifest.json` for machine-readable app structure
 - `proteum explain --json` for structured framework introspection
 - `proteum doctor --json` for structured diagnostics
+- `proteum command ...` plus the profiler `Commands` tab for dev-only internal execution
 
 If you are an LLM or automation agent, start here:
 

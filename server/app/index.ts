@@ -5,7 +5,9 @@
 // Core
 import AppContainer from './container';
 import ApplicationService, { AnyService } from './service';
-import CommandsManager from './commands';
+import CommandsManager from './commandsManager';
+import DevCommandsRegistry from './devCommands';
+import DevDiagnosticsRegistry from './devDiagnostics';
 import ServicesContainer, { ServicesContainer as ServicesContainerClass, TServiceMetas } from './service/container';
 
 // Built-in
@@ -27,6 +29,10 @@ type Hooks = {
     ready: { args: [] };
     cleanup: { args: [] };
     error: { args: [error: Error, request?: ServerRequest<TServerRouter>] };
+};
+
+export type TApplicationStartOptions = {
+    skipRootServices?: string[];
 };
 
 export const Service = ServicesContainer;
@@ -116,21 +122,33 @@ export abstract class Application<
     ----------------------------------*/
 
     private commandsManager = new CommandsManager(this, { debug: true }, this);
+    private devCommandsRegistry?: DevCommandsRegistry<this>;
+    private devDiagnosticsRegistry?: DevDiagnosticsRegistry<this>;
 
     public command(...args: Parameters<CommandsManager['command']>) {
         return this.commandsManager.command(...args);
+    }
+
+    public getDevCommands() {
+        this.devCommandsRegistry ??= new DevCommandsRegistry(this);
+        return this.devCommandsRegistry;
+    }
+
+    public getDevDiagnostics() {
+        this.devDiagnosticsRegistry ??= new DevDiagnosticsRegistry(this);
+        return this.devDiagnosticsRegistry;
     }
 
     /*----------------------------------
     - LAUNCH
     ----------------------------------*/
 
-    public async start() {
+    public async start(options: TApplicationStartOptions = {}) {
         console.log('Build date', BUILD_DATE);
         console.log('Core version', CORE_VERSION);
         const startTime = Date.now();
 
-        const startingServices = await this.ready();
+        const startingServices = await this.ready(options);
         await Promise.all(startingServices);
         await this.runHook('ready');
 
@@ -181,8 +199,9 @@ export abstract class Application<
         return (service as AnyService & { ready: () => Promise<any> }).ready();
     }
 
-    public async ready() {
+    public async ready(options: TApplicationStartOptions = {}) {
         const startingServices: Promise<any>[] = [];
+        const skippedRootServices = new Set(options.skipRootServices || []);
 
         const processService = async (_propKey: string, service: AnyService) => {
             if (service.status !== 'starting') return;
@@ -208,6 +227,10 @@ export abstract class Application<
 
         for (const [serviceName, service] of this.listRootServices()) {
             const rootService = service as AnyService;
+            if (skippedRootServices.has(serviceName)) {
+                rootService.status = 'stopped';
+                continue;
+            }
 
             // TODO: move to router
             //  Application.on('service.ready')

@@ -5,6 +5,8 @@ import type ApplicationContainer from '..';
 import {
     traceCaptureModes,
     type TTraceCaptureMode,
+    type TTraceCall,
+    type TTraceCallOrigin,
     type TTraceEvent,
     type TTraceEventType,
     type TTraceSummaryValue,
@@ -53,12 +55,11 @@ const summarizeValue = (
     if (value === undefined) return { kind: 'undefined' };
     if (value === null) return null;
 
-    const primitiveType = typeof value;
-    if (primitiveType === 'string') return summarizeString(value);
-    if (primitiveType === 'number' || primitiveType === 'boolean') return value;
-    if (primitiveType === 'bigint') return { kind: 'bigint', value: value.toString() };
-    if (primitiveType === 'symbol') return { kind: 'symbol', value: value.toString() };
-    if (primitiveType === 'function') return { kind: 'function', name: value.name || 'anonymous' };
+    if (typeof value === 'string') return summarizeString(value);
+    if (typeof value === 'number' || typeof value === 'boolean') return value;
+    if (typeof value === 'bigint') return { kind: 'bigint', value: value.toString() };
+    if (typeof value === 'symbol') return { kind: 'symbol', value: value.toString() };
+    if (typeof value === 'function') return { kind: 'function', name: value.name || 'anonymous' };
 
     if (value instanceof Date) return { kind: 'date', value: value.toISOString() };
     if (value instanceof Error) return summarizeError(value);
@@ -113,6 +114,9 @@ const summarizeDetails = (details: TTraceDetails, capture: TTraceCaptureMode) =>
     return summarized;
 };
 
+const summarizeCaptureValue = (value: TTraceInspectable, capture: TTraceCaptureMode, key: string) =>
+    summarizeValue(value, capture === 'deep' ? 3 : 1, new WeakSet<object>(), [key]);
+
 const nowIso = () => new Date().toISOString();
 
 export default class Trace {
@@ -126,7 +130,7 @@ export default class Trace {
     ) {}
 
     public isEnabled() {
-        return this.config.enable && this.container.Environment.profile === 'dev';
+        return __DEV__ && this.config.enable && this.container.Environment.profile === 'dev';
     }
 
     public armNextRequest(capture: string) {
@@ -138,7 +142,17 @@ export default class Trace {
         return capture;
     }
 
-    public startRequest(input: { id: string; method: string; path: string; url: string; headers: object; data: object }) {
+    public startRequest(input: {
+        id: string;
+        method: string;
+        path: string;
+        url: string;
+        headers: object;
+        data: object;
+        profilerSessionId?: string;
+        profilerOrigin?: string;
+        profilerParentRequestId?: string;
+    }) {
         if (!this.isEnabled()) return;
 
         const capture = this.armedCapture ?? this.config.capture;
@@ -150,8 +164,12 @@ export default class Trace {
             path: input.path,
             url: input.url,
             capture,
+            profilerSessionId: input.profilerSessionId,
+            profilerOrigin: input.profilerOrigin,
+            profilerParentRequestId: input.profilerParentRequestId,
             startedAt: nowIso(),
             droppedEvents: 0,
+            calls: [],
             events: [],
         };
 
@@ -224,6 +242,64 @@ export default class Trace {
         }
     }
 
+    public startCall(
+        requestId: string,
+        input: {
+            origin: TTraceCallOrigin;
+            label: string;
+            method?: string;
+            path?: string;
+            fetcherId?: string;
+            parentId?: string;
+            requestDataKeys?: string[];
+            requestData?: TTraceInspectable;
+        },
+    ) {
+        const trace = this.requests.get(requestId);
+        if (!trace) return undefined;
+
+        const call: TTraceCall = {
+            id: `${requestId}:call:${trace.calls.length}`,
+            parentId: input.parentId,
+            origin: input.origin,
+            label: input.label,
+            method: input.method || '',
+            path: input.path || '',
+            fetcherId: input.fetcherId,
+            startedAt: nowIso(),
+            requestDataKeys: input.requestDataKeys || [],
+            requestData: input.requestData !== undefined ? summarizeCaptureValue(input.requestData, trace.capture, 'requestData') : undefined,
+            resultKeys: [],
+        };
+
+        trace.calls.push(call);
+        return call.id;
+    }
+
+    public finishCall(
+        requestId: string,
+        callId: string | undefined,
+        output: {
+            statusCode?: number;
+            errorMessage?: string;
+            resultKeys?: string[];
+            result?: TTraceInspectable;
+        } = {},
+    ) {
+        if (!callId) return;
+
+        const trace = this.requests.get(requestId);
+        const call = trace?.calls.find((candidate) => candidate.id === callId);
+        if (!trace || !call) return;
+
+        call.finishedAt = nowIso();
+        call.durationMs = Math.max(0, Date.parse(call.finishedAt) - Date.parse(call.startedAt));
+        call.statusCode = output.statusCode;
+        call.errorMessage = output.errorMessage;
+        call.resultKeys = output.resultKeys || [];
+        call.result = output.result !== undefined ? summarizeCaptureValue(output.result, trace.capture, 'result') : undefined;
+    }
+
     public listRequests(limit = 20): TRequestTraceListItem[] {
         return [...this.order]
             .reverse()
@@ -244,7 +320,11 @@ export default class Trace {
                 droppedEvents: trace.droppedEvents,
                 persistedFilepath: trace.persistedFilepath,
                 errorMessage: trace.errorMessage,
+                profilerSessionId: trace.profilerSessionId,
+                profilerOrigin: trace.profilerOrigin,
+                profilerParentRequestId: trace.profilerParentRequestId,
                 eventCount: trace.events.length,
+                callCount: trace.calls.length,
             }));
     }
 

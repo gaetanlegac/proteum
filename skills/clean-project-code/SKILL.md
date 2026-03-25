@@ -32,10 +32,13 @@ Use fast search tools such as `rg` to verify references. Check exports, dynamic 
 5. Keep uncertain cases.
 If code looks unused but safety is not clear, keep it and report it separately. Favor false negatives over unsafe deletions.
 
-6. Apply style only on touched files.
+6. Audit redundancy candidates across the project.
+List catalogs, constants, and functions that look redundant and could be centralized, unified, or merged. Treat this as a reporting task by default unless the user explicitly asked for structural refactoring. Give each candidate an impact score from 1 to 5, where 5 is the highest expected payoff for maintainability, consistency, or simplification.
+
+7. Apply style only on touched files.
 Follow the repository coding style for files you change. Run Prettier with the repo config, preferably on touched files only unless the user explicitly asks for repo-wide formatting.
 
-7. Verify.
+8. Verify.
 Run the smallest relevant verification available after edits. Prefer project-native checks. If no suitable automated verification exists, say so explicitly.
 
 ## Deletion Rules
@@ -50,6 +53,7 @@ Run the smallest relevant verification available after edits. Prefer project-nat
 Always report:
 - what was removed
 - what was intentionally left unchanged because it was uncertain
+- which catalogs, constants, and functions appear redundant across the project, with a proposed centralization or merge direction and an impact score from 1 to 5
 - what verification was run
 - what could not be verified automatically
 
@@ -59,5 +63,6 @@ When the user provides a cleanup brief, turn it into an execution checklist befo
 - instructions read
 - safe deletion targets identified
 - risky candidates deferred
+- redundancy candidates and impact scoring captured
 - formatting scope confirmed
 - verification plan chosen

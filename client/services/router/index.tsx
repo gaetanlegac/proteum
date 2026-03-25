@@ -52,6 +52,11 @@ import appRoutes from '@generated/client/routes';
 const debug = false;
 const LogPrefix = '[router]';
 const browserWindow = window as Window & { routes?: TSsrUnresolvedRoute[]; ssr?: TBasicSSrData };
+const withProfiler = <T,>(callback: (runtime: (typeof import('@client/dev/profiler/runtime'))['profilerRuntime']) => T) => {
+    if (!__DEV__) return undefined as T | undefined;
+    const profilerModule = require('@client/dev/profiler/runtime') as typeof import('@client/dev/profiler/runtime');
+    return callback(profilerModule.profilerRuntime);
+};
 
 /*----------------------------------
 - TYPES
@@ -320,12 +325,19 @@ export default class ClientRouter<
 
             // Create response
             debug && console.log(LogPrefix, 'Resolved request', request.path, '| Route:', route);
+            withProfiler((runtime) =>
+                runtime.completeResolveStep({
+                    chunkId: 'chunk' in route ? route.chunk : route.options.id,
+                    routeLabel: request.path,
+                }),
+            );
             const page = await this.createResponse(route, request);
 
             return page;
         }
 
         const notFoundRoute = this.errors[404];
+        withProfiler((runtime) => runtime.completeResolveStep({ routeLabel: '404' }));
         return await this.createResponse(notFoundRoute, request, { error: new Error('Page not found') });
     }
 
@@ -337,16 +349,21 @@ export default class ClientRouter<
         //throw new Error(`Failed to load route: ${route.chunk}`);
 
         debug && console.log(`Fetching route ${route.chunk} ...`, route);
+        const stepId = withProfiler((runtime) => runtime.startChunkStep(route.chunk));
         try {
             const loaded = await route.load();
             const fetched = loaded.__register(this.app);
 
             debug && console.log(`Route fetched: ${route.chunk}`, fetched);
+            withProfiler((runtime) => runtime.finishStep(stepId));
 
             if ('code' in route) return fetched as TClientPageErrorRoute<this>;
 
             return { ...(fetched as TClientPageRoute<this>), regex: route.regex, keys: route.keys };
         } catch (e) {
+            withProfiler((runtime) =>
+                runtime.finishStep(stepId, 'error', e instanceof Error ? e.message : String(e)),
+            );
             console.error(`Failed to fetch the route ${route.chunk}`, e);
             try {
                 this.app.handleUpdate();
@@ -367,6 +384,13 @@ export default class ClientRouter<
         if (!route) throw new Error(`Unable to resolve route.`);
 
         const request = new ClientRequest(location, this);
+        withProfiler((runtime) =>
+            runtime.ensureInitialSession({
+                path: request.path,
+                requestId: this.ssrContext?.request.id,
+                url: request.url,
+            }),
+        );
 
         // Restituate SSR response
         let apiData: {} = {};
@@ -384,6 +408,7 @@ export default class ClientRouter<
 
         ReactDOM.hydrate(<App context={response.context as AppPropsContext} />, document.body, () => {
             console.log(`Render complete`);
+            withProfiler((runtime) => runtime.markInitialHydrated({ chunkId: response.chunkId, title: response.title }));
 
             this.runHook('page.rendered', request);
         });

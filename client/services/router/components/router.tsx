@@ -28,6 +28,11 @@ export type TProps = { service?: ClientRouter; loaderComponent?: React.Component
 ----------------------------------*/
 
 const LogPrefix = `[router][component]`;
+const withProfiler = <T,>(callback: (runtime: (typeof import('@client/dev/profiler/runtime'))['profilerRuntime']) => T) => {
+    if (!__DEV__) return undefined as T | undefined;
+    const profilerModule = require('@client/dev/profiler/runtime') as typeof import('@client/dev/profiler/runtime');
+    return callback(profilerModule.profilerRuntime);
+};
 
 const PageLoading = ({
     clientRouter,
@@ -91,6 +96,12 @@ export default ({ service: clientRouter, loaderComponent }: TProps) => {
         }
 
         // Set loading state
+        const sessionId = withProfiler((runtime) =>
+            runtime.startNavigationSession({
+                path: request.path,
+                url: request.url,
+            }),
+        );
         clientRouter.runHook('page.change', request);
         window.scrollTo({ top: 0, behavior: 'smooth' });
         clientRouter.setLoading(true);
@@ -99,21 +110,25 @@ export default ({ service: clientRouter, loaderComponent }: TProps) => {
         // Unable to load (no connection, server error, ....)
         if (newpage === null) return;
 
-        return await changePage(newpage, data, request);
+        return await changePage(newpage, data, request, sessionId);
     };
 
-    async function changePage(newpage: Page, data?: {}, request?: ClientRequest) {
+    async function changePage(newpage: Page, data?: {}, request?: ClientRequest, sessionId?: string) {
         // Fetch API data to hydrate the page
         try {
             await newpage.preRender();
         } catch (error) {
             console.error(LogPrefix, 'Unable to fetch data:', error);
+            withProfiler((runtime) =>
+                runtime.failNavigation(error instanceof Error ? error.message : String(error), sessionId),
+            );
             clientRouter?.setLoading(false);
             return;
         }
 
         // Add additional data
         if (data) newpage.data = { ...newpage.data, ...data };
+        withProfiler((runtime) => runtime.startRenderStep(sessionId));
 
         // Add page container
         setCurrentPage((page) => {
@@ -172,6 +187,19 @@ export default ({ service: clientRouter, loaderComponent }: TProps) => {
         currentPage?.updateClient();
         // Scroll to the selected content via url hash
         restoreScroll(currentPage);
+        const routeLabel =
+            currentPage && 'path' in currentPage.route && currentPage.route.path
+                ? currentPage.route.path
+                : currentPage && 'code' in currentPage.route
+                  ? String(currentPage.route.code)
+                  : undefined;
+        withProfiler((runtime) =>
+            runtime.finishNavigation({
+                chunkId: currentPage?.chunkId,
+                routeLabel,
+                title: currentPage?.title,
+            }),
+        );
 
         // Hooks
         clientRouter.runHook('page.changed', (currentPage?.context.request || context.request) as ClientRequest);

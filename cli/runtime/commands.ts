@@ -153,6 +153,7 @@ class ExplainCommand extends ProteumCommand {
     public env = Option.Boolean('--env', false, { description: 'Include the env section.' });
     public services = Option.Boolean('--services', false, { description: 'Include the services section.' });
     public controllers = Option.Boolean('--controllers', false, { description: 'Include the controllers section.' });
+    public commands = Option.Boolean('--commands', false, { description: 'Include the commands section.' });
     public routes = Option.Boolean('--routes', false, { description: 'Include the routes section.' });
     public layouts = Option.Boolean('--layouts', false, { description: 'Include the layouts section.' });
     public diagnostics = Option.Boolean('--diagnostics', false, {
@@ -169,6 +170,7 @@ class ExplainCommand extends ProteumCommand {
             env: this.env,
             services: this.services,
             controllers: this.controllers,
+            commands: this.commands,
             routes: this.routes,
             layouts: this.layouts,
             diagnostics: this.diagnostics,
@@ -177,7 +179,7 @@ class ExplainCommand extends ProteumCommand {
         applyLegacyBooleanArgs(
             'explain',
             this.legacyArgs,
-            ['json', 'all', 'app', 'conventions', 'env', 'services', 'controllers', 'routes', 'layouts', 'diagnostics'],
+            ['json', 'all', 'app', 'conventions', 'env', 'services', 'controllers', 'commands', 'routes', 'layouts', 'diagnostics'],
             args,
         );
         this.setCliArgs(args);
@@ -214,6 +216,30 @@ class TraceCommand extends ProteumCommand {
     }
 }
 
+class CommandCommand extends ProteumCommand {
+    public static paths = [['command']];
+
+    public static usage = buildUsage('command');
+
+    public port = Option.String('--port', { description: 'Target an existing dev server on the given port.' });
+    public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL.' });
+    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [path = ''] = this.args;
+
+        this.setCliArgs({
+            path,
+            port: this.port ?? '',
+            url: this.url ?? '',
+            json: this.json,
+        });
+
+        await runCommandModule(() => import('../commands/command'));
+    }
+}
+
 export const registeredCommands = {
     init: InitCommand,
     dev: DevCommand,
@@ -225,6 +251,7 @@ export const registeredCommands = {
     doctor: DoctorCommand,
     explain: ExplainCommand,
     trace: TraceCommand,
+    command: CommandCommand,
 } as const;
 
 export const createCli = (version: string) => {
@@ -247,6 +274,7 @@ export const createCli = (version: string) => {
     clipanion.register(DoctorCommand);
     clipanion.register(ExplainCommand);
     clipanion.register(TraceCommand);
+    clipanion.register(CommandCommand);
 
     return clipanion;
 };

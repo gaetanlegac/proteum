@@ -16,6 +16,7 @@ import { writeClientManifest } from './common/clientManifest';
 import { logVerbose } from '../runtime/verbose';
 import { createCompileReporter, type TCompileReporter } from '../presentation/compileReporter';
 import { generateRoutingArtifacts } from './artifacts/routing';
+import { generateCommandArtifacts } from './artifacts/commands';
 import { generateControllerArtifacts } from './artifacts/controllers';
 import { generateServiceArtifacts } from './artifacts/services';
 import { writeCurrentProteumManifest } from './artifacts/manifest';
@@ -32,6 +33,7 @@ export default class Compiler {
     public compiling: { [compiler: string]: Promise<void> } = {};
     private recentCompilationResults: { [compiler: string]: TRecentCompilationResult } = {};
     private recentModifiedFiles: { [compiler: string]: string[] } = {};
+    private manualModifiedFiles: { [compiler: string]: Set<string> } = {};
     private refreshingGeneratedArtifacts?: Promise<void>;
     private compileReporter?: TCompileReporter;
 
@@ -140,11 +142,13 @@ export default class Compiler {
             this.refreshingGeneratedArtifacts = (async () => {
                 const services = generateServiceArtifacts();
                 const controllers = generateControllerArtifacts();
+                const commands = generateCommandArtifacts();
                 const { clientRoutes, serverRoutes, layouts } = generateRoutingArtifacts();
 
                 writeCurrentProteumManifest({
                     services,
                     controllers,
+                    commands,
                     routes: { client: clientRoutes, server: serverRoutes },
                     layouts,
                 });
@@ -170,6 +174,21 @@ export default class Compiler {
         const recentCompilationResults = { ...this.recentCompilationResults };
         this.recentCompilationResults = {};
         return recentCompilationResults;
+    }
+
+    public noteManualModifiedFiles(compilerNames: string[] | string, filepaths: string[]) {
+        const normalizedCompilerNames = Array.isArray(compilerNames) ? compilerNames : [compilerNames];
+        const normalizedFilepaths = filepaths.map((filepath) => normalizePath(path.resolve(filepath)));
+
+        for (const compilerName of normalizedCompilerNames) {
+            const pendingFiles = this.manualModifiedFiles[compilerName] || new Set<string>();
+
+            for (const filepath of normalizedFilepaths) {
+                pendingFiles.add(filepath);
+            }
+
+            this.manualModifiedFiles[compilerName] = pendingFiles;
+        }
     }
 
     public async create() {
@@ -204,9 +223,13 @@ export default class Compiler {
             compiler.hooks.compile.tap(name, (compilation) => {
                 this.callbacks.before && this.callbacks.before(compiler);
 
-                this.recentModifiedFiles[name] = [...(compiler.modifiedFiles ? [...compiler.modifiedFiles] : [])].map(
-                    (filepath) => normalizePath(path.resolve(filepath)),
+                const compilerModifiedFiles = [...(compiler.modifiedFiles ? [...compiler.modifiedFiles] : [])].map((filepath) =>
+                    normalizePath(path.resolve(filepath)),
                 );
+                const manualModifiedFiles = [...(this.manualModifiedFiles[name] || [])];
+                delete this.manualModifiedFiles[name];
+
+                this.recentModifiedFiles[name] = [...new Set([...compilerModifiedFiles, ...manualModifiedFiles])];
 
                 this.compiling[name] = new Promise((resolve) => (finished = resolve));
 

@@ -184,9 +184,12 @@ export default function createCompiler(
                         // Prisma 7 generates TypeScript entrypoints under var/prisma.
                         app.paths.root + '/var/prisma',
 
+                        app.paths.root + '/commands',
+
                         // Dossiers server uniquement pour le bundle server
                         app.paths.root + '/server',
                         app.paths.server.generated,
+                        ...frameworkRoots.map((rootPath) => rootPath + '/commands'),
                         ...frameworkRoots.map((rootPath) => rootPath + '/client'),
                         ...frameworkRoots.map((rootPath) => rootPath + '/common'),
                         ...frameworkRoots.map((rootPath) => rootPath + '/server'),

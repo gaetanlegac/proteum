@@ -24,6 +24,16 @@ import { toMultipart } from './multipart';
 ----------------------------------*/
 
 const debug = false;
+const getProfilerModule = () => {
+    if (!__DEV__) return undefined;
+    return require('@client/dev/profiler/runtime') as typeof import('@client/dev/profiler/runtime');
+};
+const withProfiler = <T>(callback: (runtime: (typeof import('@client/dev/profiler/runtime'))['profilerRuntime']) => T) => {
+    const profilerModule = getProfilerModule();
+    return profilerModule ? callback(profilerModule.profilerRuntime) : undefined;
+};
+
+type TExecuteResult<TData> = { data: TData; durationMs: number; response: Response };
 
 export type Config = {};
 
@@ -126,8 +136,54 @@ export default class ApiClient implements ApiClientService {
     ): Promise<TData> {
         /*if (options?.captcha !== undefined)
             await this.gui.captcha.check(options?.captcha);*/
+        const pendingTrace = withProfiler((runtime) =>
+            runtime.startTrace('async', {
+                label: `${method} ${path}`,
+                method,
+                path,
+            }),
+        );
 
-        return await this.execute<TData>(method, path, data, options);
+        try {
+            const result = await this.executeDetailed<TData>('client-async', method, path, data, options);
+            const profilerModule = getProfilerModule();
+            const traceRequestId = profilerModule?.readProfilerTraceRequestId(result.response);
+
+            if (pendingTrace && traceRequestId) {
+                await profilerModule?.profilerRuntime.attachTraceByRequestId(
+                    pendingTrace.sessionId,
+                    pendingTrace.traceId,
+                    traceRequestId,
+                );
+            } else if (pendingTrace) {
+                withProfiler((runtime) =>
+                    runtime.completeTrace(pendingTrace.traceId, {
+                        durationMs: result.durationMs,
+                        status: 'completed',
+                    }),
+                );
+            }
+
+            return result.data;
+        } catch (error) {
+            const profilerModule = getProfilerModule();
+            const errorResponse = (error as Error & { response?: Response }).response;
+            const traceRequestId = errorResponse ? profilerModule?.readProfilerTraceRequestId(errorResponse) : undefined;
+            if (pendingTrace && traceRequestId) {
+                await profilerModule?.profilerRuntime.attachTraceByRequestId(
+                    pendingTrace.sessionId,
+                    pendingTrace.traceId,
+                    traceRequestId,
+                );
+            }
+            withProfiler((runtime) =>
+                runtime.completeTrace(pendingTrace?.traceId, {
+                    errorMessage: error instanceof Error ? error.message : String(error),
+                    status: 'error',
+                }),
+            );
+            throw error;
+        }
     }
 
     public async fetchSync(fetchers: TFetcherList, alreadyLoadedData: {}): Promise<TObjetDonnees> {
@@ -145,23 +201,68 @@ export default class ApiClient implements ApiClientService {
         const fetchedData =
             fetchersCount === 0
                 ? {}
-                : await this.execute<TObjetDonnees>(
-                      'POST',
-                      '/api',
-                      ({ fetchers: fetchersToRun } as unknown) as TPostData,
-                  )
-                      .then((res: TObjetDonnees) => {
-                          const data: TObjetDonnees = {};
-                          for (const id in res) data[id] = res[id];
+                : await (async () => {
+                      const pendingTrace = withProfiler((runtime) =>
+                          runtime.startTrace('navigation-data', {
+                              fetcherIds: Object.keys(fetchersToRun),
+                              label: 'Navigation data',
+                              method: 'POST',
+                              path: '/api',
+                          }),
+                      );
 
-                          return data;
-                      })
-                      .catch((e: Error) => {
+                      try {
+                          const result = await this.executeDetailed<TObjetDonnees>(
+                              'client-navigation',
+                              'POST',
+                              '/api',
+                              ({ fetchers: fetchersToRun } as unknown) as TPostData,
+                          );
+                          const profilerModule = getProfilerModule();
+                          const traceRequestId = profilerModule?.readProfilerTraceRequestId(result.response);
+
+                          if (pendingTrace && traceRequestId) {
+                              await profilerModule?.profilerRuntime.attachTraceByRequestId(
+                                  pendingTrace.sessionId,
+                                  pendingTrace.traceId,
+                                  traceRequestId,
+                              );
+                          } else if (pendingTrace) {
+                              withProfiler((runtime) =>
+                                  runtime.completeTrace(pendingTrace.traceId, {
+                                      durationMs: result.durationMs,
+                                      status: 'completed',
+                                  }),
+                              );
+                          }
+
+                          const responseData: TObjetDonnees = {};
+                          for (const id in result.data) responseData[id] = result.data[id];
+                          return responseData;
+                      } catch (e) {
+                          const profilerModule = getProfilerModule();
+                          const errorResponse = (e as Error & { response?: Response }).response;
+                          const traceRequestId = errorResponse ? profilerModule?.readProfilerTraceRequestId(errorResponse) : undefined;
+                          if (pendingTrace && traceRequestId) {
+                              await profilerModule?.profilerRuntime.attachTraceByRequestId(
+                                  pendingTrace.sessionId,
+                                  pendingTrace.traceId,
+                                  traceRequestId,
+                              );
+                          }
+                          withProfiler((runtime) =>
+                              runtime.completeTrace(pendingTrace?.traceId, {
+                                  errorMessage: e instanceof Error ? e.message : String(e),
+                                  status: 'error',
+                              }),
+                          );
+
                           // API Error hook
-                          this.app.handleError(e);
+                          this.app.handleError(e as Error);
 
                           throw e;
-                      });
+                      }
+                  })();
 
         // Errors will be catched in the caller
 
@@ -214,21 +315,36 @@ export default class ApiClient implements ApiClientService {
     };
 
     public execute<TData = unknown>(...args: TFetcherArgs): Promise<TData> {
+        return this.executeDetailed<TData>('client-async', ...args).then((result) => result.data);
+    }
+
+    private async executeDetailed<TData = unknown>(
+        profilerOrigin: string,
+        ...args: TFetcherArgs
+    ): Promise<TExecuteResult<TData>> {
         const { url, config } = this.configure(...args);
+        const startedAt = Date.now();
+        const headers = config.headers instanceof Headers ? config.headers : new Headers(config.headers as HeadersInit);
+        const profilerHeaders = withProfiler((runtime) => runtime.getRequestHeaders(profilerOrigin)) || {};
+        for (const [key, value] of Object.entries(profilerHeaders)) headers.set(key, value);
+        config.headers = headers;
 
         console.log(`[api] Fetching`, url, config);
 
         return fetch(url, config)
             .then(async (response) => {
+                const requestDurationMs = Math.max(0, Date.now() - startedAt);
                 if (!response.ok) {
                     const errorData = await response.json();
                     console.warn(`[api] Failure:`, response.status, errorData);
-                    const error = errorFromJson(errorData);
+                    const error = errorFromJson(errorData) as Error & { durationMs?: number; response?: Response };
+                    error.durationMs = requestDurationMs;
+                    error.response = response;
                     throw error;
                 }
                 const json = (await response.json()) as TData;
                 debug && console.log(`[api] Success:`, json);
-                return json;
+                return { data: json, durationMs: requestDurationMs, response };
             })
             .catch((error) => {
                 if (error instanceof TypeError) {

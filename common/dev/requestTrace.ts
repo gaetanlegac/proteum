@@ -3,6 +3,10 @@ export const traceCaptureModes = ['summary', 'resolve', 'deep'] as const;
 export type TTraceCaptureMode = (typeof traceCaptureModes)[number];
 type TTracePrimitive = string | number | boolean;
 
+export const traceCallOrigins = ['ssr-fetcher', 'api-batch-fetcher', 'client-async'] as const;
+
+export type TTraceCallOrigin = (typeof traceCallOrigins)[number];
+
 export const traceEventTypes = [
     'request.start',
     'request.user',
@@ -57,12 +61,34 @@ export type TTraceEvent = {
     details: { [key: string]: TTraceSummaryValue };
 };
 
+export type TTraceCall = {
+    id: string;
+    parentId?: string;
+    origin: TTraceCallOrigin;
+    label: string;
+    method: string;
+    path: string;
+    fetcherId?: string;
+    startedAt: string;
+    finishedAt?: string;
+    durationMs?: number;
+    statusCode?: number;
+    errorMessage?: string;
+    requestDataKeys: string[];
+    requestData?: TTraceSummaryValue;
+    resultKeys: string[];
+    result?: TTraceSummaryValue;
+};
+
 export type TRequestTrace = {
     id: string;
     method: string;
     path: string;
     url: string;
     capture: TTraceCaptureMode;
+    profilerSessionId?: string;
+    profilerOrigin?: string;
+    profilerParentRequestId?: string;
     startedAt: string;
     finishedAt?: string;
     durationMs?: number;
@@ -71,10 +97,11 @@ export type TRequestTrace = {
     droppedEvents: number;
     persistedFilepath?: string;
     errorMessage?: string;
+    calls: TTraceCall[];
     events: TTraceEvent[];
 };
 
-export type TRequestTraceListItem = Omit<TRequestTrace, 'events'> & { eventCount: number };
+export type TRequestTraceListItem = Omit<TRequestTrace, 'events' | 'calls'> & { eventCount: number; callCount: number };
 
 export type TRequestTraceListResponse = { requests: TRequestTraceListItem[] };
 export type TRequestTraceResponse = { request: TRequestTrace };

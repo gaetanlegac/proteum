@@ -6,6 +6,7 @@
 import path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import fs from 'fs-extra';
+import type { FSWatcher } from 'fs';
 
 // Cor elibs
 import cli from '..';
@@ -51,6 +52,7 @@ let cp: ChildProcess | undefined = undefined;
 let devSessionStopping = false;
 let appProcessOperation: Promise<void> = Promise.resolve();
 type TDevWatching = ReturnType<Awaited<ReturnType<Compiler['create']>>['watch']>;
+type TIndexedSourceWatching = { close: () => Promise<void> };
 
 /*----------------------------------
 - HELPERS
@@ -255,6 +257,78 @@ function normalizeWatchPath(watchPath: string) {
     return path.resolve(watchPath).replace(/\\/g, '/').replace(/\/$/, '');
 }
 
+const indexedSourceWatchRules: { compilerName: 'server'; root: () => string; relativePathPattern: RegExp }[] = [
+    { compilerName: 'server', root: () => app.paths.root, relativePathPattern: /^commands(?:\/|$)/ },
+    { compilerName: 'server', root: () => cli.paths.core.root, relativePathPattern: /^commands(?:\/|$)/ },
+];
+
+const closeFsWatcher = async (watcher: FSWatcher) => {
+    await new Promise<void>((resolve) => {
+        watcher.once('close', () => resolve());
+        watcher.close();
+    });
+};
+
+const createIndexedSourceWatching = ({
+    compiler,
+    watching,
+}: {
+    compiler: Compiler;
+    watching: TDevWatching;
+}): TIndexedSourceWatching => {
+    const watchers: FSWatcher[] = [];
+    const pendingChanges = new Map<'server', Set<string>>();
+    let invalidateTimer: NodeJS.Timeout | undefined;
+
+    const flushInvalidate = () => {
+        invalidateTimer = undefined;
+
+        for (const [compilerName, changedFiles] of pendingChanges) {
+            compiler.noteManualModifiedFiles(compilerName, [...changedFiles]);
+        }
+
+        pendingChanges.clear();
+        logVerbose('Indexed source files changed. Invalidating the dev compiler to refresh generated artifacts.');
+        watching.invalidate();
+    };
+
+    const queueInvalidate = (compilerName: 'server', filepath: string) => {
+        const normalizedFilepath = normalizeWatchPath(filepath);
+        const changedFiles = pendingChanges.get(compilerName) || new Set<string>();
+
+        changedFiles.add(normalizedFilepath);
+        pendingChanges.set(compilerName, changedFiles);
+
+        if (invalidateTimer) return;
+        invalidateTimer = setTimeout(flushInvalidate, 40);
+    };
+
+    for (const watchRule of indexedSourceWatchRules) {
+        const rootPath = watchRule.root();
+
+        watchers.push(
+            fs.watch(rootPath, { recursive: true }, (eventType, filename) => {
+                const relativePath = typeof filename === 'string' ? filename.replace(/\\/g, '/').replace(/^\.\//, '') : '';
+                if (relativePath && !watchRule.relativePathPattern.test(relativePath)) return;
+                if (eventType !== 'rename' && relativePath) return;
+
+                queueInvalidate(watchRule.compilerName, relativePath ? path.join(rootPath, relativePath) : rootPath);
+            }),
+        );
+    }
+
+    return {
+        close: async () => {
+            if (invalidateTimer) {
+                clearTimeout(invalidateTimer);
+                invalidateTimer = undefined;
+            }
+
+            await Promise.all(watchers.map((watcher) => closeFsWatcher(watcher)));
+        },
+    };
+};
+
 /*----------------------------------
 - MAIN PROCESS
 ----------------------------------*/
@@ -358,6 +432,7 @@ export const run = async () => {
             logVerbose('Watch callback. No compiler changes were tracked.');
         },
     );
+    const indexedSourceWatching = createIndexedSourceWatching({ compiler, watching });
 
     let shuttingDownPromise: Promise<void> | undefined;
 
@@ -367,6 +442,7 @@ export const run = async () => {
         devSessionStopping = true;
         shuttingDownPromise = (async () => {
             logVerbose('Stopping the Proteum dev session ...', reason);
+            await indexedSourceWatching.close();
             await closeWatching(watching);
             compiler.dispose();
             await stopApp(reason);

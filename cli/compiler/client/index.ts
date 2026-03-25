@@ -221,6 +221,19 @@ export default function createCompiler(
         plugins: [
             ...(commonConfig.plugins || []),
 
+            ...(dev
+                ? []
+                : [
+                      new rspack.NormalModuleReplacementPlugin(
+                          /^@client\/dev\/profiler$/,
+                          cli.paths.core.root + '/client/dev/profiler/noop.tsx',
+                      ),
+                      new rspack.NormalModuleReplacementPlugin(
+                          /^@client\/dev\/profiler\/runtime$/,
+                          cli.paths.core.root + '/client/dev/profiler/runtime.noop.ts',
+                      ),
+                  ]),
+
             // Extract CSS in dev too so SSR emits the same stylesheet links as production.
             new rspack.CssExtractRspackPlugin({}),
 

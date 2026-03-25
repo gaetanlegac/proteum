@@ -5,7 +5,7 @@ import cli from '..';
 import Compiler from '../compiler';
 import { runProcess } from './runProcess';
 
-const tsconfigPaths = ['client/tsconfig.json', 'server/tsconfig.json'];
+const tsconfigPaths = ['client/tsconfig.json', 'server/tsconfig.json', 'commands/tsconfig.json'];
 const eslintConfigPaths = ['eslint.config.mjs', 'eslint.config.js', 'eslint.config.cjs'];
 
 const resolveInstalledBinary = (name: string) => {
