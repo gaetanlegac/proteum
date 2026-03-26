@@ -5,6 +5,7 @@ import type { TRow } from './layout';
 
 export const proteumCommandNames = [
     'init',
+    'create',
     'dev',
     'refresh',
     'build',
@@ -48,20 +49,55 @@ export const proteumCommandGroups: Array<{ title: string; names: TProteumCommand
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
     { title: 'Manifest and contracts', names: ['doctor', 'explain', 'trace', 'command'] },
-    { title: 'Project scaffolding', names: ['init'] },
+    { title: 'Project scaffolding', names: ['init', 'create'] },
 ];
 
 export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = {
     init: {
         name: 'init',
         category: 'Project scaffolding',
-        summary: 'Scaffold a new Proteum project.',
-        usage: 'proteum init',
-        bestFor: 'Bootstrap a new app when the Proteum scaffold assets are installed in the current package.',
-        examples: [{ description: 'Create a new app interactively', command: 'proteum init' }],
+        summary: 'Scaffold a new Proteum app with deterministic built-in templates.',
+        usage: 'proteum init [directory] [--name <name>] [--identifier <identifier>] [--port <port>] [--install] [--dry-run] [--json]',
+        bestFor: 'Bootstrapping a new app in a way that is explicit, machine-readable, and safe for LLM coding agents.',
+        examples: [
+            { description: 'Create a new app in ./my-app', command: 'proteum init my-app --name "My App"' },
+            {
+                description: 'Scaffold an app and install dependencies immediately',
+                command: 'proteum init my-app --name "My App" --install',
+            },
+            {
+                description: 'Emit scaffold details as JSON for an agent',
+                command: 'proteum init my-app --name "My App" --json',
+            },
+            {
+                description: 'Preview the full app scaffold without writing files',
+                command: 'proteum init my-app --name "My App" --dry-run --json',
+            },
+        ],
         notes: [
-            'This command is still experimental.',
-            'In source checkouts it requires `cli/skeleton` to exist.',
+            'When Proteum is invoked from a local framework checkout, init writes a file: dependency to that checkout by default.',
+            'Use `--dry-run --json` when an agent needs a machine-readable app scaffold plan before writing files.',
+            'Without `--install`, init only writes files and does not touch the network.',
+        ],
+        status: 'experimental',
+    },
+    create: {
+        name: 'create',
+        category: 'Project scaffolding',
+        summary: 'Generate a page, controller, command, route, or root service inside a Proteum app.',
+        usage: 'proteum create <page|controller|command|route|service> <target> [--route <url>] [--method <name>] [--http-method <verb>] [--dry-run] [--json]',
+        bestFor: 'Fast deterministic scaffolding inside an existing Proteum app without inventing file layouts or boilerplate by hand.',
+        examples: [
+            { description: 'Create a new SSR page', command: 'proteum create page marketing/faq --route /faq' },
+            { description: 'Create a new controller', command: 'proteum create controller Founder/projects --method list' },
+            { description: 'Create a new command', command: 'proteum create command diagnostics --method ping' },
+            { description: 'Preview a new route without writing files', command: 'proteum create route webhooks/stripe --dry-run --json' },
+            { description: 'Create and register a new root service', command: 'proteum create service Conversion/Plans' },
+        ],
+        notes: [
+            'Page scaffolds write `client/pages/**/index.tsx` and default the route path from the logical target path unless `--route` is provided.',
+            'Service scaffolds create `server/services/**/index.ts`, `service.json`, a config export under `server/config/*.ts`, and then try to register the new root service in `server/index.ts`.',
+            'Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.',
         ],
         status: 'experimental',
     },
@@ -248,8 +284,8 @@ export const isLikelyProteumAppRoot = (workdir: string) =>
 
 export const getInitAvailabilityNote = (initAvailable: boolean) =>
     initAvailable
-        ? 'Scaffold assets are installed in this checkout.'
-        : 'This checkout does not include `cli/skeleton`, so `proteum init` is unavailable until the scaffold assets are restored.';
+        ? 'Init is built into the CLI and does not depend on external scaffold assets.'
+        : 'Init scaffolding is currently unavailable in this checkout.';
 
 export const createClipanionUsage = (command: TProteumCommandDoc) => ({
     category: command.category,

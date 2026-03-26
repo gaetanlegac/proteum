@@ -68,6 +68,13 @@ In `proteum dev`, the bottom profiler exposes a `Commands` tab.
 - clicking `Run now` executes the command through the running dev server
 - the last result or error stays attached to that command row in the panel
 
+The profiler also exposes the shared diagnostics surfaces for humans:
+
+- `Explain` renders the same manifest-backed data as `proteum explain`
+- `Doctor` renders the same manifest diagnostics as `proteum doctor`
+
+For the shared diagnostics contract and the corresponding dev HTTP endpoints, see [diagnostics.md](diagnostics.md).
+
 ### HTTP Endpoints
 
 The CLI remote mode and the profiler use the same dev-only endpoints:

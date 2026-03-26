@@ -6,6 +6,7 @@ Proteum ships with a dev-only in-memory request trace buffer so routing, control
 
 - tracing is available only when the app runs with `profile: dev`
 - traces are exposed through `proteum trace` and the dev-only `__proteum/trace` HTTP endpoints
+- explain/doctor are separate manifest-backed diagnostics surfaces; see [diagnostics.md](diagnostics.md)
 - production requests are not traced by this feature
 
 ## Main Commands

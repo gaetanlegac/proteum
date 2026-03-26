@@ -1,6 +1,5 @@
 process.traceDeprecation = true;
 
-import fs from 'fs';
 import { Cli } from 'clipanion';
 
 import cli from './context';
@@ -9,12 +8,10 @@ import { renderCliOverview, renderCommandHelp, resolveCustomHelpRequest } from '
 import { normalizeHelpArgv, normalizeLegacyArgv } from './runtime/argv';
 import { createCli, registeredCommands } from './runtime/commands';
 
-const hasInitScaffold = () => fs.existsSync(`${cli.paths.core.cli}/skeleton`);
-
 export const runCli = async (argv: string[] = process.argv.slice(2)) => {
     const normalizedArgv = normalizeHelpArgv(normalizeLegacyArgv(argv), proteumCommandNames);
     const clipanion = createCli(String(cli.packageJson.version || ''));
-    const initAvailable = hasInitScaffold();
+    const initAvailable = true;
     const helpRequest = resolveCustomHelpRequest(normalizedArgv);
 
     if (helpRequest.kind === 'overview') {

@@ -9,12 +9,68 @@ class InitCommand extends ProteumCommand {
 
     public static usage = buildUsage('init');
 
-    public legacyArgs = Option.Rest();
+    public name = Option.String('--name', { description: 'Human-readable app name.' });
+    public description = Option.String('--description', { description: 'App description used in identity.yaml and package.json.' });
+    public identifier = Option.String('--identifier', { description: 'Application class and identity identifier.' });
+    public port = Option.String('--port', { description: 'Default local router port used in .env.' });
+    public url = Option.String('--url', { description: 'Default absolute URL used in .env.' });
+    public proteumVersion = Option.String('--proteum-version', {
+        description: 'Override the Proteum dependency written to package.json.',
+    });
+    public install = Option.Boolean('--install', false, { description: 'Run npm install after scaffolding.' });
+    public dryRun = Option.Boolean('--dry-run', false, { description: 'Print the scaffold plan without writing files.' });
+    public json = Option.Boolean('--json', false, { description: 'Print machine-readable scaffold output.' });
+    public force = Option.Boolean('--force', false, { description: 'Allow writing into a non-empty target directory.' });
+    public args = Option.Rest();
 
     public async execute() {
-        assertNoLegacyArgs('init', this.legacyArgs);
-        this.setCliArgs();
+        const [directory = ''] = this.args;
+
+        this.setCliArgs({
+            directory,
+            name: this.name ?? '',
+            description: this.description ?? '',
+            identifier: this.identifier ?? '',
+            port: this.port ?? '',
+            url: this.url ?? '',
+            proteumVersion: this.proteumVersion ?? '',
+            install: this.install,
+            dryRun: this.dryRun,
+            json: this.json,
+            force: this.force,
+        });
         await runCommandModule(() => import('../commands/init'));
+    }
+}
+
+class CreateCommand extends ProteumCommand {
+    public static paths = [['create']];
+
+    public static usage = buildUsage('create');
+
+    public route = Option.String('--route', { description: 'Explicit URL path used for page or route scaffolds.' });
+    public method = Option.String('--method', { description: 'Method name used for controller or command scaffolds.' });
+    public httpMethod = Option.String('--http-method', { description: 'HTTP verb used for route scaffolds.' });
+    public json = Option.Boolean('--json', false, { description: 'Print machine-readable scaffold output.' });
+    public dryRun = Option.Boolean('--dry-run', false, { description: 'Print the scaffold plan without writing files.' });
+    public force = Option.Boolean('--force', false, { description: 'Allow overwriting generated target files.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [kind = '', target = ''] = this.args;
+
+        this.setCliArgs({
+            kind,
+            target,
+            route: this.route ?? '',
+            method: this.method ?? '',
+            httpMethod: this.httpMethod ?? '',
+            json: this.json,
+            dryRun: this.dryRun,
+            force: this.force,
+        });
+
+        await runCommandModule(() => import('../commands/create'));
     }
 }
 
@@ -242,6 +298,7 @@ class CommandCommand extends ProteumCommand {
 
 export const registeredCommands = {
     init: InitCommand,
+    create: CreateCommand,
     dev: DevCommand,
     refresh: RefreshCommand,
     build: BuildCommand,
@@ -265,6 +322,7 @@ export const createCli = (version: string) => {
     clipanion.register(Builtins.VersionCommand);
     clipanion.register(Builtins.DefinitionsCommand);
     clipanion.register(InitCommand);
+    clipanion.register(CreateCommand);
     clipanion.register(DevCommand);
     clipanion.register(RefreshCommand);
     clipanion.register(BuildCommand);

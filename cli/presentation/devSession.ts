@@ -11,6 +11,8 @@ const ProteumWordmark = [
     String.raw`|_|   |_| \_\\___/ |_| |_____|\___/|_|  |_|`,
 ];
 
+const ProteumTagline = 'Agent-first SSR compiler and server loop.';
+
 export const renderDevSession = async ({
     appName,
     appRoot,
@@ -32,9 +34,9 @@ export const renderDevSession = async ({
             return createElement(
                 Box,
                 { borderStyle: 'round', borderColor: 'cyan', paddingX: 2, paddingY: 0, flexDirection: 'column' },
-                createElement(Text, { bold: true, color: 'green' }, 'PROTEUM DEV'),
-                createElement(Text, { dimColor: true }, 'Agent-first SSR compiler and server loop.'),
-                createElement(Box, { flexDirection: 'column', marginTop: 1 }, ...wordmark),
+                createElement(Text, { bold: true, backgroundColor: 'cyan', color: 'black' }, ' WELCOME TO '),
+                createElement(Box, { flexDirection: 'column' }, ...wordmark),
+                createElement(Text, { dimColor: true }, ProteumTagline),
             );
         }),
         renderRows(
@@ -71,5 +73,17 @@ export const renderServerReadyBanner = async ({
             createElement(Text, { bold: true }, publicUrl),
             createElement(Text, { dimColor: true }, 'SSR server is listening for requests and hot reloads.'),
             createElement(Text, { dimColor: true }, `Trace latest: proteum trace latest --port ${routerPort}`),
+        );
+    });
+
+export const renderDevShutdownBanner = async () =>
+    renderInk(({ Box, Text }) => {
+        const createElement = React.createElement;
+
+        return createElement(
+            Box,
+            { borderStyle: 'round', borderColor: 'yellow', paddingX: 2, paddingY: 0, flexDirection: 'column' },
+            createElement(Text, { bold: true, backgroundColor: 'yellow', color: 'black' }, ' SHUTTING DOWN '),
+            createElement(Text, { bold: true, color: 'yellow' }, 'Thank you for developping with Proteum'),
         );
     });

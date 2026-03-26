@@ -28,7 +28,7 @@ Proteum combines:
 - **Explicit request entrypoints.** Controllers are classes. Request access is explicit through `this.request`.
 - **Local validation.** Validate handler input inside the handler with `this.input(schema)`.
 - **Deterministic generation.** Proteum owns `.proteum/` and regenerates it from source.
-- **Explainability matters.** `proteum explain`, `proteum doctor`, and `proteum trace` expose the framework view of your app and its live requests.
+- **Explainability matters.** `proteum explain`, `proteum doctor`, and `proteum trace` expose the framework view of your app and its live requests, and the profiler renders the same diagnostics surfaces for humans in dev.
 - **SEO is not an afterthought.** Identity, routes, layouts, and SSR data are part of the app contract.
 
 ## What a Proteum App Looks Like
@@ -289,7 +289,8 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum explain` | Explain routes, controllers, services, layouts, conventions, and env |
 | `proteum trace` | Inspect live dev-only request traces from the running SSR server |
 | `proteum command` | Run a dev-only internal command locally or against a running dev server |
-| `proteum init` | Experimental project scaffolding when scaffold assets are installed |
+| `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
+| `proteum create` | Scaffold a page, controller, command, route, or root service inside an app |
 
 Recommended daily workflow:
 
@@ -315,6 +316,18 @@ proteum trace arm --capture deep
 proteum trace latest
 ```
 
+Useful scaffolding commands:
+
+```bash
+proteum init my-app --name "My App"
+proteum init my-app --name "My App" --dry-run --json
+proteum create page marketing/faq --route /faq
+proteum create controller Founder/projects --method list
+proteum create service Conversion/Plans
+```
+
+`proteum explain` and `proteum doctor` share the same manifest-backed diagnostics contract as the profiler `Explain` and `Doctor` tabs. For the full dev diagnostics model, see [docs/diagnostics.md](docs/diagnostics.md).
+
 ## Dev Commands
 
 Proteum includes a dev-only command surface for internal testing, debugging, and one-off execution that should not become a normal controller or route.
@@ -326,12 +339,15 @@ Proteum includes a dev-only command surface for internal testing, debugging, and
 - `proteum command foo/bar` refreshes generated artifacts, builds the dev output, starts a temporary local dev server, runs the command, prints the result, and exits
 - `proteum command foo/bar --port 3101` runs the same command against an existing `proteum dev` instance
 - the dev profiler exposes the same command list and run action through the `Commands` tab
+- the same profiler also exposes `Explain` and `Doctor` tabs backed by the same manifest diagnostics contract as the CLI
 
 Proteum itself also ships a small built-in diagnostic command at `proteum/diagnostics/ping`, so the command surface is never empty in dev.
 
 ## Request Tracing
 
 Proteum includes a dev-only in-memory request trace buffer for routing, controller, context, SSR, and render debugging.
+
+This is separate from `proteum explain` and `proteum doctor`: tracing is live request-time data, while explain/doctor are manifest-backed structure and diagnostics.
 
 When diagnosing or testing against an app, first read the default port from `PORT` or `./.proteum/manifest.json` and check whether a server is already running there. If it is, inspect the existing traces before reproducing the issue so you can collect past errors and their context.
 
@@ -387,6 +403,7 @@ Proteum answers those questions with explicit artifacts:
 - `.proteum/manifest.json` for machine-readable app structure
 - `proteum explain --json` for structured framework introspection
 - `proteum doctor --json` for structured diagnostics
+- the profiler `Explain` and `Doctor` tabs for a human-readable view over the same manifest-backed contract
 - `proteum command ...` plus the profiler `Commands` tab for dev-only internal execution
 
 If you are an LLM or automation agent, start here:
@@ -449,15 +466,17 @@ Install in an app:
 npm install proteum
 ```
 
-If the scaffold assets are available in your distribution, you can bootstrap a new app with:
+You can bootstrap a new app with:
 
 ```bash
-npx proteum init
+npx proteum init my-app --name "My App"
+npx proteum init my-app --name "My App" --dry-run --json
 ```
 
 Then use the normal workflow:
 
 ```bash
+npm install
 npx proteum dev
 npx proteum check
 npx proteum build --prod

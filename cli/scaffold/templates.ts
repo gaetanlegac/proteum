@@ -1,0 +1,344 @@
+import type { TScaffoldInitConfig, TScaffoldResult } from './types';
+
+const renderJson = (value: unknown) => JSON.stringify(value, null, 4);
+
+export const createPageTemplate = ({
+    routePath,
+    heading,
+    message,
+}: {
+    routePath: string;
+    heading: string;
+    message: string;
+}) => `import Router from '@/client/router';
+
+Router.page(
+    ${JSON.stringify(routePath)},
+    () => ({
+        _auth: false,
+        _layout: false,
+        heading: ${JSON.stringify(heading)},
+        message: ${JSON.stringify(message)},
+    }),
+    ({ heading, message }) => {
+        return (
+            <main>
+                <h1>{heading}</h1>
+                <p>{message}</p>
+            </main>
+        );
+    },
+);
+`;
+
+export const createControllerTemplate = ({
+    appIdentifier,
+    className,
+    methodName,
+}: {
+    appIdentifier: string;
+    className: string;
+    methodName: string;
+}) => `import Controller from '@server/app/controller';
+
+export default class ${className} extends Controller<${appIdentifier}> {
+    public async ${methodName}() {
+        return {
+            ok: true,
+        };
+    }
+}
+`;
+
+export const createCommandTemplate = ({
+    className,
+    methodName,
+}: {
+    className: string;
+    methodName: string;
+}) => `import { Commands } from '@server/app/commands';
+import type App from '@/server/index';
+
+export default class ${className} extends Commands<App> {
+    public async ${methodName}() {
+        return {
+            ok: true,
+            app: this.app.identity.identifier,
+        };
+    }
+}
+`;
+
+export const createRouteTemplate = ({
+    httpMethod,
+    routePath,
+}: {
+    httpMethod: string;
+    routePath: string;
+}) => `import { Router } from '@app';
+
+Router.${httpMethod}(${JSON.stringify(routePath)}, {}, async () => {
+    return {
+        ok: true,
+    };
+});
+`;
+
+export const createServiceTemplate = ({
+    appIdentifier,
+    className,
+}: {
+    appIdentifier: string;
+    className: string;
+}) => `import Service from '@server/app/service';
+
+export type Config = {
+    debug?: boolean;
+};
+
+export default class ${className} extends Service<Config, {}, ${appIdentifier}, ${appIdentifier}> {
+    public async health() {
+        return {
+            ok: true,
+        };
+    }
+}
+`;
+
+export const createServiceConfigTemplate = ({
+    configExportName,
+    serviceImportPath,
+    serviceImportName,
+}: {
+    configExportName: string;
+    serviceImportPath: string;
+    serviceImportName: string;
+}) => `import { Services } from '@server/app';
+import ${serviceImportName} from ${JSON.stringify(serviceImportPath)};
+
+export const ${configExportName} = Services.config(${serviceImportName}, {});
+`;
+
+export const createRouterConfigTemplate = () => `import { type ServiceConfig } from '@server/app';
+import AppContainer from '@server/app/container';
+import Router from '@server/services/router';
+
+type RouterBaseConfig = Omit<ServiceConfig<typeof Router>, 'plugins'>;
+
+const currentDomain = AppContainer.Environment.router.currentDomain;
+const currentUrl = new URL(currentDomain);
+
+export const routerBaseConfig = {
+    currentDomain,
+    http: {
+        domain: currentUrl.hostname,
+        port: AppContainer.Environment.router.port,
+        ssl: currentUrl.protocol === 'https:',
+        upload: {
+            maxSize: '10mb',
+        },
+    },
+    context: () => ({}),
+} satisfies RouterBaseConfig;
+`;
+
+export const createServerIndexTemplate = ({ appIdentifier }: { appIdentifier: string }) => `import { Application } from '@server/app';
+import Router from '@server/services/router';
+import SchemaRouter from '@server/services/schema/router';
+
+import * as appConfig from '@/server/config/app';
+
+export default class ${appIdentifier} extends Application {
+    public Router = new Router(
+        this,
+        {
+            ...appConfig.routerBaseConfig,
+            plugins: {
+                schema: new SchemaRouter({}, this),
+            },
+        },
+        this,
+    );
+}
+`;
+
+export const createClientTsconfigTemplate = () => `{
+    "extends": "../node_modules/proteum/tsconfig.common.json",
+    "compilerOptions": {
+        "rootDir": "..",
+        "baseUrl": "..",
+        "noImplicitAny": true,
+        "noImplicitThis": true,
+        "strictBindCallApply": true,
+        "useUnknownInCatchVariables": true,
+        "paths": {
+            "@client/*": ["./node_modules/proteum/client/*"],
+            "@common/*": ["./node_modules/proteum/common/*"],
+            "@server/*": ["./node_modules/proteum/server/*"],
+
+            "@/client/context": ["./.proteum/client/context.ts"],
+            "@generated/client/*": ["./.proteum/client/*"],
+            "@generated/common/*": ["./.proteum/common/*"],
+            "@generated/server/*": ["./.proteum/server/*"],
+            "@/*": ["./*"],
+
+            "react": ["./node_modules/preact/compat"],
+            "react-dom/test-utils": ["./node_modules/preact/test-utils"],
+            "react-dom": ["./node_modules/preact/compat"],
+            "react/jsx-runtime": ["./node_modules/preact/jsx-runtime"]
+        }
+    },
+    "include": [
+        ".",
+        "../var/typings",
+        "../node_modules/proteum/types/global",
+        "../.proteum/client/services.d.ts",
+        "../server/index.ts"
+    ]
+}
+`;
+
+export const createServerTsconfigTemplate = () => `{
+    "extends": "../node_modules/proteum/tsconfig.common.json",
+    "compilerOptions": {
+        "rootDir": "..",
+        "baseUrl": "..",
+        "noImplicitAny": true,
+        "noImplicitThis": true,
+        "strictBindCallApply": true,
+        "useUnknownInCatchVariables": true,
+        "moduleSuffixes": [".ssr", ""],
+        "paths": {
+            "@client/*": ["./node_modules/proteum/client/*"],
+            "@common/*": ["./node_modules/proteum/common/*"],
+            "@server/*": ["./node_modules/proteum/server/*"],
+
+            "@/client/context": ["./.proteum/client/context.ts"],
+            "@generated/client/*": ["./.proteum/client/*"],
+            "@generated/common/*": ["./.proteum/common/*"],
+            "@generated/server/*": ["./.proteum/server/*"],
+            "@/*": ["./*"],
+
+            "react": ["./node_modules/preact/compat"],
+            "react-dom/test-utils": ["./node_modules/preact/test-utils"],
+            "react-dom": ["./node_modules/preact/compat"],
+            "react/jsx-runtime": ["./node_modules/preact/jsx-runtime"]
+        }
+    },
+    "include": [
+        ".",
+        "../var/typings",
+        "../node_modules/proteum/types/global",
+        "../.proteum/server/services.d.ts",
+        "../server/index.ts"
+    ]
+}
+`;
+
+export const createGitignoreTemplate = () => `node_modules
+.proteum
+.cache
+bin
+dev
+var
+.env
+`;
+
+export const createEnvTemplate = ({ port, url }: { port: number; url: string }) => `ENV_NAME=local
+ENV_PROFILE=dev
+PORT=${port}
+URL=${url}
+
+# Optional trace settings
+# TRACE_ENABLE=true
+# TRACE_CAPTURE=resolve
+# TRACE_PERSIST_ON_ERROR=true
+`;
+
+export const createEslintConfigTemplate = () => `import proteumEslint from 'proteum/eslint.js';
+
+const { createProteumEslintConfig } = proteumEslint;
+
+export default createProteumEslintConfig();
+`;
+
+export const createPackageJsonTemplate = ({
+    packageName,
+    appDescription,
+    proteumDependency,
+    preactDependency,
+}: {
+    packageName: string;
+    appDescription: string;
+    proteumDependency: string;
+    preactDependency: string;
+}) =>
+    `${renderJson({
+        name: packageName,
+        version: '0.0.1',
+        private: true,
+        engines: {
+            node: '>=20.19.0',
+            npm: '>=3.10.10',
+        },
+        browserslist: ['>1%', 'not dead', 'not op_mini all'],
+        scripts: {
+            dev: 'NODE_ENV=development proteum dev',
+            refresh: 'npx proteum refresh',
+            typecheck: 'npx proteum typecheck',
+            lint: 'npx proteum lint',
+            check: 'npx proteum check',
+            build: 'npx proteum build --prod',
+            start: 'NODE_ENV=production node ./bin/server.js',
+        },
+        description: appDescription,
+        dependencies: {
+            preact: preactDependency,
+            proteum: proteumDependency,
+        },
+    })}\n`;
+
+export const createIdentityTemplate = ({
+    appName,
+    appIdentifier,
+    appDescription,
+}: {
+    appName: string;
+    appIdentifier: string;
+    appDescription: string;
+}) => `name: ${appName}
+identifier: ${appIdentifier}
+description: ${JSON.stringify(appDescription)}
+
+author:
+    name: ${appName}
+    url: localhost
+    email: team@example.com
+
+social:
+
+language: en
+locale: en-US
+maincolor: white
+iconsPack: light
+
+web:
+    title: ${JSON.stringify(appName)}
+    titleSuffix: ${JSON.stringify(appName)}
+    fullTitle: ${JSON.stringify(appName)}
+    description: ${JSON.stringify(appDescription)}
+    version: 0.0.1
+`;
+
+export const createInitSummary = (result: TScaffoldResult, config: TScaffoldInitConfig) => ({
+    ...result,
+    project: {
+        directory: config.directory,
+        name: config.name,
+        identifier: config.identifier,
+        port: config.port,
+        url: config.url,
+        proteumDependency: config.proteumDependency,
+        install: config.install,
+    },
+});

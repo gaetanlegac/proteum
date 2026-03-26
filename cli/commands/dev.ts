@@ -22,7 +22,7 @@ import {
 import Compiler from '../compiler';
 import { createDevEventServer } from './devEvents';
 import { ensureProjectAgentSymlinks } from '../utils/agents';
-import { renderDevSession, renderServerReadyBanner } from '../presentation/devSession';
+import { renderDevSession, renderServerReadyBanner, renderDevShutdownBanner } from '../presentation/devSession';
 import { logVerbose } from '../runtime/verbose';
 
 // Core
@@ -448,6 +448,7 @@ export const run = async () => {
             await stopApp(reason);
             await cleanupPersistedDevTraces(app);
             await devEventServer.close();
+            console.info(await renderDevShutdownBanner());
         })();
 
         return shuttingDownPromise;
