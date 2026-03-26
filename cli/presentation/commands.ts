@@ -16,6 +16,7 @@ export const proteumCommandNames = [
     'explain',
     'trace',
     'command',
+    'session',
 ] as const;
 
 export type TProteumCommandName = (typeof proteumCommandNames)[number];
@@ -48,7 +49,7 @@ export const proteumRecommendedFlow: TRow[] = [
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
-    { title: 'Manifest and contracts', names: ['doctor', 'explain', 'trace', 'command'] },
+    { title: 'Manifest and contracts', names: ['doctor', 'explain', 'trace', 'command', 'session'] },
     { title: 'Project scaffolding', names: ['init', 'create'] },
 ];
 
@@ -271,6 +272,31 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'Prefer `extends Commands` directly inside `/commands`; importing the app class is still supported through a generated command-only `@/server/index` type alias.',
             'Without `--port` or `--url`, Proteum refreshes generated artifacts, builds the dev output, starts a temporary local dev server, runs the command, and exits.',
             'With `--port` or `--url`, Proteum talks to the running app over the dev-only `__proteum/commands` HTTP endpoints.',
+        ],
+        status: 'experimental',
+    },
+    session: {
+        name: 'session',
+        category: 'Manifest and contracts',
+        summary: 'Mint a dev-only auth session token and cookie payload for a known user.',
+        usage: 'proteum session <email> [--role <role>] [--port <port>|--url <baseUrl>] [--json]',
+        bestFor:
+            'Starting browser or API automation from an authenticated state without driving the login UI, while still using the app-configured auth service.',
+        examples: [
+            {
+                description: 'Mint an admin session for a running dev server',
+                command: 'proteum session admin@example.com --role ADMIN --port 3101',
+            },
+            {
+                description: 'Mint a GOD session for unique.domains and print machine-readable cookie data',
+                command: 'proteum session god@example.com --role GOD --json',
+            },
+        ],
+        notes: [
+            'Sessions are available only in dev mode and use the auth service registered on the current app router.',
+            'You must provide the target user email explicitly; Proteum does not guess your admin account universally across apps.',
+            'The command returns a token plus Playwright-ready cookie JSON so agents can inject the session into a browser context directly.',
+            'Without `--port` or `--url`, Proteum refreshes generated artifacts, builds the dev output, starts a temporary local dev server, creates the session, prints the payload, and exits.',
         ],
         status: 'experimental',
     },

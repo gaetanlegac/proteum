@@ -61,6 +61,9 @@ const getCommandErrorMessage = (body: TDevCommandErrorResponse | object | string
     return `Command request failed with status ${statusCode}.`;
 };
 
+const hasStructuredCommandError = (body: TDevCommandErrorResponse | object | string | undefined): body is TDevCommandErrorResponse =>
+    typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string';
+
 const requestJson = async <TResponse>(pathname: string, options?: { method?: 'GET' | 'POST'; json?: object }) => {
     const attempts: string[] = [];
 
@@ -75,6 +78,11 @@ const requestJson = async <TResponse>(pathname: string, options?: { method?: 'GE
             });
 
             if (response.statusCode >= 400) {
+                if (response.statusCode === 404 && !hasStructuredCommandError(response.body as TDevCommandErrorResponse | object | string | undefined)) {
+                    attempts.push(`${baseUrl}${pathname}: returned 404`);
+                    continue;
+                }
+
                 throw new UsageError(
                     getCommandErrorMessage(response.body as TDevCommandErrorResponse | object | string | undefined, response.statusCode),
                 );

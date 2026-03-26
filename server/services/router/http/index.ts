@@ -22,7 +22,9 @@ import cookieParser from 'cookie-parser';
 import Container from '@server/app/container';
 import type CronManager from '@server/services/cron';
 import type CronTask from '@server/services/cron/CronTask';
+import type { TBasicUser } from '@server/services/auth';
 import type { TServerRouter } from '..';
+import type { TDevSessionStartResponse, TDevSessionUserSummary } from '@common/dev/session';
 import { serverHotReloadMessageType } from '@common/dev/serverHotReload';
 import { explainSectionNames } from '@common/dev/diagnostics';
 
@@ -54,6 +56,15 @@ export type Hooks = {};
 
 type TContentSecurityPolicyOptions = NonNullable<Parameters<typeof helmet.contentSecurityPolicy>[0]>;
 type TContentSecurityPolicyDirectives = NonNullable<TContentSecurityPolicyOptions['directives']>;
+type TDevSessionAuthService = {
+    config: {
+        jwt: {
+            expiration: number;
+        };
+    };
+    createSession: (session: { email: string }, request: { id: string; res: express.Response }) => string;
+    decodeSession: (session: { email: string }, req: express.Request) => Promise<TBasicUser | null>;
+};
 
 const createContentSecurityPolicy = (config: Config['csp']): TContentSecurityPolicyOptions => {
     const directives: TContentSecurityPolicyDirectives = {
@@ -99,6 +110,32 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
 
         // Start HTTP Server
         this.app.on('cleanup', () => this.cleanup());
+    }
+
+    private resolveDevSessionAuthService(): TDevSessionAuthService {
+        const plugins = Object.values(this.router.config.plugins || {}) as Array<{ users?: unknown }>;
+
+        for (const plugin of plugins) {
+            const users = plugin?.users as Partial<TDevSessionAuthService> | undefined;
+            if (!users) continue;
+            if (typeof users.createSession !== 'function') continue;
+            if (typeof users.decodeSession !== 'function') continue;
+            if (typeof users.config?.jwt?.expiration !== 'number') continue;
+
+            return users as TDevSessionAuthService;
+        }
+
+        throw new Error('No auth router plugin with a compatible users service is registered.');
+    }
+
+    private summarizeDevSessionUser(user: TBasicUser): TDevSessionUserSummary {
+        return {
+            email: user.email,
+            name: user.name,
+            type: user.type,
+            roles: [...user.roles],
+            locale: user.locale ?? null,
+        };
     }
 
     /*----------------------------------
@@ -355,6 +392,55 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
                     error: error instanceof Error ? error.message : String(error),
                     execution,
                 });
+            }
+        });
+
+        routes.post('/__proteum/session/start', async (req, res) => {
+            const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+            const requiredRole = typeof req.body?.role === 'string' ? req.body.role.trim() : '';
+
+            if (!email) {
+                res.status(400).json({ error: 'Email is required.' });
+                return;
+            }
+
+            try {
+                const auth = this.resolveDevSessionAuthService();
+                const user = await auth.decodeSession({ email }, req);
+
+                if (!user) {
+                    res.status(404).json({ error: `No user could be resolved for "${email}".` });
+                    return;
+                }
+
+                if (requiredRole && !user.roles.includes(requiredRole)) {
+                    res.status(403).json({ error: `User "${email}" does not have required role "${requiredRole}".` });
+                    return;
+                }
+
+                const token = auth.createSession(
+                    { email },
+                    {
+                        id: `proteum-session:${Date.now()}`,
+                        res,
+                    },
+                );
+                const issuedAt = new Date().toISOString();
+                const expiresAt = new Date(Date.now() + auth.config.jwt.expiration).toISOString();
+                const response: TDevSessionStartResponse = {
+                    user: this.summarizeDevSessionUser(user),
+                    session: {
+                        token,
+                        cookieName: 'authorization',
+                        expiresInMs: auth.config.jwt.expiration,
+                        issuedAt,
+                        expiresAt,
+                    },
+                };
+
+                res.json(response);
+            } catch (error) {
+                res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
             }
         });
 

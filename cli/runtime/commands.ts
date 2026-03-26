@@ -296,6 +296,32 @@ class CommandCommand extends ProteumCommand {
     }
 }
 
+class SessionCommand extends ProteumCommand {
+    public static paths = [['session']];
+
+    public static usage = buildUsage('session');
+
+    public role = Option.String('--role', { description: 'Require the resolved user to have the given role.' });
+    public port = Option.String('--port', { description: 'Target an existing dev server on the given port.' });
+    public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL.' });
+    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [email = ''] = this.args;
+
+        this.setCliArgs({
+            email,
+            role: this.role ?? '',
+            port: this.port ?? '',
+            url: this.url ?? '',
+            json: this.json,
+        });
+
+        await runCommandModule(() => import('../commands/session'));
+    }
+}
+
 export const registeredCommands = {
     init: InitCommand,
     create: CreateCommand,
@@ -309,6 +335,7 @@ export const registeredCommands = {
     explain: ExplainCommand,
     trace: TraceCommand,
     command: CommandCommand,
+    session: SessionCommand,
 } as const;
 
 export const createCli = (version: string) => {
@@ -333,6 +360,7 @@ export const createCli = (version: string) => {
     clipanion.register(ExplainCommand);
     clipanion.register(TraceCommand);
     clipanion.register(CommandCommand);
+    clipanion.register(SessionCommand);
 
     return clipanion;
 };

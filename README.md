@@ -289,6 +289,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum explain` | Explain routes, controllers, services, layouts, conventions, and env |
 | `proteum trace` | Inspect live dev-only request traces from the running SSR server |
 | `proteum command` | Run a dev-only internal command locally or against a running dev server |
+| `proteum session` | Mint a dev-only auth session token and Playwright-ready cookie payload |
 | `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
 | `proteum create` | Scaffold a page, controller, command, route, or root service inside an app |
 
@@ -311,6 +312,8 @@ proteum explain --routes --controllers --commands
 proteum explain --all --json
 proteum command proteum/diagnostics/ping
 proteum command proteum/diagnostics/ping --port 3101
+proteum session admin@example.com --role ADMIN --port 3101
+proteum session god@example.com --role GOD --json
 proteum trace requests
 proteum trace arm --capture deep
 proteum trace latest

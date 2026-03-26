@@ -75,6 +75,9 @@ const getTraceErrorMessage = (body: TRequestTraceErrorResponse | object | string
     return `Trace request failed with status ${statusCode}.`;
 };
 
+const hasStructuredTraceError = (body: TRequestTraceErrorResponse | object | string | undefined): body is TRequestTraceErrorResponse =>
+    typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string';
+
 const requestJson = async <TResponse>(pathname: string, options?: { method?: 'GET' | 'POST'; json?: object }) => {
     const attempts: string[] = [];
 
@@ -89,6 +92,11 @@ const requestJson = async <TResponse>(pathname: string, options?: { method?: 'GE
             });
 
             if (response.statusCode >= 400) {
+                if (response.statusCode === 404 && !hasStructuredTraceError(response.body as TRequestTraceErrorResponse | object | string | undefined)) {
+                    attempts.push(`${baseUrl}${pathname}: returned 404`);
+                    continue;
+                }
+
                 throw new TraceResponseError(
                     getTraceErrorMessage(response.body as TRequestTraceErrorResponse | object | string | undefined, response.statusCode),
                 );
