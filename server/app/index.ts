@@ -2,6 +2,8 @@
 - DEPENDANCES
 ----------------------------------*/
 
+process.env.DOTENV_CONFIG_QUIET ??= 'true';
+
 // Core
 import AppContainer from './container';
 import ApplicationService, { AnyService } from './service';
@@ -144,8 +146,6 @@ export abstract class Application<
     ----------------------------------*/
 
     public async start(options: TApplicationStartOptions = {}) {
-        console.log('Build date', BUILD_DATE);
-        console.log('Core version', CORE_VERSION);
         const startTime = Date.now();
 
         const startingServices = await this.ready(options);

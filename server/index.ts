@@ -9,7 +9,6 @@ const shutdownApplication = async (reason: string) => {
     if (!shutdownPromise) {
         shutdownPromise = (async () => {
             try {
-                console.info(`[server] Shutting down (${reason}) ...`);
                 await application.runHook('cleanup');
             } catch (error) {
                 console.error('[server] Failed to run application cleanup.', error);

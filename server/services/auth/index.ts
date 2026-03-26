@@ -112,8 +112,6 @@ export type TAuthRulesFactory<TUser extends TBasicUser, TRequest extends ServerR
 - CONFIG
 ----------------------------------*/
 
-const LogPrefix = '[auth]';
-
 export const UserRoles = ['USER', 'ADMIN', 'TEST', 'DEV'] as const;
 
 /*----------------------------------
@@ -165,9 +163,6 @@ export default abstract class AuthService<
     public async decode(req: THttpRequest, withData: true): Promise<TUser | null>;
     public async decode(req: THttpRequest, withData?: false): Promise<TJwtSession | null>;
     public async decode(req: THttpRequest, withData: boolean = false): Promise<TJwtSession | TUser | null> {
-        const requestCookies = 'cookies' in req ? req.cookies : undefined;
-        this.config.debug && console.log(LogPrefix, 'Decode:', { cookie: requestCookies?.['authorization'] });
-
         // Get auth token
         const authMethod = this.getAuthMethod(req);
         if (authMethod === null) return null;
@@ -179,16 +174,12 @@ export default abstract class AuthService<
 
         // Return email only
         if (!withData) {
-            this.config.debug && console.log(LogPrefix, `Auth user successfull. Return email only`);
             return session;
         }
 
         // Deserialize full user data
-        this.config.debug && console.log(LogPrefix, `Deserialize user`, session);
         const user = await this.decodeSession(session, req);
         if (user === null) return null;
-
-        this.config.debug && console.log(LogPrefix, `Deserialized user:`, user.name);
 
         return { ...user, _token: token };
     }
@@ -216,18 +207,15 @@ export default abstract class AuthService<
             const [accountType] = token.split('-');
             const apiKeySession = { accountType, apiKey: token } satisfies TApiKeySession;
 
-            this.config.debug && console.log(LogPrefix, `Auth via API Key`, token);
             session = apiKeySession as TJwtSession & TApiKeySession;
 
             // JWT
         } else if (tokenType === 'Bearer') {
-            this.config.debug && console.log(LogPrefix, `Auth via JWT token`, token);
             try {
                 session = jwt.verify(token, this.config.jwt.key, {
                     maxAge: this.config.jwt.expiration,
                 }) as TJwtSession;
             } catch (error) {
-                console.warn(LogPrefix, 'Failed to decode jwt token:', token);
                 return null;
                 //throw new Forbidden(`The JWT token provided in the Authorization header is invalid`);
             }
@@ -238,11 +226,7 @@ export default abstract class AuthService<
     }
 
     public createSession(session: TJwtSession, request2: TRequest): string {
-        this.config.debug && console.info(LogPrefix, `Creating new session:`, session);
-
         const token = jwt.sign(session, this.config.jwt.key);
-
-        this.config.debug && console.info(LogPrefix, `Generated JWT token for session:` + token);
 
         request2.res.cookie('authorization', token, { maxAge: this.config.jwt.expiration });
 
@@ -253,7 +237,6 @@ export default abstract class AuthService<
         const user = request.user;
         if (!user) return;
 
-        this.config.debug && console.info(LogPrefix, `Logout ${user.name}`);
         request.res.clearCookie('authorization');
     }
 
@@ -342,12 +325,9 @@ export default abstract class AuthService<
     ): TUser | null {
         const user = this.getDecodedUser(request);
 
-        this.config.debug && console.warn(LogPrefix, `Check auth with rules. Current user =`, user?.name, conditions);
-
         if (conditions === false) return user;
 
         if (user === null) {
-            console.warn(LogPrefix, 'Refusé pour anonyme (' + request.ip + ')');
             throw this.buildUnauthenticatedError(request, tracking);
         }
 
@@ -381,15 +361,11 @@ export default abstract class AuthService<
         const normalizedRole = role === true ? 'USER' : role;
         const user = this.getDecodedUser(request);
 
-        this.config.debug &&
-            console.warn(LogPrefix, `Check auth, role = ${normalizedRole}. Current user =`, user?.name, feature);
-
         if (normalizedRole === false) {
             return user as TUser;
 
             // Not connected
         } else if (user === null) {
-            console.warn(LogPrefix, 'Refusé pour anonyme (' + request.ip + ')');
             throw new AuthErrors.AuthRequired(
                 'Please login to continue',
                 feature && feature !== null ? feature : ('auth' as FeatureKeys),
@@ -398,18 +374,7 @@ export default abstract class AuthService<
 
             // Insufficient permissions
         } else if (!user.roles.includes(normalizedRole)) {
-            console.warn(
-                LogPrefix,
-                'Refusé: ' + normalizedRole + ' pour ' + user.name + ' (' + (user.roles || 'role inconnu') + ')',
-            );
-
             throw new AuthErrors.Forbidden('You do not have sufficient permissions to access this resource.');
-        } else {
-            this.config.debug &&
-                console.warn(
-                    LogPrefix,
-                    'Autorisé ' + normalizedRole + ' pour ' + user.name + ' (' + user.roles + ')',
-                );
         }
 
         return user as TUser;

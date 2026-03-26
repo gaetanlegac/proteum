@@ -41,7 +41,6 @@
 		"eslint-plugin-react": "^7.37.5",
 		"eslint-plugin-react-hooks": "^7.0.1",
 		"express": "^4.17.1",
-		"express-csp-header": "^5.0.0",
 		"express-fileupload": "^1.2.1",
 		"fast-safe-stringify": "^2.1.1",
 		"favicons": "^7.2.0",

@@ -17,7 +17,6 @@ import helmet from 'helmet'; // Diverses protections
 import compression from 'compression';
 import fileUpload from 'express-fileupload';
 import cookieParser from 'cookie-parser';
-import * as csp from 'express-csp-header';
 
 // Core
 import Container from '@server/app/container';
@@ -52,6 +51,27 @@ export type Config = {
 };
 
 export type Hooks = {};
+
+type TContentSecurityPolicyOptions = NonNullable<Parameters<typeof helmet.contentSecurityPolicy>[0]>;
+type TContentSecurityPolicyDirectives = NonNullable<TContentSecurityPolicyOptions['directives']>;
+
+const createContentSecurityPolicy = (config: Config['csp']): TContentSecurityPolicyOptions => {
+    const directives: TContentSecurityPolicyDirectives = {
+        defaultSrc:
+            config.default && config.default.length > 0
+                ? [...config.default]
+                : helmet.contentSecurityPolicy.dangerouslyDisableDefaultSrc,
+        scriptSrc: ["'unsafe-inline'", "'self'", "'unsafe-eval'", ...config.scripts],
+    };
+
+    if (config.styles && config.styles.length > 0) directives.styleSrc = [...config.styles];
+    if (config.images && config.images.length > 0) directives.imgSrc = [...config.images];
+
+    return {
+        useDefaults: false,
+        directives,
+    };
+};
 
 /*----------------------------------
 - FUNCTION
@@ -203,11 +223,7 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
 
         if (this.config.cors !== undefined) routes.use(cors(this.config.cors));
 
-        routes.use(
-            csp.expressCspHeader({
-                directives: { 'script-src': [csp.INLINE, csp.SELF, csp.UNSAFE_EVAL, ...this.config.csp.scripts] },
-            }),
-        );
+        routes.use(helmet.contentSecurityPolicy(createContentSecurityPolicy(this.config.csp)));
 
         this.registerDevTraceRoutes(routes);
         routes.use(routeRequest);
