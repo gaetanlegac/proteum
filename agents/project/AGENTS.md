@@ -17,6 +17,7 @@ Coding style source of truth: `./CODING_STYLE.md`.
 - For request-time issues in dev, inspect traces before adding logs.
 - If a server is already running on the default port from `PORT` or `./.proteum/manifest.json`, inspect existing traces before reproducing the issue.
 - If existing traces are insufficient, arm `npx proteum trace arm --capture deep`, reproduce once, then inspect the new request.
+- For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` over driving the login UI. Use the login UI only when auth UX is the feature under test.
 
 ## Project Shape
 

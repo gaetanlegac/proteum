@@ -711,6 +711,14 @@ export default class ServerRouter<
                     channelId: request.id,
                     method: request.method,
                     path: request.path,
+                    ...(request.traceCall
+                        ? {
+                              traceCallFetcherId: request.traceCall.fetcherId,
+                              traceCallId: request.traceCall.id,
+                              traceCallLabel: request.traceCall.label,
+                              traceCallOrigin: request.traceCall.origin,
+                          }
+                        : {}),
                 },
                 async () => {
                     const timeStart = Date.now();
@@ -918,9 +926,17 @@ export default class ServerRouter<
                 requestDataKeys: data && typeof data === 'object' ? Object.keys(data) : [],
                 requestData: data,
             });
+            const childRequest = request.children(method, path, data);
+            if (callId)
+                childRequest.traceCall = {
+                    fetcherId: id,
+                    id: callId,
+                    label: id,
+                    origin: 'api-batch-fetcher',
+                };
 
             try {
-                const response = await this.resolve(request.children(method, path, data));
+                const response = await this.resolve(childRequest);
                 responseData[id] = response.data;
                 this.app.container.Trace.finishCall(request.id, callId, {
                     statusCode: response.statusCode,
@@ -928,7 +944,7 @@ export default class ServerRouter<
                         response.data && typeof response.data === 'object' && !Array.isArray(response.data)
                             ? Object.keys(response.data as Record<string, unknown>)
                             : [],
-                    result: response.data,
+                    result: response.data as object | string | number | boolean | bigint | symbol | null | undefined,
                 });
             } catch (error) {
                 const typedError = error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown error');

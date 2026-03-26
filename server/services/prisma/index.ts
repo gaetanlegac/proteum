@@ -4,13 +4,15 @@
 
 // Npm
 import dotenv from 'dotenv';
-import { PrismaClient } from '@generated/server/models';
+import { Prisma, PrismaClient } from '@generated/server/models';
 import mysql from 'mysql2/promise';
 const safeStringify = require('fast-safe-stringify'); // remplace les références circulairs par un [Circular]
 
 // Core
 import type { Application } from '@server/app/index';
+import type { ChannelInfos } from '@server/app/container/console';
 import Service, { TServiceArgs } from '@server/app/service';
+import context from '@server/context';
 
 // Specific
 import Facet, { TDelegate, TSubset, Transform } from './Facet';
@@ -28,6 +30,20 @@ type DecimalLike = {
     equals: (value: number) => boolean;
     toNumber: () => number;
     toString: () => string;
+};
+type TPrismaOperationContext = { kind: 'orm' | 'raw'; model?: string; operation: string };
+type TPrismaQueryEvent = {
+    duration: number;
+    params: string;
+    query: string;
+    target: string;
+    timestamp: Date;
+};
+type TPrismaExtensionOperation = {
+    args: unknown;
+    model?: string;
+    operation: string;
+    query: (args: unknown) => Promise<unknown>;
 };
 
 /*----------------------------------
@@ -78,6 +94,51 @@ const normalizeSqlResult = <T>(value: T): T => {
         Object.entries(value).map(([key, nestedValue]) => [key, normalizeSqlResult(nestedValue)]),
     ) as T;
 };
+const rawOperationNames = new Set([
+    '$executeRaw',
+    '$executeRawUnsafe',
+    '$queryRaw',
+    '$queryRawUnsafe',
+    'aggregateRaw',
+    'executeRaw',
+    'findRaw',
+    'queryRaw',
+    'runCommandRaw',
+]);
+
+const inferPrismaOperationKind = (model: string | undefined, operation: string): TPrismaOperationContext['kind'] =>
+    rawOperationNames.has(operation) || operation.toLowerCase().includes('raw') ? 'raw' : model ? 'orm' : 'raw';
+
+const parseQueryParams = (value: string) => {
+    if (!value) return undefined;
+
+    try {
+        return JSON.parse(value);
+    } catch (_error) {
+        return undefined;
+    }
+};
+
+const withPrismaOperationContext = async <T>(meta: TPrismaOperationContext, execute: () => Promise<T>) => {
+    const store = context.getStore() as ChannelInfos | undefined;
+    if (!store) return execute();
+
+    const operations = store.prismaOperations || (store.prismaOperations = []);
+    operations.push(meta);
+
+    try {
+        return await execute();
+    } finally {
+        const lastOperation = operations[operations.length - 1];
+        if (lastOperation === meta) operations.pop();
+        else {
+            const operationIndex = operations.lastIndexOf(meta);
+            if (operationIndex !== -1) operations.splice(operationIndex, 1);
+        }
+
+        if (operations.length === 0) delete store.prismaOperations;
+    }
+};
 
 /*----------------------------------
 - SERVICE CONFIG
@@ -112,9 +173,40 @@ export default class ModelsManager extends Service<Config, Hooks, Application, A
                 'DATABASE_URL is required before starting the Models service. Prisma 7 no longer auto-loads runtime env files.',
             );
 
-        this.client = new PrismaClient({
-            adapter: createMariaDbAdapter(databaseUrl),
-        });
+        const shouldTraceQueries = this.app.container.Trace.isEnabled();
+        const prismaClient = shouldTraceQueries
+            ? new PrismaClient({
+                  adapter: createMariaDbAdapter(databaseUrl),
+                  log: [{ emit: 'event', level: 'query' }],
+              })
+            : new PrismaClient({
+                  adapter: createMariaDbAdapter(databaseUrl),
+              });
+
+        if (!shouldTraceQueries) {
+            this.client = prismaClient;
+            return;
+        }
+
+        prismaClient.$on('query', (event: TPrismaQueryEvent) => this.traceQuery(event));
+
+        this.client = prismaClient.$extends(
+            Prisma.defineExtension({
+                query: {
+                    async $allOperations({ args, model, operation, query }: TPrismaExtensionOperation) {
+                        const normalizedModel = typeof model === 'string' ? model : undefined;
+                        return withPrismaOperationContext(
+                            {
+                                kind: inferPrismaOperationKind(normalizedModel, operation),
+                                model: normalizedModel,
+                                operation,
+                            },
+                            () => query(args),
+                        );
+                    },
+                },
+            }),
+        ) as PrismaClient;
     }
 
     public async ready() {
@@ -241,4 +333,29 @@ export default class ModelsManager extends Service<Config, Hooks, Application, A
     public equalities = (data: TObjetDonnees, forStorage: boolean = false) => {
         return Object.keys(data).map((k) => '' + k + ' = ' + this.esc(data[k], forStorage));
     };
+
+    private traceQuery(event: TPrismaQueryEvent) {
+        const store = context.getStore() as ChannelInfos | undefined;
+        if (!store || store.channelType !== 'request' || !store.channelId) return;
+
+        const operation = store.prismaOperations?.[store.prismaOperations.length - 1];
+
+        this.app.container.Trace.recordSqlQuery(store.channelId, {
+            callerCallId: store.traceCallId,
+            callerFetcherId: store.traceCallFetcherId,
+            callerLabel: store.traceCallLabel,
+            callerMethod: store.method,
+            callerOrigin: store.traceCallOrigin || 'request',
+            callerPath: store.path,
+            durationMs: event.duration,
+            finishedAt: event.timestamp.toISOString(),
+            kind: operation?.kind || 'orm',
+            model: operation?.model,
+            operation: operation?.operation || 'query',
+            paramsJson: parseQueryParams(event.params),
+            paramsText: event.params,
+            query: event.query,
+            target: event.target,
+        });
+    }
 }

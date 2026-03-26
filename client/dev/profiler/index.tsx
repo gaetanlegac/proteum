@@ -15,7 +15,7 @@ import type {
     TProfilerPanel,
     TProfilerSessionTrace,
 } from '@common/dev/profiler';
-import type { TRequestTrace, TTraceCall, TTraceEventType, TTraceSummaryValue } from '@common/dev/requestTrace';
+import type { TRequestTrace, TTraceCall, TTraceEventType, TTraceSqlQuery, TTraceSummaryValue } from '@common/dev/requestTrace';
 
 import { profilerRuntime } from './runtime';
 
@@ -754,6 +754,7 @@ type TSessionSummary = {
     primaryTrace?: TProfilerSessionTrace;
     renderMs?: number;
     routeLabel: string;
+    sqlCount: number;
     ssrPayloadBytes?: number;
     statusLabel: string;
     totalMs?: number;
@@ -776,6 +777,26 @@ type TApiRequestItem = {
     statusLabel?: string;
     tags: string[];
 };
+type TSqlQueryItem = {
+    callerLabel: string;
+    durationMs: number;
+    finishedAt: string;
+    id: string;
+    kind: TTraceSqlQuery['kind'];
+    model?: string;
+    operation: string;
+    paramsJson?: unknown;
+    paramsText?: string;
+    query: string;
+    startedAt: string;
+    tags: string[];
+    target?: string;
+};
+type TSqlQueryGroup = {
+    id: string;
+    items: TSqlQueryItem[];
+    label: string;
+};
 type TWaterfallChartItem = {
     barLabel: string;
     color: string;
@@ -796,6 +817,7 @@ const panelLabels: Record<TProfilerPanel, string> = {
     controller: 'Controller',
     ssr: 'SSR',
     api: 'API',
+    sql: 'SQL',
     errors: 'Errors',
     explain: 'Explain',
     doctor: 'Doctor',
@@ -1060,6 +1082,7 @@ const getSummary = (session: TProfilerNavigationSession): TSessionSummary => {
         session.steps.filter((step) => step.status === 'error').length +
         session.traces.filter((traceItem) => traceItem.status === 'error').length +
         syncCalls.filter((call) => call.errorMessage || (call.statusCode !== undefined && call.statusCode >= 400)).length;
+    const sqlCount = session.traces.reduce((count, traceItem) => count + (traceItem.trace?.sqlQueries.length || 0), 0);
     const renderStart = trace?.events.find((event) => event.type === 'render.start');
     const renderEnd = trace?.events.find((event) => event.type === 'render.end');
     const localRender = [...session.steps].reverse().find((step) => step.label === 'Render' && step.durationMs !== undefined);
@@ -1076,6 +1099,7 @@ const getSummary = (session: TProfilerNavigationSession): TSessionSummary => {
                 ? Math.max(0, renderEnd.elapsedMs - renderStart.elapsedMs)
                 : localRender?.durationMs,
         routeLabel,
+        sqlCount,
         ssrPayloadBytes: readNumber(ssrPayload?.details.serializedBytes),
         statusLabel: session.kind === 'client-navigation' ? 'NAV' : trace ? `${trace.statusCode || 'pending'} ${trace.method}` : 'SSR',
         totalMs: session.kind === 'client-navigation' ? session.durationMs : trace?.durationMs ?? session.durationMs,
@@ -1098,6 +1122,8 @@ const SummaryRow = ({ label, value }: { label: string; value: React.ReactNode })
 const JsonCodeBlock = ({ value }: { value: string }) => (
     <pre className="proteum-profiler__mono proteum-profiler__pre">{renderHighlightedJson(value)}</pre>
 );
+
+const PlainCodeBlock = ({ value }: { value: string }) => <pre className="proteum-profiler__mono proteum-profiler__pre">{value}</pre>;
 
 const formatTraceCallDisplay = (call: TTraceCall) => {
     if (call.path.startsWith('/api/')) {
@@ -1125,6 +1151,83 @@ const formatSessionTraceDisplay = (traceItem: TProfilerSessionTrace) => {
     }
 
     return traceItem.label || formatProfilerRequestReference({ method: traceItem.method, path: traceItem.path });
+};
+
+const formatSqlCallerReference = ({
+    callerLabel,
+    callerMethod,
+    callerPath,
+}: Pick<TTraceSqlQuery, 'callerLabel' | 'callerMethod' | 'callerPath'>) =>
+    formatProfilerRequestReference({
+        fallbackLabel: callerLabel,
+        method: callerMethod,
+        path: callerPath,
+    });
+
+const formatSqlQueryTitle = (query: string) => truncate(query.replace(/\s+/g, ' ').trim() || 'SQL query', 160);
+
+const formatSqlParams = (item: TSqlQueryItem) =>
+    item.paramsJson !== undefined ? formatStructuredValue(item.paramsJson) : item.paramsText || '[]';
+
+const buildSqlQueryWorkspace = (session: TProfilerNavigationSession) => {
+    const groups = new Map<string, TSqlQueryGroup>();
+    const queryItems: TSqlQueryItem[] = [];
+    const sortItems = (left: { id: string; startedAt: string }, right: { id: string; startedAt: string }) =>
+        (readDateMs(left.startedAt) ?? 0) - (readDateMs(right.startedAt) ?? 0) || left.id.localeCompare(right.id);
+
+    for (const traceItem of session.traces) {
+        const trace = traceItem.trace;
+        if (!trace) continue;
+
+        for (const query of trace.sqlQueries || []) {
+            const callerLabel = formatSqlCallerReference(query);
+            const item: TSqlQueryItem = {
+                callerLabel,
+                durationMs: query.durationMs,
+                finishedAt: query.finishedAt,
+                id: query.id,
+                kind: query.kind,
+                model: query.model,
+                operation: query.operation,
+                paramsJson: query.paramsJson,
+                paramsText: query.paramsText,
+                query: query.query,
+                startedAt: query.startedAt,
+                tags: [
+                    query.kind,
+                    `op:${query.operation}`,
+                    ...(query.model ? [`model:${query.model}`] : []),
+                    ...(query.target ? [`target:${query.target}`] : []),
+                    ...(query.callerOrigin !== 'request' ? [query.callerOrigin] : []),
+                    ...(query.callerFetcherId ? [`fetcher:${query.callerFetcherId}`] : []),
+                    ...(query.callerLabel &&
+                    query.callerLabel !== query.callerFetcherId &&
+                    query.callerLabel !== callerLabel
+                        ? [`label:${query.callerLabel}`]
+                        : []),
+                ],
+                target: query.target,
+            };
+
+            queryItems.push(item);
+
+            const groupId = `${traceItem.id}:${query.callerCallId || 'request'}`;
+            const group = groups.get(groupId);
+            if (group) group.items.push(item);
+            else groups.set(groupId, { id: groupId, items: [item], label: callerLabel });
+        }
+    }
+
+    return {
+        groups: [...groups.values()]
+            .map((group) => ({ ...group, items: [...group.items].sort(sortItems) }))
+            .sort(
+                (left, right) =>
+                    sortItems(left.items[0] || { id: left.id, startedAt: '' }, right.items[0] || { id: right.id, startedAt: '' }) ||
+                    left.label.localeCompare(right.label),
+            ),
+        queryItems: [...queryItems].sort(sortItems),
+    };
 };
 
 const ApiRequestListEntry = ({
@@ -1240,6 +1343,106 @@ const ApiRequestSidebar = ({ item }: { item?: TApiRequestItem }) => {
                         <div className="proteum-profiler__mono">{item.errorMessage}</div>
                     </div>
                 ) : null}
+            </div>
+        </aside>
+    );
+};
+
+const SqlQueryListEntry = ({
+    isSelected,
+    item,
+    onSelect,
+}: {
+    isSelected: boolean;
+    item: TSqlQueryItem;
+    onSelect: () => void;
+}) => (
+    <button
+        aria-pressed={isSelected}
+        className={`proteum-profiler__row proteum-profiler__row--interactive ${isSelected ? 'proteum-profiler__row--selected' : ''}`}
+        onClick={onSelect}
+        type="button"
+    >
+        <div className="proteum-profiler__rowHeader">
+            <strong className="proteum-profiler__rowTitle">{formatSqlQueryTitle(item.query)}</strong>
+            <span className="proteum-profiler__rowMeta">
+                <span className="proteum-profiler__mono proteum-profiler__muted">{formatDuration(item.durationMs)}</span>
+            </span>
+        </div>
+        <div className="proteum-profiler__tags">
+            {item.tags.map((tag) => (
+                <span className="proteum-profiler__tag" key={`${item.id}:tag:${tag}`}>
+                    {tag}
+                </span>
+            ))}
+        </div>
+    </button>
+);
+
+const SqlQuerySidebar = ({ item }: { item?: TSqlQueryItem }) => {
+    if (!item) {
+        return (
+            <aside className="proteum-profiler__sidebar">
+                <div className="proteum-profiler__sidebarScroller">
+                    <div className="proteum-profiler__sidebarHeader">
+                        <div className="proteum-profiler__sidebarEyebrow">SQL details</div>
+                        <div className="proteum-profiler__sidebarEmpty">
+                            Select a query to inspect its caller, SQL text, bound params, and timing.
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        );
+    }
+
+    return (
+        <aside className="proteum-profiler__sidebar">
+            <div className="proteum-profiler__sidebarScroller">
+                <div className="proteum-profiler__sidebarHeader">
+                    <div className="proteum-profiler__sidebarEyebrow">SQL query</div>
+                    <div className="proteum-profiler__sidebarTitle">
+                        <strong>{formatSqlQueryTitle(item.query)}</strong>
+                    </div>
+                    <div className="proteum-profiler__mono proteum-profiler__muted">{item.callerLabel}</div>
+                </div>
+
+                <div className="proteum-profiler__metrics">
+                    <SummaryRow label="Caller" value={item.callerLabel} />
+                    <SummaryRow label="Duration" value={formatDuration(item.durationMs)} />
+                    <SummaryRow label="Started" value={formatTimestamp(item.startedAt)} />
+                    <SummaryRow label="Finished" value={formatTimestamp(item.finishedAt)} />
+                    <SummaryRow label="Kind" value={item.kind} />
+                    <SummaryRow label="Operation" value={item.operation} />
+                    <SummaryRow label="Model" value={item.model || 'n/a'} />
+                    <SummaryRow label="Target" value={item.target || 'n/a'} />
+                </div>
+
+                {item.tags.length > 0 ? (
+                    <div className="proteum-profiler__sidebarSection">
+                        <div className="proteum-profiler__sidebarSectionTitle">Tags</div>
+                        <div className="proteum-profiler__tags">
+                            {item.tags.map((tag) => (
+                                <span className="proteum-profiler__tag" key={`${item.id}:detail:${tag}`}>
+                                    {tag}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                ) : null}
+
+                <div className="proteum-profiler__sidebarSection">
+                    <div className="proteum-profiler__sidebarSectionTitle">SQL</div>
+                    <PlainCodeBlock value={item.query} />
+                </div>
+
+                <div className="proteum-profiler__sidebarSection">
+                    <div className="proteum-profiler__sidebarSectionTitle">Parameters</div>
+                    {item.paramsJson !== undefined ? (
+                        <JsonCodeBlock value={formatStructuredValue(item.paramsJson)} />
+                    ) : (
+                        <PlainCodeBlock value={formatSqlParams(item)} />
+                    )}
+                </div>
             </div>
         </aside>
     );
@@ -1363,6 +1566,62 @@ const ApiPanel = ({ session }: { session: TProfilerNavigationSession }) => {
             </div>
 
             <ApiRequestSidebar item={selectedItem} />
+        </div>
+    );
+};
+
+const SqlPanel = ({ session }: { session: TProfilerNavigationSession }) => {
+    const { groups, queryItems } = buildSqlQueryWorkspace(session);
+    const [selectedQueryId, setSelectedQueryId] = React.useState<string | undefined>(() => queryItems[0]?.id);
+
+    React.useEffect(() => {
+        if (queryItems.some((item) => item.id === selectedQueryId)) return;
+        setSelectedQueryId(queryItems[0]?.id);
+    }, [queryItems, selectedQueryId]);
+
+    const waterfallItems = buildSqlWaterfallItems(queryItems);
+    const selectedItem = queryItems.find((item) => item.id === selectedQueryId) || queryItems[0];
+
+    return (
+        <div className="proteum-profiler__requestWorkspace">
+            <div className="proteum-profiler__splitColumn">
+                <WaterfallChart
+                    emptyLabel="No SQL queries were captured for this session."
+                    itemLabel="query"
+                    items={waterfallItems}
+                    onSelect={setSelectedQueryId}
+                />
+
+                <div className="proteum-profiler__requestGroups">
+                    {groups.length === 0 ? (
+                        <div className="proteum-profiler__empty">No SQL queries were captured for this session.</div>
+                    ) : (
+                        groups.map((group) => (
+                            <div className="proteum-profiler__requestGroup" key={group.id}>
+                                <div className="proteum-profiler__requestGroupHeader">
+                                    <div className="proteum-profiler__sectionTitle">{group.label}</div>
+                                    <div className="proteum-profiler__requestGroupCount">
+                                        {group.items.length} item{group.items.length === 1 ? '' : 's'}
+                                    </div>
+                                </div>
+
+                                <div className="proteum-profiler__list">
+                                    {group.items.map((item) => (
+                                        <SqlQueryListEntry
+                                            isSelected={item.id === selectedItem?.id}
+                                            item={item}
+                                            key={item.id}
+                                            onSelect={() => setSelectedQueryId(item.id)}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+
+            <SqlQuerySidebar item={selectedItem} />
         </div>
     );
 };
@@ -1750,6 +2009,55 @@ const buildApiWaterfallItems = (requestItems: TApiRequestItem[]): TWaterfallChar
     });
 };
 
+const buildSqlWaterfallItems = (queryItems: TSqlQueryItem[]): TWaterfallChartItem[] => {
+    const rawItems = queryItems.map((item) => {
+        const startMs = readDateMs(item.startedAt) ?? 0;
+        const endMs = buildWaterfallEndMs({
+            durationMs: item.durationMs,
+            finishedAt: item.finishedAt,
+            startMs,
+        });
+
+        return {
+            endMs,
+            item,
+            startMs,
+            title: formatSqlQueryTitle(item.query),
+        };
+    });
+
+    const sortedItems = [...rawItems].sort((left, right) => left.startMs - right.startMs || left.item.id.localeCompare(right.item.id));
+    const chartStartMs = sortedItems.length > 0 ? Math.min(...sortedItems.map((item) => item.startMs)) : 0;
+
+    return sortedItems.map(({ endMs, item, startMs, title }) => {
+        const startOffsetMs = startMs - chartStartMs;
+        const endOffsetMs = endMs - chartStartMs;
+
+        return {
+            barLabel: truncate(title, 84),
+            color: getTimelineDurationColor(item.durationMs),
+            detailLines: [
+                `Caller: ${item.callerLabel}`,
+                `Operation: ${item.operation}${item.model ? ` (${item.model})` : ''}`,
+                `Duration: ${formatDuration(item.durationMs)}`,
+                `Start: +${Math.round(startOffsetMs)} ms`,
+                `End: +${Math.round(endOffsetMs)} ms`,
+            ],
+            endOffsetMs,
+            id: item.id,
+            startOffsetMs,
+            subtitle: item.callerLabel,
+            title,
+        };
+    });
+};
+
+const pluralizeCountLabel = (label: string, count: number) => {
+    if (count === 1) return label;
+    if (/[bcdfghjklmnpqrstvwxyz]y$/i.test(label)) return `${label.slice(0, -1)}ies`;
+    return `${label}s`;
+};
+
 const WaterfallChart = ({
     emptyLabel,
     itemLabel,
@@ -1896,8 +2204,7 @@ const WaterfallChart = ({
             <div className="proteum-profiler__timelineChart">
                 <div className="proteum-profiler__timelineChartMeta">
                     <span className="proteum-profiler__mono proteum-profiler__muted">
-                        {items.length} {itemLabel}
-                        {items.length === 1 ? '' : 's'}
+                        {items.length} {pluralizeCountLabel(itemLabel, items.length)}
                     </span>
                     <span className="proteum-profiler__mono proteum-profiler__muted">{formatDuration(totalDurationMs)}</span>
                 </div>
@@ -2126,6 +2433,7 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                     }
                 />
                 <SummaryRow label="API" value={`sync ${summary.apiSyncCount} / async ${summary.apiAsyncCount}`} />
+                <SummaryRow label="SQL" value={String(summary.sqlCount)} />
                 <SummaryRow label="Errors" value={String(summary.errorCount)} />
                 <SummaryRow label="Request" value={session.requestId || 'client-only'} />
             </div>
@@ -2201,6 +2509,10 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
 
     if (panel === 'api') {
         return <ApiPanel session={session} />;
+    }
+
+    if (panel === 'sql') {
+        return <SqlPanel session={session} />;
     }
 
     if (panel === 'explain') {
@@ -2666,6 +2978,11 @@ export default function DevProfiler() {
                             label={`API ${summary.apiSyncCount} / ${summary.apiAsyncCount}`}
                             onClick={() => profilerRuntime.openPanel('api')}
                             tone={summary.apiAsyncCount > 0 || summary.apiSyncCount > 0 ? 'ok' : 'warn'}
+                        />
+                        <StatusToken
+                            label={`SQL ${summary.sqlCount}`}
+                            onClick={() => profilerRuntime.openPanel('sql')}
+                            tone={summary.sqlCount > 0 ? 'ok' : 'warn'}
                         />
                         {summary.errorCount > 0 ? (
                             <StatusToken

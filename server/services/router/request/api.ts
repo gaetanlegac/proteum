@@ -89,6 +89,13 @@ export default class ApiClientRequest extends RequestService implements ApiClien
                 requestDataKeys: data && typeof data === 'object' ? Object.keys(data) : [],
                 requestData: data,
             });
+            if (callId)
+                request.traceCall = {
+                    fetcherId: id,
+                    id: callId,
+                    label: id,
+                    origin: 'ssr-fetcher',
+                };
 
             try {
                 const response = await request.router.resolve(request);
@@ -99,7 +106,7 @@ export default class ApiClientRequest extends RequestService implements ApiClien
                         response.data && typeof response.data === 'object' && !Array.isArray(response.data)
                             ? Object.keys(response.data as Record<string, unknown>)
                             : [],
-                    result: response.data,
+                    result: response.data as object | string | number | boolean | bigint | symbol | null | undefined,
                 });
             } catch (error) {
                 const typedError = error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown error');

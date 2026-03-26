@@ -1,6 +1,6 @@
 # Request Tracing
 
-Proteum ships with a dev-only in-memory request trace buffer so routing, controller execution, SSR, and render behavior can be inspected without attaching a debugger or scattering temporary logs through the runtime.
+Proteum ships with a dev-only in-memory request trace buffer so routing, controller execution, SSR, API, Prisma SQL, and render behavior can be inspected without attaching a debugger or scattering temporary logs through the runtime.
 
 ## Scope
 
@@ -37,6 +37,10 @@ proteum trace show <requestId> --port 3103
 
 Use `--url http://host:port` when the dev server is reachable on a non-standard host and `--port` is not enough.
 
+If the request under test is protected and login UX is not the feature under test, mint an auth cookie with `proteum session <email> --role <role>` before reproducing the request. This keeps the trace focused on the protected behavior instead of the login flow.
+
+Trace summaries include `sql=<count>`. Detailed trace output includes both a `Calls` section for API/fetcher activity and a `SQL` section for captured Prisma queries.
+
 ## What Gets Recorded
 
 Depending on capture mode, traces can include:
@@ -46,11 +50,27 @@ Depending on capture mode, traces can include:
 - direct controller route matches
 - route resolution start, match, and deep-mode skip reasons
 - controller start and result shape
+- synchronous SSR fetcher calls, API batch fetchers, and async request traces
+- Prisma SQL queries with caller method/path, optional fetcher attribution, SQL text, params, kind, operation, and timing
 - created router/context keys
 - setup output keys and page data summaries
 - SSR payload shape and serialized byte size
 - render start/end timings and document output sizes
 - normalized request errors
+
+## SQL Tracing
+
+Prisma query tracing covers both ORM operations and raw queries.
+
+- `kind` is recorded as `orm` or `raw`
+- `operation` records the Prisma operation such as `findFirst`, `count`, or `$queryRawUnsafe`
+- `model` is recorded when Prisma exposes one
+- `callerMethod` and `callerPath` attach the query to the request that triggered it
+- when the query runs inside an SSR fetcher or an API batch fetcher, the trace also records the fetcher id/label and call id
+- `durationMs`, `startedAt`, and `finishedAt` come from Prisma query events
+- `query`, `paramsText`, and parsed `paramsJson` are stored for inspection
+
+This currently covers SQL issued through Proteum's Prisma service, including raw helpers that flow through the same Prisma client.
 
 ## Capture Modes
 
@@ -66,6 +86,8 @@ During `proteum dev`, the bottom profiler renders the same live request traces.
 
 - `Timeline` shows the full request event stream
 - `Auth` filters the selected session down to auth-specific events so matched rules, tracking, and allow/deny outcomes can be inspected without scanning unrelated events
+- `API` shows synchronous SSR/API fetcher calls plus async requests
+- `SQL` shows captured Prisma queries grouped by caller, with a waterfall and a detail sidebar for SQL text, params, tags, and timings
 - expanding an auth event shows the summarized detail payload exactly as stored in the trace
 
 ## Configuration

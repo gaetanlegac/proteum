@@ -127,6 +127,7 @@ const renderTraceSummary = (request: TRequestTraceListItem) =>
         `capture=${request.capture}`,
         `events=${request.eventCount}`,
         `calls=${request.callCount}`,
+        `sql=${request.sqlQueryCount}`,
         request.user ? `user=${request.user}` : '',
         request.errorMessage ? `error=${request.errorMessage}` : '',
     ]
@@ -137,7 +138,7 @@ const renderTrace = (request: TRequestTrace) =>
     [
         `Request ${request.id}`,
         `- ${request.method} ${request.path} status=${request.statusCode ?? 'pending'} capture=${request.capture}`,
-        `- started=${request.startedAt} durationMs=${request.durationMs ?? 'pending'} events=${request.events.length} dropped=${request.droppedEvents}`,
+        `- started=${request.startedAt} durationMs=${request.durationMs ?? 'pending'} events=${request.events.length} calls=${request.calls.length} sql=${request.sqlQueries.length} dropped=${request.droppedEvents}`,
         ...(request.user ? [`- user=${request.user}`] : []),
         ...(request.persistedFilepath ? [`- persisted=${request.persistedFilepath}`] : []),
         'Calls',
@@ -146,6 +147,13 @@ const renderTrace = (request: TRequestTrace) =>
             : request.calls.map(
                   (call) =>
                       `- ${call.origin} ${call.label} ${call.method} ${call.path} status=${call.statusCode ?? 'pending'} durationMs=${call.durationMs ?? 'pending'} req=${call.requestDataKeys.join(',')} res=${call.resultKeys.join(',')}`,
+              )),
+        'SQL',
+        ...(request.sqlQueries.length === 0
+            ? ['- none']
+            : request.sqlQueries.map(
+                  (query) =>
+                      `- [${query.durationMs}ms] ${query.kind} ${query.operation} ${query.callerMethod} ${query.callerPath} ${query.query}${query.paramsText ? ` params=${query.paramsText}` : ''}`,
               )),
         'Events',
         ...request.events.map(

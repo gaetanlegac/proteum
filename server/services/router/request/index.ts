@@ -10,6 +10,7 @@ import Bowser from 'bowser';
 
 // Core
 import BaseRequest from '@common/router/request';
+import type { TTraceCallOrigin } from '@common/dev/requestTrace';
 
 // Specific
 import type { HttpMethod, HttpHeaders } from '..';
@@ -35,6 +36,12 @@ const localeFilter = (input: any) => {
 };
 
 export type UploadedFile = File;
+type TRequestTraceCallContext = {
+    fetcherId?: string;
+    id: string;
+    label: string;
+    origin: TTraceCallOrigin;
+};
 
 /*----------------------------------
 - CONTEXTE
@@ -66,6 +73,7 @@ export default class ServerRequest<TRouter extends TAnyRouter = TAnyRouter> exte
 
     // Services
     public api: ApiClient;
+    public traceCall?: TRequestTraceCallContext;
 
     /*----------------------------------
     - INITIALISATION

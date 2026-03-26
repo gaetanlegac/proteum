@@ -9,6 +9,9 @@ import {
     type TTraceCallOrigin,
     type TTraceEvent,
     type TTraceEventType,
+    type TTraceSqlQuery,
+    type TTraceSqlQueryCallerOrigin,
+    type TTraceSqlQueryKind,
     type TTraceSummaryValue,
     type TRequestTrace,
     type TRequestTraceListItem,
@@ -209,6 +212,7 @@ export default class Trace {
             droppedEvents: 0,
             requestDataJson: serializeCaptureValue(input.data, 'requestData'),
             calls: [],
+            sqlQueries: [],
             events: [],
         };
 
@@ -348,6 +352,58 @@ export default class Trace {
         trace.resultJson = serializeCaptureValue(result, 'result');
     }
 
+    public recordSqlQuery(
+        requestId: string,
+        input: {
+            callerCallId?: string;
+            callerFetcherId?: string;
+            callerLabel?: string;
+            callerMethod?: string;
+            callerOrigin?: TTraceSqlQueryCallerOrigin;
+            callerPath?: string;
+            durationMs?: number;
+            finishedAt?: string;
+            kind: TTraceSqlQueryKind;
+            model?: string;
+            operation: string;
+            paramsJson?: unknown;
+            paramsText?: string;
+            query: string;
+            target?: string;
+        },
+    ) {
+        const trace = this.requests.get(requestId);
+        if (!trace) return;
+
+        const durationMs = Math.max(0, input.durationMs || 0);
+        const finishedAt = input.finishedAt || nowIso();
+        const finishedAtMs = Date.parse(finishedAt);
+        const startedAt =
+            Number.isFinite(finishedAtMs) && durationMs > 0 ? new Date(finishedAtMs - durationMs).toISOString() : finishedAt;
+
+        const sqlQuery: TTraceSqlQuery = {
+            id: `${requestId}:sql:${trace.sqlQueries.length}`,
+            callerCallId: input.callerCallId,
+            callerFetcherId: input.callerFetcherId,
+            callerLabel: input.callerLabel,
+            callerMethod: input.callerMethod || '',
+            callerOrigin: input.callerOrigin || 'request',
+            callerPath: input.callerPath || '',
+            durationMs,
+            finishedAt,
+            kind: input.kind,
+            model: input.model,
+            operation: input.operation,
+            paramsJson: input.paramsJson,
+            paramsText: input.paramsText,
+            query: input.query.trim(),
+            startedAt,
+            target: input.target,
+        };
+
+        trace.sqlQueries.push(sqlQuery);
+    }
+
     public listRequests(limit = 20): TRequestTraceListItem[] {
         return [...this.order]
             .reverse()
@@ -373,6 +429,7 @@ export default class Trace {
                 profilerParentRequestId: trace.profilerParentRequestId,
                 eventCount: trace.events.length,
                 callCount: trace.calls.length,
+                sqlQueryCount: trace.sqlQueries.length,
             }));
     }
 

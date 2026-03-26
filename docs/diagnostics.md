@@ -74,7 +74,7 @@ During `proteum dev`, the bottom profiler is the human-facing UI over the same d
 - `Explain` calls `/__proteum/explain`
 - `Doctor` calls `/__proteum/doctor`
 - `Commands` uses the dev command endpoints
-- `Auth`, `Timeline`, `Routing`, `Controller`, `SSR`, `API`, and related panels remain request-trace views
+- `Auth`, `Timeline`, `Routing`, `Controller`, `SSR`, `API`, `SQL`, and related panels remain request-trace views
 
 Use the profiler when a human needs to browse the same data that an agent or CLI command can already inspect directly.
 

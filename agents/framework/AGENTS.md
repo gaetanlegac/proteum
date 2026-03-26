@@ -11,6 +11,7 @@ Inspect apps in this order:
 3. Run `npx proteum doctor` if routing or generation looks suspicious.
 4. For request-time issues in dev, read the default port from `PORT` or `./.proteum/manifest.json`; if a server is already running there, inspect `npx proteum trace` output before reproducing the issue or adding logs.
 5. If existing traces are insufficient, run `npx proteum trace arm --capture deep`, reproduce once, then inspect the captured request.
+6. If the behavior under test requires an authenticated browser or API context and login UX is not the subject, use `npx proteum session <email> --role <role>` before Playwright or manual requests.
 
 ## Non-Negotiable Rules
 
@@ -66,6 +67,7 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - `npx proteum doctor --json`
 - `npx proteum trace ...`
 - `npx proteum command ...`
+- `npx proteum session ...`
 - `npx proteum create ... --dry-run --json`
 
 Prefer scaffold commands before hand-writing boilerplate:
@@ -174,4 +176,6 @@ Verify at the correct layer:
 
 When an app may already be running, check the default port from `PORT` or `./.proteum/manifest.json` and inspect `proteum trace requests`, `proteum trace latest`, and `proteum trace show <requestId>` before reproducing the issue. If those traces are not enough, arm `npx proteum trace arm --capture deep`, reproduce once, then inspect the new request.
 
-Useful commands: `npx proteum init <dir> --name <name>`, `npx proteum create <kind> <target>`, `proteum dev`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum command <path>`.
+For protected dev flows, prefer `npx proteum session <email> --role <role> [--port <port>|--url <baseUrl>]` over driving the login UI. Use login UI automation only when the login flow itself is under test.
+
+Useful commands: `npx proteum init <dir> --name <name>`, `npx proteum create <kind> <target>`, `proteum dev`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum command <path>`, `npx proteum session <email> --role <role>`.

@@ -14,6 +14,7 @@ export type TProfilerPanel =
     | 'controller'
     | 'ssr'
     | 'api'
+    | 'sql'
     | 'explain'
     | 'doctor'
     | 'commands'

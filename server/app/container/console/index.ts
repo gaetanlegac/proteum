@@ -17,6 +17,7 @@ import Ansi2Html from 'ansi-to-html';
 import type ApplicationContainer from '..';
 import context from '@server/context';
 import type { ServerBug, TCatchedError } from '@common/errors';
+import type { TTraceCallOrigin, TTraceSqlQueryKind } from '@common/dev/requestTrace';
 import type ServerRequest from '@server/services/router/request';
 
 /*----------------------------------
@@ -44,6 +45,11 @@ export type ChannelInfos = {
     path?: string;
 
     user?: string;
+    traceCallId?: string;
+    traceCallOrigin?: TTraceCallOrigin;
+    traceCallLabel?: string;
+    traceCallFetcherId?: string;
+    prismaOperations?: Array<{ kind: TTraceSqlQueryKind; model?: string; operation: string }>;
 };
 
 export type TGuestLogs = {

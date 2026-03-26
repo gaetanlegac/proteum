@@ -6,6 +6,10 @@ type TTracePrimitive = string | number | boolean;
 export const traceCallOrigins = ['ssr-fetcher', 'api-batch-fetcher', 'client-async'] as const;
 
 export type TTraceCallOrigin = (typeof traceCallOrigins)[number];
+export const traceSqlQueryKinds = ['orm', 'raw'] as const;
+
+export type TTraceSqlQueryKind = (typeof traceSqlQueryKinds)[number];
+export type TTraceSqlQueryCallerOrigin = TTraceCallOrigin | 'request';
 
 export const traceEventTypes = [
     'request.start',
@@ -88,6 +92,26 @@ export type TTraceCall = {
     resultJson?: unknown;
 };
 
+export type TTraceSqlQuery = {
+    id: string;
+    callerCallId?: string;
+    callerFetcherId?: string;
+    callerLabel?: string;
+    callerMethod: string;
+    callerOrigin: TTraceSqlQueryCallerOrigin;
+    callerPath: string;
+    durationMs: number;
+    finishedAt: string;
+    kind: TTraceSqlQueryKind;
+    model?: string;
+    operation: string;
+    paramsJson?: unknown;
+    paramsText?: string;
+    query: string;
+    startedAt: string;
+    target?: string;
+};
+
 export type TRequestTrace = {
     id: string;
     method: string;
@@ -108,10 +132,15 @@ export type TRequestTrace = {
     requestDataJson?: unknown;
     resultJson?: unknown;
     calls: TTraceCall[];
+    sqlQueries: TTraceSqlQuery[];
     events: TTraceEvent[];
 };
 
-export type TRequestTraceListItem = Omit<TRequestTrace, 'events' | 'calls'> & { eventCount: number; callCount: number };
+export type TRequestTraceListItem = Omit<TRequestTrace, 'events' | 'calls' | 'sqlQueries'> & {
+    eventCount: number;
+    callCount: number;
+    sqlQueryCount: number;
+};
 
 export type TRequestTraceListResponse = { requests: TRequestTraceListItem[] };
 export type TRequestTraceResponse = { request: TRequestTrace };

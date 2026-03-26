@@ -346,9 +346,30 @@ Proteum includes a dev-only command surface for internal testing, debugging, and
 
 Proteum itself also ships a small built-in diagnostic command at `proteum/diagnostics/ping`, so the command surface is never empty in dev.
 
+## Dev Sessions
+
+Proteum includes a dev-only auth bootstrap command for browser automation, API probes, and protected-route debugging without driving the login UI.
+
+- `proteum session <email>` mints a session for a known user
+- `--role <role>` asserts that the resolved user has the expected role before returning the session
+- `--port <port>` or `--url <baseUrl>` targets an existing `proteum dev` server
+- without `--port` or `--url`, Proteum starts a temporary local dev server, creates the session, prints the payload, and exits
+- output includes the raw token, a `Cookie:` header, and a Playwright-ready `cookies` payload
+- prefer this command when an LLM or test runner needs an authenticated dev context
+- do not use it when the login flow itself is what you are testing
+
+Typical usage:
+
+```bash
+proteum session admin@example.com --role ADMIN --port 3101
+proteum session god@example.com --role GOD --json
+```
+
+The CLI talks to the running app over the dev-only `__proteum/session/start` endpoint and uses the auth service registered on the current app router. For the full guide, see [docs/dev-sessions.md](docs/dev-sessions.md).
+
 ## Request Tracing
 
-Proteum includes a dev-only in-memory request trace buffer for auth, routing, controller, context, SSR, and render debugging.
+Proteum includes a dev-only in-memory request trace buffer for auth, routing, controller, context, SSR, API, Prisma SQL, and render debugging.
 
 This is separate from `proteum explain` and `proteum doctor`: tracing is live request-time data, while explain/doctor are manifest-backed structure and diagnostics.
 
@@ -360,6 +381,8 @@ When diagnosing or testing against an app, first read the default port from `POR
 - `proteum trace arm --capture deep`: force the next request into deep capture mode
 - `proteum trace export <requestId>`: write one trace to disk
 - `proteum trace latest --url http://127.0.0.1:3010`: target a non-standard dev base URL directly
+
+Trace summaries include `sql=<count>`. Detailed trace output includes `Calls` and `SQL` sections so API/fetcher activity and Prisma queries can be inspected together.
 
 Default behavior:
 
@@ -385,6 +408,8 @@ Capture modes:
 - `resolve`: adds auth, route resolution, and controller/context steps
 - `deep`: adds route skip reasons and deeper payload summaries for one request investigation
 
+In the dev profiler, the `API` tab shows fetcher and async request activity while the `SQL` tab renders the captured Prisma queries as a grouped list plus waterfall.
+
 The trace CLI talks to the running dev server over the dev-only `__proteum/trace` HTTP endpoints. Use `--port` for a different local port or `--url` when the host itself is non-standard. For the full guide, see [docs/request-tracing.md](docs/request-tracing.md).
 
 ## LLM-Friendly By Design
@@ -408,6 +433,7 @@ Proteum answers those questions with explicit artifacts:
 - `proteum doctor --json` for structured diagnostics
 - the profiler `Explain` and `Doctor` tabs for a human-readable view over the same manifest-backed contract
 - `proteum command ...` plus the profiler `Commands` tab for dev-only internal execution
+- `proteum session ...` for explicit authenticated dev browser or API bootstrapping without login UI automation
 
 If you are an LLM or automation agent, start here:
 
@@ -418,6 +444,7 @@ If you are an LLM or automation agent, start here:
 5. Inspect `server/controllers/**` for request entrypoints.
 6. Inspect `server/services/**` for business logic.
 7. Inspect `client/pages/**` for SSR routes and page setup contracts.
+8. If the task touches a protected route or controller in dev and login UX is not the feature under test, use `proteum session <email> --role <role>` before Playwright or direct HTTP calls.
 
 For implementation rules in a real Proteum app, treat the local `AGENTS.md` files plus `proteum explain`, `proteum doctor`, and `proteum trace` as the task contract. This README is the framework overview, not the project-local instruction layer.
 
