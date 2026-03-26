@@ -82,8 +82,10 @@ export type TTraceCall = {
     errorMessage?: string;
     requestDataKeys: string[];
     requestData?: TTraceSummaryValue;
+    requestDataJson?: unknown;
     resultKeys: string[];
     result?: TTraceSummaryValue;
+    resultJson?: unknown;
 };
 
 export type TRequestTrace = {
@@ -103,6 +105,8 @@ export type TRequestTrace = {
     droppedEvents: number;
     persistedFilepath?: string;
     errorMessage?: string;
+    requestDataJson?: unknown;
+    resultJson?: unknown;
     calls: TTraceCall[];
     events: TTraceEvent[];
 };

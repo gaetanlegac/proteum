@@ -38,6 +38,44 @@ const isSensitiveKeyPath = (keyPath: string[]) => sensitiveKeyPattern.test(keyPa
 const summarizeString = (value: string) =>
     value.length <= maxStringLength ? value : `${value.slice(0, maxStringLength)}…`;
 
+const serializeJsonValue = (value: unknown, keyPath: string[], seen: WeakSet<object>): unknown => {
+    if (isSensitiveKeyPath(keyPath)) return `[redacted: Sensitive key ${keyPath[keyPath.length - 1] || 'value'}]`;
+    if (value === undefined || value === null) return value;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+    if (typeof value === 'bigint') return `${value.toString()}n`;
+    if (typeof value === 'symbol') return value.toString();
+    if (typeof value === 'function') return `[Function ${value.name || 'anonymous'}]`;
+
+    if (value instanceof Date) return value.toISOString();
+    if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack };
+    if (Buffer.isBuffer(value)) return `[Buffer ${value.byteLength} bytes]`;
+    if (value instanceof Map) return Array.from(value.entries()).map(([entryKey, entryValue], index) =>
+        serializeJsonValue([entryKey, entryValue], [...keyPath, `[${index}]`], seen),
+    );
+    if (value instanceof Set) {
+        return Array.from(value.values()).map((entryValue, index) => serializeJsonValue(entryValue, [...keyPath, `[${index}]`], seen));
+    }
+
+    if (typeof value !== 'object') return String(value);
+    if (seen.has(value)) return `[Circular ${value.constructor?.name || 'Object'}]`;
+
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+        return value.map((item, index) => serializeJsonValue(item, [...keyPath, `[${index}]`], seen));
+    }
+
+    const serialized: Record<string, unknown> = {};
+    for (const [entryKey, entryValue] of Object.entries(value)) {
+        const nextValue = serializeJsonValue(entryValue, [...keyPath, entryKey], seen);
+        if (nextValue !== undefined) serialized[entryKey] = nextValue;
+    }
+
+    return serialized;
+};
+
+const serializeCaptureValue = (value: TTraceInspectable, key: string) => serializeJsonValue(value, [key], new WeakSet<object>());
+
 const summarizeError = (error: Error): TTraceSummaryValue => ({
     kind: 'error',
     name: error.name,
@@ -169,6 +207,7 @@ export default class Trace {
             profilerParentRequestId: input.profilerParentRequestId,
             startedAt: nowIso(),
             droppedEvents: 0,
+            requestDataJson: serializeCaptureValue(input.data, 'requestData'),
             calls: [],
             events: [],
         };
@@ -269,6 +308,7 @@ export default class Trace {
             startedAt: nowIso(),
             requestDataKeys: input.requestDataKeys || [],
             requestData: input.requestData !== undefined ? summarizeCaptureValue(input.requestData, trace.capture, 'requestData') : undefined,
+            requestDataJson: input.requestData !== undefined ? serializeCaptureValue(input.requestData, 'requestData') : undefined,
             resultKeys: [],
         };
 
@@ -298,6 +338,14 @@ export default class Trace {
         call.errorMessage = output.errorMessage;
         call.resultKeys = output.resultKeys || [];
         call.result = output.result !== undefined ? summarizeCaptureValue(output.result, trace.capture, 'result') : undefined;
+        call.resultJson = output.result !== undefined ? serializeCaptureValue(output.result, 'result') : undefined;
+    }
+
+    public setRequestResult(requestId: string, result: TTraceInspectable) {
+        const trace = this.requests.get(requestId);
+        if (!trace) return;
+
+        trace.resultJson = serializeCaptureValue(result, 'result');
     }
 
     public listRequests(limit = 20): TRequestTraceListItem[] {

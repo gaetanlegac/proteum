@@ -338,6 +338,7 @@ export default class ServerResponse<
         // NOTE: On évite le filtrage sans masque spécifié (performances + risques erreurs)
         if (mask !== undefined) data = await jsonMask(data, mask);
 
+        this.app.container.Trace.setRequestResult(this.request.id, data);
         this.headers['Content-Type'] = 'application/json';
         this.data = (this.request.isVirtual ? data : JSON.stringify(data)) as TData;
         return this.end();
