@@ -66,6 +66,14 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - `npx proteum doctor --json`
 - `npx proteum trace ...`
 - `npx proteum command ...`
+- `npx proteum create ... --dry-run --json`
+
+Prefer scaffold commands before hand-writing boilerplate:
+
+- Use `npx proteum init <directory> --name <name>` for new apps.
+- Use `npx proteum init ... --dry-run --json` when an agent needs a machine-readable app plan before writing files.
+- Use `npx proteum create page|controller|command|route|service <target>` for new app artifacts before creating the files manually.
+- Use `npx proteum create ... --dry-run --json` when an agent needs a machine-readable artifact plan before writing files.
 
 ## File Contracts
 
@@ -79,6 +87,7 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - Business logic lives in classes that extend `Service` and use `this.services`, `this.models`, and `this.app`.
 - Keep auth, input parsing, locale, cookies, and request-derived values in controllers, then pass explicit typed arguments into services.
 - Split growing features into explicit subservices.
+- `proteum create service ...` scaffolds the service file, its `service.json`, a typed config export under `server/config/*.ts`, and the root registration in `server/index.ts`; review and adapt the generated names before committing.
 
 ### Controllers
 
@@ -87,6 +96,7 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - Route path comes from the controller file path plus the method name.
 - `export const controllerPath = 'Custom/path'` can override the base path.
 - Generated client calls use `POST`.
+- Prefer `proteum create controller ...` for new controller boilerplate, then adapt the generated method to real service calls.
 
 ### Commands
 
@@ -96,6 +106,7 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - `export const commandPath = 'Custom/path'` can override the base path.
 - Commands are for dev-only internal execution through `proteum command ...` or the profiler `Commands` tab.
 - Keep command logic internal; do not turn it into a normal controller unless it is a real app API.
+- Prefer `proteum create command ...` for new command boilerplate.
 
 ### Client Pages
 
@@ -108,6 +119,7 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - `render` consumes resolved setup data and uses generated controller methods from render args or `@/client/context`.
 - Use `api.reload(...)` or `api.set(...)` only when intentionally mutating active page setup state.
 - Error pages use `Router.error(code, options, render)` in `client/pages/_messages/**`.
+- Prefer `proteum create page ...` for new page boilerplate, then review the explicit route path and setup payload.
 
 ### Manual Routes
 
@@ -115,6 +127,7 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - Good fits include redirects, sitemap or RSS output, OAuth callbacks, webhooks, and public resources with custom semantics.
 - Import server-side app services from `@app` and use route handler context for `request`, `response`, router plugins, and custom router context.
 - If the route is a normal app API, prefer a controller.
+- Prefer `proteum create route ...` for new manual-route boilerplate.
 
 ### Models And Aliases
 
@@ -161,4 +174,4 @@ Verify at the correct layer:
 
 When an app may already be running, check the default port from `PORT` or `./.proteum/manifest.json` and inspect `proteum trace requests`, `proteum trace latest`, and `proteum trace show <requestId>` before reproducing the issue. If those traces are not enough, arm `npx proteum trace arm --capture deep`, reproduce once, then inspect the new request.
 
-Useful commands: `proteum dev`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum command <path>`.
+Useful commands: `npx proteum init <dir> --name <name>`, `npx proteum create <kind> <target>`, `proteum dev`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum command <path>`.

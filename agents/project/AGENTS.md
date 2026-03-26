@@ -12,6 +12,8 @@ Coding style source of truth: `./CODING_STYLE.md`.
 ## Fast Start
 
 - Start with `./.proteum/manifest.json`, `npx proteum explain`, and `npx proteum doctor`.
+- For new app or artifact boilerplate, prefer `npx proteum init ...` and `npx proteum create ...` before creating files by hand.
+- Use `--dry-run --json` on scaffold commands when an agent needs a machine-readable plan before writing files.
 - For request-time issues in dev, inspect traces before adding logs.
 - If a server is already running on the default port from `PORT` or `./.proteum/manifest.json`, inspect existing traces before reproducing the issue.
 - If existing traces are insufficient, arm `npx proteum trace arm --capture deep`, reproduce once, then inspect the new request.
@@ -58,6 +60,7 @@ This is a TypeScript, Node.js, Preact, Proteum monolith:
 
 - If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it.
 - For request-time behavior in dev, check whether a server is already running on the default port and prefer `npx proteum trace` before reproducing the issue or adding logs.
+- After running `npx proteum create ...`, adapt the generated code to the real feature instead of leaving placeholder logic in place.
 - End your work with `Commit message`: one short top-level sentence.
 
 ## High-Impact Files
