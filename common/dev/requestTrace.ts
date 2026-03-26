@@ -10,6 +10,12 @@ export type TTraceCallOrigin = (typeof traceCallOrigins)[number];
 export const traceEventTypes = [
     'request.start',
     'request.user',
+    'auth.decode',
+    'auth.route',
+    'auth.check.start',
+    'auth.check.rule',
+    'auth.check.result',
+    'auth.session',
     'resolve.start',
     'resolve.controller-route',
     'resolve.routes-evaluated',

@@ -42,6 +42,7 @@ Use `--url http://host:port` when the dev server is reachable on a non-standard 
 Depending on capture mode, traces can include:
 
 - request start, finish, user identity, status code, and duration
+- auth decode input and outcome, route auth decisions, matched auth rules, rule inputs/results, and session create or clear events
 - direct controller route matches
 - route resolution start, match, and deep-mode skip reasons
 - controller start and result shape
@@ -58,6 +59,14 @@ Depending on capture mode, traces can include:
 - `deep`: adds route skip reasons and deeper summarized payload inspection for one request
 
 Use `deep` selectively. It is for one-off investigation, not continuous capture.
+
+## Profiler
+
+During `proteum dev`, the bottom profiler renders the same live request traces.
+
+- `Timeline` shows the full request event stream
+- `Auth` filters the selected session down to auth-specific events so matched rules, tracking, and allow/deny outcomes can be inspected without scanning unrelated events
+- expanding an auth event shows the summarized detail payload exactly as stored in the trace
 
 ## Configuration
 

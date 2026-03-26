@@ -345,7 +345,7 @@ Proteum itself also ships a small built-in diagnostic command at `proteum/diagno
 
 ## Request Tracing
 
-Proteum includes a dev-only in-memory request trace buffer for routing, controller, context, SSR, and render debugging.
+Proteum includes a dev-only in-memory request trace buffer for auth, routing, controller, context, SSR, and render debugging.
 
 This is separate from `proteum explain` and `proteum doctor`: tracing is live request-time data, while explain/doctor are manifest-backed structure and diagnostics.
 
@@ -379,7 +379,7 @@ export TRACE_PERSIST_ON_ERROR=true
 Capture modes:
 
 - `summary`: request lifecycle plus high-signal events
-- `resolve`: adds route resolution and controller/context steps
+- `resolve`: adds auth, route resolution, and controller/context steps
 - `deep`: adds route skip reasons and deeper payload summaries for one request investigation
 
 The trace CLI talks to the running dev server over the dev-only `__proteum/trace` HTTP endpoints. Use `--port` for a different local port or `--url` when the host itself is non-standard. For the full guide, see [docs/request-tracing.md](docs/request-tracing.md).

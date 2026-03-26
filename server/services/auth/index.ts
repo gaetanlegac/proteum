@@ -12,6 +12,7 @@ import type { Application } from '@server/app/index';
 import Service from '@server/app/service';
 import { type TAnyRouter, Request as ServerRequest } from '@server/services/router';
 import * as AuthErrors from '@common/errors';
+import type { TTraceCaptureMode, TTraceEventType } from '@common/dev/requestTrace';
 
 /*----------------------------------
 - TYPES
@@ -159,47 +160,209 @@ export default abstract class AuthService<
     public login?(request: TRequest, email: string): Promise<unknown>;
     public abstract decodeSession(jwt: TJwtSession, req: THttpRequest): Promise<TUser | null>;
 
+    private traceRequestById(
+        requestId: string | undefined,
+        type: TTraceEventType,
+        details: Record<string, any>,
+        minimumCapture: TTraceCaptureMode = 'summary',
+    ) {
+        if (!requestId) return;
+        this.app.container.Trace.record(requestId, type, details, minimumCapture);
+    }
+
+    private traceRequest(
+        request: Pick<TRequest, 'id'> | undefined,
+        type: TTraceEventType,
+        details: Record<string, any>,
+        minimumCapture: TTraceCaptureMode = 'summary',
+    ) {
+        this.traceRequestById(request?.id, type, details, minimumCapture);
+    }
+
+    private inspectRequestAuth(req: THttpRequest): {
+        source: 'header' | 'cookie' | 'none';
+        scheme: string | null;
+    } {
+        const authorizationHeader = typeof req.headers['authorization'] === 'string' ? req.headers['authorization'].trim() : '';
+        if (authorizationHeader) {
+            const [scheme] = authorizationHeader.split(/\s+/, 1);
+            return { source: 'header', scheme: scheme || null };
+        }
+
+        const authorizationCookie =
+            'cookies' in req && typeof req.cookies['authorization'] === 'string' ? req.cookies['authorization'].trim() : '';
+        if (authorizationCookie) return { source: 'cookie', scheme: 'Bearer' };
+
+        return { source: 'none', scheme: null };
+    }
+
+    private describeSessionPayload(session: TJwtSession) {
+        if ('apiKey' in session) {
+            return {
+                payloadKind: 'api-key',
+                payloadAccountType: session.accountType ?? null,
+            };
+        }
+
+        return {
+            payloadKind: 'email',
+            payloadAccountType: null,
+        };
+    }
+
+    private describeTraceError(error: Error) {
+        const details = error as Error & {
+            action?: string;
+            feature?: string;
+            http?: number;
+            title?: string;
+        };
+
+        return {
+            name: error.name,
+            message: error.message,
+            http: typeof details.http === 'number' ? details.http : null,
+            title: typeof details.title === 'string' ? details.title : null,
+            feature: typeof details.feature === 'string' ? details.feature : null,
+            action: typeof details.action === 'string' ? details.action : null,
+        };
+    }
+
     // https://beeceptor.com/docs/concepts/authorization-header/#examples
-    public async decode(req: THttpRequest, withData: true): Promise<TUser | null>;
-    public async decode(req: THttpRequest, withData?: false): Promise<TJwtSession | null>;
-    public async decode(req: THttpRequest, withData: boolean = false): Promise<TJwtSession | TUser | null> {
+    public async decode(req: THttpRequest, withData: true, traceRequestId?: string): Promise<TUser | null>;
+    public async decode(req: THttpRequest, withData?: false, traceRequestId?: string): Promise<TJwtSession | null>;
+    public async decode(
+        req: THttpRequest,
+        withData: boolean = false,
+        traceRequestId?: string,
+    ): Promise<TJwtSession | TUser | null> {
+        const authInput = this.inspectRequestAuth(req);
+
+        this.traceRequestById(
+            traceRequestId,
+            'auth.decode',
+            {
+                phase: 'start',
+                withData,
+                source: authInput.source,
+                scheme: authInput.scheme,
+            },
+            'resolve',
+        );
+
         // Get auth token
         const authMethod = this.getAuthMethod(req);
-        if (authMethod === null) return null;
-        const { tokenType, token } = authMethod;
+        if (authMethod === null) {
+            this.traceRequestById(
+                traceRequestId,
+                'auth.decode',
+                {
+                    phase: 'result',
+                    withData,
+                    source: authInput.source,
+                    scheme: authInput.scheme,
+                    outcome: authInput.source === 'none' ? 'anonymous' : 'malformed-credentials',
+                },
+                'resolve',
+            );
+            return null;
+        }
+        const { tokenType, token, source } = authMethod;
 
         // Get auth session
-        const session = this.getAuthSession(tokenType, token);
-        if (session === null) return null;
+        const session = this.getAuthSession(tokenType, token, traceRequestId);
+        if (session === null) {
+            this.traceRequestById(
+                traceRequestId,
+                'auth.decode',
+                {
+                    phase: 'result',
+                    withData,
+                    source,
+                    scheme: tokenType ?? authInput.scheme,
+                    outcome: 'rejected',
+                },
+                'resolve',
+            );
+            return null;
+        }
+
+        const payload = this.describeSessionPayload(session);
 
         // Return email only
         if (!withData) {
+            this.traceRequestById(
+                traceRequestId,
+                'auth.decode',
+                {
+                    phase: 'result',
+                    withData,
+                    source,
+                    scheme: tokenType ?? authInput.scheme,
+                    outcome: 'session',
+                    ...payload,
+                },
+                'resolve',
+            );
             return session;
         }
 
         // Deserialize full user data
         const user = await this.decodeSession(session, req);
-        if (user === null) return null;
+        if (user === null) {
+            this.traceRequestById(
+                traceRequestId,
+                'auth.decode',
+                {
+                    phase: 'result',
+                    withData,
+                    source,
+                    scheme: tokenType ?? authInput.scheme,
+                    outcome: 'user-missing',
+                    ...payload,
+                },
+                'resolve',
+            );
+            return null;
+        }
+
+        this.traceRequestById(
+            traceRequestId,
+            'auth.decode',
+            {
+                phase: 'result',
+                withData,
+                source,
+                scheme: tokenType ?? authInput.scheme,
+                outcome: 'user',
+                ...payload,
+                userType: user.type,
+                userRoles: user.roles,
+            },
+            'resolve',
+        );
 
         return { ...user, _token: token };
     }
 
-    private getAuthMethod(req: THttpRequest): null | { token: string; tokenType?: string } {
+    private getAuthMethod(req: THttpRequest): null | { source: 'header' | 'cookie'; token: string; tokenType?: string } {
         let token: string | undefined;
         let tokenType: string | undefined;
         if (typeof req.headers['authorization'] === 'string') {
             [tokenType, token] = req.headers['authorization'].split(' ');
+            if (token === undefined) return null;
+            return { source: 'header', tokenType, token };
         } else if ('cookies' in req && typeof req.cookies['authorization'] === 'string') {
             token = req.cookies['authorization'];
             tokenType = 'Bearer';
+            if (token === undefined) return null;
+            return { source: 'cookie', tokenType, token };
         } else return null;
 
-        if (token === undefined) return null;
-
-        return { tokenType, token };
+        return null;
     }
 
-    private getAuthSession(tokenType: string | undefined, token: string): TJwtSession | null {
+    private getAuthSession(tokenType: string | undefined, token: string, traceRequestId?: string): TJwtSession | null {
         let session: TJwtSession;
 
         // API Key
@@ -208,6 +371,18 @@ export default abstract class AuthService<
             const apiKeySession = { accountType, apiKey: token } satisfies TApiKeySession;
 
             session = apiKeySession as TJwtSession & TApiKeySession;
+            this.traceRequestById(
+                traceRequestId,
+                'auth.decode',
+                {
+                    phase: 'session',
+                    scheme: tokenType,
+                    outcome: 'accepted',
+                    payloadKind: 'api-key',
+                    payloadAccountType: accountType || null,
+                },
+                'resolve',
+            );
 
             // JWT
         } else if (tokenType === 'Bearer') {
@@ -215,11 +390,50 @@ export default abstract class AuthService<
                 session = jwt.verify(token, this.config.jwt.key, {
                     maxAge: this.config.jwt.expiration,
                 }) as TJwtSession;
+                this.traceRequestById(
+                    traceRequestId,
+                    'auth.decode',
+                    {
+                        phase: 'session',
+                        scheme: tokenType,
+                        outcome: 'accepted',
+                        ...this.describeSessionPayload(session),
+                    },
+                    'resolve',
+                );
             } catch (error) {
+                this.traceRequestById(
+                    traceRequestId,
+                    'auth.decode',
+                    {
+                        phase: 'session',
+                        scheme: tokenType,
+                        outcome: 'invalid-bearer',
+                        error:
+                            error instanceof Error
+                                ? this.describeTraceError(error)
+                                : this.describeTraceError(
+                                      new Error(typeof error === 'string' ? error : 'Invalid bearer token'),
+                                  ),
+                    },
+                    'resolve',
+                );
                 return null;
                 //throw new Forbidden(`The JWT token provided in the Authorization header is invalid`);
             }
-        } else return null;
+        } else {
+            this.traceRequestById(
+                traceRequestId,
+                'auth.decode',
+                {
+                    phase: 'session',
+                    scheme: tokenType ?? null,
+                    outcome: 'unsupported-scheme',
+                },
+                'resolve',
+            );
+            return null;
+        }
         //throw new InputError(`The authorization scheme provided in the Authorization header is unsupported.`);
 
         return session;
@@ -230,14 +444,29 @@ export default abstract class AuthService<
 
         request2.res.cookie('authorization', token, { maxAge: this.config.jwt.expiration });
 
+        this.traceRequest(
+            request2,
+            'auth.session',
+            {
+                action: 'create',
+                ...this.describeSessionPayload(session),
+                maxAgeMs: this.config.jwt.expiration,
+            },
+            'resolve',
+        );
+
         return token;
     }
 
     public logout(request: TRequest) {
         const user = request.user;
-        if (!user) return;
+        if (!user) {
+            this.traceRequest(request, 'auth.session', { action: 'clear-noop', userPresent: false }, 'summary');
+            return;
+        }
 
         request.res.clearCookie('authorization');
+        this.traceRequest(request, 'auth.session', { action: 'clear', userPresent: true }, 'summary');
     }
 
     protected getDecodedUser(request: TRequest): TUser | null {
@@ -305,17 +534,65 @@ export default abstract class AuthService<
     }
 
     private invokeConfiguredRule<TRuleName extends Extract<keyof TAuthConfiguredRules, string>>(
+        request: TRequest,
         ruleName: TRuleName,
         rule: TAuthConfiguredRules[TRuleName],
         input: TAuthCheckConditions[TRuleName],
     ): TAuthRuleOutcome {
-        if (typeof rule !== 'function') throw new AuthErrors.InputError(`Unknown auth rule "${ruleName}".`);
+        if (typeof rule !== 'function') {
+            const error = new AuthErrors.InputError(`Unknown auth rule "${ruleName}".`);
+            this.traceRequest(
+                request,
+                'auth.check.rule',
+                {
+                    rule: ruleName,
+                    input,
+                    result: 'configuration-error',
+                    error: this.describeTraceError(error),
+                },
+                'resolve',
+            );
+            throw error;
+        }
 
-        const callable = rule as Function;
+        try {
+            const callable = rule as Function;
+            const outcome =
+                callable.length === 0
+                    ? (callable() as TAuthRuleOutcome)
+                    : Array.isArray(input)
+                      ? (Reflect.apply(callable, undefined, input) as TAuthRuleOutcome)
+                      : (Reflect.apply(callable, undefined, [input]) as TAuthRuleOutcome);
 
-        if (callable.length === 0) return callable() as TAuthRuleOutcome;
-        if (Array.isArray(input)) return Reflect.apply(callable, undefined, input) as TAuthRuleOutcome;
-        return Reflect.apply(callable, undefined, [input]) as TAuthRuleOutcome;
+            this.traceRequest(
+                request,
+                'auth.check.rule',
+                {
+                    rule: ruleName,
+                    input,
+                    result: outcome === true ? 'allow' : outcome === false ? 'deny' : 'error',
+                    error: outcome instanceof Error ? this.describeTraceError(outcome) : null,
+                },
+                'resolve',
+            );
+
+            return outcome;
+        } catch (error) {
+            const typedError = error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown auth rule error');
+
+            this.traceRequest(
+                request,
+                'auth.check.rule',
+                {
+                    rule: ruleName,
+                    input,
+                    result: 'threw',
+                    error: this.describeTraceError(typedError),
+                },
+                'resolve',
+            );
+            throw error;
+        }
     }
 
     private checkWithConditions(
@@ -324,31 +601,163 @@ export default abstract class AuthService<
         tracking: TAuthTrackingContext,
     ): TUser | null {
         const user = this.getDecodedUser(request);
+        const conditionRuleNames =
+            conditions && conditions !== false
+                ? (Object.keys(conditions) as Array<Extract<keyof TAuthConfiguredRules, string>>)
+                : [];
 
-        if (conditions === false) return user;
+        this.traceRequest(
+            request,
+            'auth.check.start',
+            {
+                phase: 'evaluate',
+                strategy: 'conditions',
+                evaluationMode: conditions === false ? 'guest-only' : conditions === null ? 'authenticated' : 'rules',
+                userPresent: user !== null,
+                userRoles: user?.roles || [],
+                ruleNames: conditionRuleNames,
+                tracking,
+            },
+            'resolve',
+        );
 
-        if (user === null) {
-            throw this.buildUnauthenticatedError(request, tracking);
+        if (conditions === false) {
+            this.traceRequest(
+                request,
+                'auth.check.result',
+                {
+                    strategy: 'conditions',
+                    evaluationMode: 'guest-only',
+                    outcome: 'guest-pass',
+                    userPresent: user !== null,
+                },
+                'resolve',
+            );
+            return user;
         }
 
-        if (!conditions) return user;
+        if (user === null) {
+            const error = this.buildUnauthenticatedError(request, tracking);
+            this.traceRequest(
+                request,
+                'auth.check.result',
+                {
+                    strategy: 'conditions',
+                    evaluationMode: conditions === null ? 'authenticated' : 'rules',
+                    outcome: 'unauthenticated',
+                    ruleNames: conditionRuleNames,
+                    tracking,
+                    error: this.describeTraceError(error),
+                },
+                'resolve',
+            );
+            throw error;
+        }
 
-        if (!this.config.rules) throw new AuthErrors.InputError(`Auth rules are not configured for this application.`);
+        if (!conditions) {
+            this.traceRequest(
+                request,
+                'auth.check.result',
+                {
+                    strategy: 'conditions',
+                    evaluationMode: 'authenticated',
+                    outcome: 'allowed',
+                    userRoles: user.roles,
+                },
+                'resolve',
+            );
+            return user;
+        }
+
+        if (!this.config.rules) {
+            const error = new AuthErrors.InputError(`Auth rules are not configured for this application.`);
+            this.traceRequest(
+                request,
+                'auth.check.result',
+                {
+                    strategy: 'conditions',
+                    evaluationMode: 'rules',
+                    outcome: 'configuration-error',
+                    ruleNames: conditionRuleNames,
+                    error: this.describeTraceError(error),
+                },
+                'resolve',
+            );
+            throw error;
+        }
 
         const rules = this.config.rules(user, tracking, request);
-        const conditionRuleNames = Object.keys(conditions) as Array<Extract<keyof TAuthConfiguredRules, string>>;
+        const configuredRuleNames = Object.keys(rules) as Array<Extract<keyof TAuthConfiguredRules, string>>;
+
+        this.traceRequest(
+            request,
+            'auth.check.start',
+            {
+                phase: 'rules-ready',
+                strategy: 'conditions',
+                evaluationMode: 'rules',
+                userRoles: user.roles,
+                ruleNames: conditionRuleNames,
+                configuredRuleNames,
+                tracking,
+            },
+            'resolve',
+        );
 
         for (const ruleName of conditionRuleNames) {
             const input = conditions[ruleName];
             if (input === undefined) continue;
 
-            const outcome = this.invokeConfiguredRule(ruleName, rules[ruleName], input);
+            const outcome = this.invokeConfiguredRule(request, ruleName, rules[ruleName], input);
             if (outcome === true) continue;
-            if (outcome === false)
-                throw new AuthErrors.Forbidden('You do not have sufficient permissions to access this resource.');
+            if (outcome === false) {
+                const error = new AuthErrors.Forbidden('You do not have sufficient permissions to access this resource.');
+                this.traceRequest(
+                    request,
+                    'auth.check.result',
+                    {
+                        strategy: 'conditions',
+                        evaluationMode: 'rules',
+                        outcome: 'forbidden',
+                        failedRule: ruleName,
+                        ruleNames: conditionRuleNames,
+                        userRoles: user.roles,
+                        error: this.describeTraceError(error),
+                    },
+                    'resolve',
+                );
+                throw error;
+            }
+
+            this.traceRequest(
+                request,
+                'auth.check.result',
+                {
+                    strategy: 'conditions',
+                    evaluationMode: 'rules',
+                    outcome: 'error',
+                    failedRule: ruleName,
+                    ruleNames: conditionRuleNames,
+                    userRoles: user.roles,
+                    error: this.describeTraceError(outcome),
+                },
+                'resolve',
+            );
             throw outcome;
         }
 
+        this.traceRequest(
+            request,
+            'auth.check.result',
+            {
+                strategy: 'conditions',
+                evaluationMode: 'rules',
+                outcome: 'allowed',
+                ruleNames: conditionRuleNames,
+                userRoles: user.roles,
+            },
+            'resolve',
+        );
         return user;
     }
 
@@ -361,22 +770,86 @@ export default abstract class AuthService<
         const normalizedRole = role === true ? 'USER' : role;
         const user = this.getDecodedUser(request);
 
+        this.traceRequest(
+            request,
+            'auth.check.start',
+            {
+                phase: 'evaluate',
+                strategy: 'legacy-role',
+                normalizedRole,
+                feature: feature ?? null,
+                action: action ?? null,
+                userPresent: user !== null,
+                userRoles: user?.roles || [],
+            },
+            'resolve',
+        );
+
         if (normalizedRole === false) {
+            this.traceRequest(
+                request,
+                'auth.check.result',
+                {
+                    strategy: 'legacy-role',
+                    outcome: 'guest-pass',
+                    normalizedRole,
+                    userPresent: user !== null,
+                },
+                'resolve',
+            );
             return user as TUser;
 
             // Not connected
         } else if (user === null) {
-            throw new AuthErrors.AuthRequired(
+            const error = new AuthErrors.AuthRequired(
                 'Please login to continue',
                 feature && feature !== null ? feature : ('auth' as FeatureKeys),
                 action || 'view',
             );
+            this.traceRequest(
+                request,
+                'auth.check.result',
+                {
+                    strategy: 'legacy-role',
+                    outcome: 'unauthenticated',
+                    normalizedRole,
+                    feature: feature ?? null,
+                    action: action || 'view',
+                    error: this.describeTraceError(error),
+                },
+                'resolve',
+            );
+            throw error;
 
             // Insufficient permissions
         } else if (!user.roles.includes(normalizedRole)) {
-            throw new AuthErrors.Forbidden('You do not have sufficient permissions to access this resource.');
+            const error = new AuthErrors.Forbidden('You do not have sufficient permissions to access this resource.');
+            this.traceRequest(
+                request,
+                'auth.check.result',
+                {
+                    strategy: 'legacy-role',
+                    outcome: 'forbidden',
+                    normalizedRole,
+                    userRoles: user.roles,
+                    error: this.describeTraceError(error),
+                },
+                'resolve',
+            );
+            throw error;
         }
 
+        this.traceRequest(
+            request,
+            'auth.check.result',
+            {
+                strategy: 'legacy-role',
+                outcome: 'allowed',
+                normalizedRole,
+                userRoles: user.roles,
+            },
+            'resolve',
+        );
         return user as TUser;
     }
 
@@ -398,6 +871,32 @@ export default abstract class AuthService<
         featureOrTracking?: FeatureKeys | null | TAuthTrackingContext,
         action?: string,
     ): TUser | null {
+        const dispatch =
+            roleOrConditions === null
+                ? 'authenticated'
+                : this.isCheckConditions(roleOrConditions)
+                  ? 'conditions'
+                  : roleOrConditions === false &&
+                      (featureOrTracking === undefined || featureOrTracking === null || typeof featureOrTracking === 'object')
+                    ? 'guest-only'
+                    : (roleOrConditions === true || typeof roleOrConditions === 'string') && this.config.rules
+                      ? 'role-via-rules'
+                      : 'legacy-role';
+
+        this.traceRequest(
+            request,
+            'auth.check.start',
+            {
+                phase: 'dispatch',
+                dispatch,
+                roleOrConditions,
+                featureOrTracking: featureOrTracking ?? null,
+                action: action ?? null,
+                hasConfiguredRules: Boolean(this.config.rules),
+            },
+            'resolve',
+        );
+
         if (roleOrConditions === null || this.isCheckConditions(roleOrConditions)) {
             const tracking = (featureOrTracking ?? null) as TAuthTrackingContext;
             return this.checkWithConditions(request, roleOrConditions, tracking);

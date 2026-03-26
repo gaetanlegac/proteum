@@ -15,7 +15,7 @@ import type {
     TProfilerPanel,
     TProfilerSessionTrace,
 } from '@common/dev/profiler';
-import type { TRequestTrace, TTraceCall, TTraceSummaryValue } from '@common/dev/requestTrace';
+import type { TRequestTrace, TTraceCall, TTraceEventType, TTraceSummaryValue } from '@common/dev/requestTrace';
 
 import { profilerRuntime } from './runtime';
 
@@ -478,6 +478,7 @@ type TProfilerState = ReturnType<typeof profilerRuntime.getState>;
 const panelLabels: Record<TProfilerPanel, string> = {
     summary: 'Summary',
     timeline: 'Timeline',
+    auth: 'Auth',
     routing: 'Routing',
     controller: 'Controller',
     ssr: 'SSR',
@@ -563,6 +564,13 @@ const formatSummaryJson = (value: TTraceSummaryValue | undefined) => {
     return JSON.stringify(toSummaryJsonValue(value), null, 2);
 };
 
+const formatTraceEventDetailsJson = (details: Record<string, TTraceSummaryValue>) =>
+    JSON.stringify(
+        Object.fromEntries(Object.entries(details).map(([key, value]) => [key, toSummaryJsonValue(value)])),
+        null,
+        2,
+    );
+
 const formatSummaryLiteral = (value: TTraceSummaryValue | undefined, depth = 1): string => {
     if (value === undefined) return '';
     if (value === null) return 'null';
@@ -615,6 +623,15 @@ const getTraceResultData = (trace: TRequestTrace | undefined) =>
 
 const findTraceEvents = (trace: TRequestTrace | undefined, eventTypes: string[]) =>
     trace?.events.filter((event) => eventTypes.includes(event.type)) || [];
+
+const authEventTypes: TTraceEventType[] = [
+    'auth.decode',
+    'auth.route',
+    'auth.check.start',
+    'auth.check.rule',
+    'auth.check.result',
+    'auth.session',
+];
 
 const getSummary = (session: TProfilerNavigationSession): TSessionSummary => {
     const primaryTrace =
@@ -788,23 +805,96 @@ const TraceRows = ({ trace }: { trace: TRequestTrace }) => (
 
         <div className="proteum-profiler__list">
             {trace.events.map((event) => (
-                <div className="proteum-profiler__row" key={`${trace.id}:${event.index}`}>
-                    <div className="proteum-profiler__rowHeader">
-                        <strong>{event.type}</strong>
-                        <span className="proteum-profiler__mono proteum-profiler__muted">{formatDuration(event.elapsedMs)}</span>
-                    </div>
-                    <div className="proteum-profiler__tags">
-                        {Object.entries(event.details).map(([key, value]) => (
-                            <span className="proteum-profiler__tag" key={`${trace.id}:${event.index}:${key}`}>
-                                {key}:{truncate(renderSummaryValue(value), 72)}
-                            </span>
-                        ))}
-                    </div>
-                </div>
+                <TraceEventEntry event={event} key={`${trace.id}:${event.index}`} traceId={trace.id} />
             ))}
         </div>
     </div>
 );
+
+const AuthTraceSection = ({
+    label,
+    trace,
+}: {
+    label: string;
+    trace: TRequestTrace;
+}) => {
+    const authEvents = findTraceEvents(trace, authEventTypes);
+
+    if (authEvents.length === 0) return null;
+
+    return (
+        <div className="proteum-profiler__section">
+            <div className="proteum-profiler__sectionHeader">
+                <div>
+                    <div className="proteum-profiler__sectionTitle">{label}</div>
+                    <div className="proteum-profiler__mono proteum-profiler__muted">
+                        {trace.method} {trace.path}
+                    </div>
+                </div>
+                <div className="proteum-profiler__actions">
+                    <span className="proteum-profiler__tag">capture:{trace.capture}</span>
+                    <span className="proteum-profiler__tag">events:{authEvents.length}</span>
+                    {trace.statusCode !== undefined ? <span className="proteum-profiler__tag">status:{trace.statusCode}</span> : null}
+                </div>
+            </div>
+
+            <div className="proteum-profiler__list">
+                {authEvents.map((event) => (
+                    <TraceEventEntry event={event} key={`${trace.id}:${event.index}`} traceId={trace.id} />
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const TraceEventEntry = ({
+    event,
+    traceId,
+}: {
+    event: TRequestTrace['events'][number];
+    traceId: string;
+}) => {
+    const [isOpen, setOpen] = React.useState(false);
+
+    return (
+        <>
+            <button
+                className="proteum-profiler__row proteum-profiler__row--interactive"
+                onClick={() => setOpen((current) => !current)}
+                type="button"
+            >
+                <div className="proteum-profiler__rowHeader">
+                    <strong>{event.type}</strong>
+                    <span className="proteum-profiler__mono proteum-profiler__muted">{formatDuration(event.elapsedMs)}</span>
+                </div>
+                <div className="proteum-profiler__tags">
+                    {Object.entries(event.details).map(([key, value]) => (
+                        <span className="proteum-profiler__tag" key={`${traceId}:${event.index}:${key}`}>
+                            {key}:{truncate(renderSummaryValue(value), 72)}
+                        </span>
+                    ))}
+                </div>
+            </button>
+
+            {isOpen ? (
+                <div className="proteum-profiler__detail">
+                    <div className="proteum-profiler__detailLine">
+                        <div className="proteum-profiler__detailLabel">Timing</div>
+                        <div className="proteum-profiler__mono">
+                            elapsed={formatDuration(event.elapsedMs)} | at={formatTimestamp(event.at)}
+                        </div>
+                    </div>
+                    <div className="proteum-profiler__detailLine">
+                        <div className="proteum-profiler__detailLabel">Details</div>
+                        <pre className="proteum-profiler__mono proteum-profiler__pre">
+                            {formatTraceEventDetailsJson(event.details)}
+                        </pre>
+                    </div>
+                </div>
+            ) : null}
+        </>
+    );
+};
 
 const SimpleSection = ({ empty, rows, title }: { empty: string; rows: Array<{ key: string; title: string; value: string }>; title: string }) => (
     <div className="proteum-profiler__section">
@@ -909,6 +999,24 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         </div>
                     ),
                 )}
+            </div>
+        );
+    }
+
+    if (panel === 'auth') {
+        const authSections = session.traces.flatMap((traceItem) =>
+            traceItem.trace && findTraceEvents(traceItem.trace, authEventTypes).length > 0
+                ? [{ id: traceItem.id, label: traceItem.label, trace: traceItem.trace }]
+                : [],
+        );
+
+        return authSections.length === 0 ? (
+            <div className="proteum-profiler__empty">No auth activity was captured for this session.</div>
+        ) : (
+            <div>
+                {authSections.map((traceItem) => (
+                    <AuthTraceSection key={traceItem.id} label={traceItem.label} trace={traceItem.trace} />
+                ))}
             </div>
         );
     }

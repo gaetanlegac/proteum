@@ -26,12 +26,6 @@ import UsersRequestService from './request';
 ----------------------------------*/
 
 /*----------------------------------
-- CONFIG
-----------------------------------*/
-
-const LogPrefix = '[router][auth]';
-
-/*----------------------------------
 - SERVICE
 ----------------------------------*/
 export default class AuthenticationRouterService<
@@ -59,11 +53,32 @@ export default class AuthenticationRouterService<
         this.users = this.config.users;
     }
 
+    private traceRouteAuth(
+        request: TRequest,
+        route: TAnyRoute,
+        details: Record<string, any>,
+        minimumCapture: 'summary' | 'resolve' | 'deep' = 'resolve',
+    ) {
+        this.app.container.Trace.record(
+            request.id,
+            'auth.route',
+            {
+                routePath: route.path || '',
+                routeId: route.options.id || '',
+                authInput: route.options.auth ?? null,
+                tracking: route.options.authTracking ?? null,
+                redirectLogged: route.options.redirectLogged ?? null,
+                ...details,
+            },
+            minimumCapture,
+        );
+    }
+
     public async ready() {
         // Decode current user
         this.parent.on('request', async (request: TRequest) => {
             // TODO: Typings. (context.user ?)
-            const decoded = await this.users.decode(request.req, true);
+            const decoded = await this.users.decode(request.req, true, request.id);
 
             request.user = decoded || null;
         });
@@ -72,10 +87,48 @@ export default class AuthenticationRouterService<
         this.parent.on('resolved', async (route: TAnyRoute, request: TRequest, response: ServerResponse<TRouter>) => {
             if (route.options.auth !== undefined) {
                 const tracking = route.options.authTracking ?? null;
+                const strategy =
+                    route.options.auth === false
+                        ? 'guest-only'
+                        : route.options.auth === null
+                          ? 'authenticated'
+                          : typeof route.options.auth === 'object'
+                            ? 'conditions'
+                            : route.options.auth === true
+                              ? tracking !== null && this.users.config.rules
+                                  ? 'user-via-rules'
+                                  : 'user'
+                              : tracking !== null && this.users.config.rules
+                                ? 'role-via-rules'
+                                : 'role';
+
+                this.traceRouteAuth(
+                    request,
+                    route,
+                    {
+                        phase: 'start',
+                        strategy,
+                    },
+                    'resolve',
+                );
 
                 // Guest-only routes can still redirect authenticated users away.
                 if (route.options.auth === false) {
                     const currentUser = this.users.check(request, false, tracking);
+                    const redirected = Boolean(route.options.redirectLogged && currentUser);
+
+                    this.traceRouteAuth(
+                        request,
+                        route,
+                        {
+                            phase: 'result',
+                            strategy,
+                            outcome: redirected ? 'redirected' : 'allowed',
+                            userPresent: currentUser !== null,
+                            redirectTo: redirected ? route.options.redirectLogged : null,
+                        },
+                        'resolve',
+                    );
 
                     if (route.options.redirectLogged && currentUser) response.redirect(route.options.redirectLogged);
                     return;
@@ -83,11 +136,13 @@ export default class AuthenticationRouterService<
 
                 if (route.options.auth === null) {
                     this.users.check(request, null, tracking);
+                    this.traceRouteAuth(request, route, { phase: 'result', strategy, outcome: 'allowed' }, 'resolve');
                     return;
                 }
 
                 if (typeof route.options.auth === 'object') {
                     this.users.check(request, route.options.auth as TAuthCheckConditions, tracking);
+                    this.traceRouteAuth(request, route, { phase: 'result', strategy, outcome: 'allowed' }, 'resolve');
                     return;
                 }
 
@@ -95,10 +150,32 @@ export default class AuthenticationRouterService<
                 if (route.options.auth === true) {
                     if (tracking !== null && this.users.config.rules) {
                         this.users.check(request, { role: 'USER' }, tracking);
+                        this.traceRouteAuth(
+                            request,
+                            route,
+                            {
+                                phase: 'result',
+                                strategy,
+                                outcome: 'allowed',
+                                requiredRole: 'USER',
+                            },
+                            'resolve',
+                        );
                         return;
                     }
 
                     this.users.check(request, true);
+                    this.traceRouteAuth(
+                        request,
+                        route,
+                        {
+                            phase: 'result',
+                            strategy,
+                            outcome: 'allowed',
+                            requiredRole: 'USER',
+                        },
+                        'resolve',
+                    );
                     return;
                 }
 
@@ -106,10 +183,32 @@ export default class AuthenticationRouterService<
 
                 if (tracking !== null && this.users.config.rules) {
                     this.users.check(request, { role: requiredRole }, tracking);
+                    this.traceRouteAuth(
+                        request,
+                        route,
+                        {
+                            phase: 'result',
+                            strategy,
+                            outcome: 'allowed',
+                            requiredRole,
+                        },
+                        'resolve',
+                    );
                     return;
                 }
 
                 this.users.check(request, requiredRole);
+                this.traceRouteAuth(
+                    request,
+                    route,
+                    {
+                        phase: 'result',
+                        strategy,
+                        outcome: 'allowed',
+                        requiredRole,
+                    },
+                    'resolve',
+                );
             }
         });
     }
