@@ -19,10 +19,12 @@ type TAgentLinkDefinition = { projectPath: string; sourcePath: string; ensurePar
 - CONSTANTS
 ----------------------------------*/
 
-// Project-local AGENTS entrypoints mapped to their framework-owned source files.
+// Project-local instruction entrypoints mapped to their canonical shipped source files.
 const projectAgentLinkDefinitions: TAgentLinkDefinition[] = [
     { projectPath: 'AGENTS.md', sourcePath: 'AGENTS.md' },
     { projectPath: 'CODING_STYLE.md', sourcePath: 'CODING_STYLE.md' },
+    { projectPath: 'diagnostics.md', sourcePath: 'diagnostics.md' },
+    { projectPath: 'optimizations.md', sourcePath: 'optimizations.md' },
     { projectPath: path.join('client', 'AGENTS.md'), sourcePath: path.join('client', 'AGENTS.md') },
     { projectPath: path.join('client', 'pages', 'AGENTS.md'), sourcePath: path.join('client', 'pages', 'AGENTS.md') },
     {
@@ -81,7 +83,7 @@ function ensureSymlinks(appRoot: string, linkDefinitions: TAgentLinkDefinition[]
 
         const sourceFilepath = linkDefinition.sourcePath;
         if (!fs.existsSync(sourceFilepath)) {
-            throw new Error(`Missing framework asset: ${sourceFilepath}`);
+            throw new Error(`Missing project instruction asset: ${sourceFilepath}`);
         }
 
         const symlinkTarget = path.relative(projectParentDir, sourceFilepath);

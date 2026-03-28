@@ -1,12 +1,15 @@
-# Server Routes
+# Route Contract
 
-This file adds route-area local rules on top of the canonical framework contract:
+This is the canonical route-area contract for Proteum-based projects.
+Role: keep only manual-route rules here.
+Keep here: explicit HTTP route guidance, public/crawlable endpoint rules, absolute URL generation, and route-specific catalog placement.
+Do not put here: controller contracts, service-layer business logic, page SSR rules, or broad project workflow already defined elsewhere.
 
-- framework repo: `agents/framework/AGENTS.md`
-- installed app: `./node_modules/proteum/agents/framework/AGENTS.md`
+Optimization source of truth: project-root `optimizations.md`.
+Diagnostics source of truth: project-root `diagnostics.md`.
 
-- Use `/server/routes/**` only for explicit custom HTTP behavior that should not be generated from controllers.
-- If the endpoint is just a normal app API, prefer `/server/controllers/**/*.ts`.
+- Use `server/routes/**` only for explicit HTTP behavior that should not be generated from controllers.
+- If the endpoint is a normal app API, prefer `server/controllers/**/*.ts`.
 - Good fits include redirects, resources, OAuth callbacks, webhooks, sitemap-like output, and custom public endpoints.
 - If a route needs a curated registry, keep server-only data in `/server/catalogs/**` and shared data in `/common/catalogs/**`.
 

@@ -1,9 +1,12 @@
-# Server Services
+# Service Contract
 
-This file adds service-area local rules on top of the canonical framework contract:
+This is the canonical service-area contract for Proteum-based projects.
+Role: keep only service-layer rules here.
+Keep here: service placement, service responsibilities, model access, query-shaping, return-type guidance, and service error-handling rules.
+Do not put here: request parsing, page/render rules, controller transport details, or broad project workflow already defined in higher-level AGENTS files.
 
-- framework repo: `agents/framework/AGENTS.md`
-- installed app: `./node_modules/proteum/agents/framework/AGENTS.md`
+Optimization source of truth: project-root `optimizations.md`.
+Diagnostics source of truth: project-root `diagnostics.md`.
 
 ## Placement
 
@@ -12,9 +15,11 @@ This file adds service-area local rules on top of the canonical framework contra
 - Root-service config lives in `/server/config/*.ts` when the service needs config.
 - Companion client-callable entrypoints live in `/server/controllers/**`.
 
-## Local Service Rules
+## Service Rules
 
+- Business logic belongs in classes that extend `Service` and use `this.services`, `this.models`, and `this.app`.
 - Keep business logic in services and keep request/auth/input handling in controllers.
+- Normal service methods should not read request-scoped state directly.
 - If a feature grows several coherent domains, split it into explicit subservices.
 - Server-only catalogs live in `/server/catalogs/**`.
 - Shared cross-runtime catalogs live in `/common/catalogs/**`.

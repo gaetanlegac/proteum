@@ -1,22 +1,27 @@
-# Frontend
+# Frontend Contract
 
-This file adds client-side local rules on top of the canonical framework contract:
+This is the canonical client-area contract for Proteum-based projects.
+Role: keep only client-area rules here.
+Keep here: client component, hook, design-system, accessibility, and client-context usage rules that apply beyond a single page.
+Do not put here: page `setup` and route-registration details, server/service rules, or generic project workflow already covered by the project-root `AGENTS.md`.
 
-- framework repo: `agents/framework/AGENTS.md`
-- installed app: `./node_modules/proteum/agents/framework/AGENTS.md`
+Optimization source of truth: project-root `optimizations.md`.
+Diagnostics source of truth: project-root `diagnostics.md`.
+Coding style source of truth: project-root `CODING_STYLE.md`.
 
 ## Stack
 
 - TypeScript strict
 - Preact with SSR
-- follow the UI stack already used in the touched area
-- many Proteum apps use Tailwind and `@/client/components/Motion`, but those are app conventions, not framework guarantees
+- Follow the UI stack already used in the touched area.
+- Many Proteum apps use Tailwind and `@/client/components/Motion`, but those are app conventions, not framework guarantees.
 
-## Local Client Rules
+## Client Rules
 
 - Page files follow the page contract in `./pages/AGENTS.md`.
-- Components and hooks access controllers through the app client context hook, usually `useContext()` from `@/client/context`.
+- Components and hooks should reach server APIs through generated controller calls from page render args or the app client context, usually `useContext()` from `@/client/context`.
 - Prefer direct controller calls from context or page render args.
+- Prefer generated app surfaces over direct `.proteum` implementation imports.
 - Never depend on legacy `@app` imports on the client.
 - Errors from controller calls should never be silently swallowed. Rethrow or surface them clearly.
 
