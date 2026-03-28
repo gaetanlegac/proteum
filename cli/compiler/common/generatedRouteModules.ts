@@ -36,7 +36,7 @@ export type TIndexedRouteDefinition = {
     hasSetup: boolean;
 };
 
-type TGeneratedClientRouteModuleOptions = { chunkId: string; filepath: string };
+type TGeneratedClientRouteModuleOptions = { chunkId: string };
 
 type TWriteGeneratedRouteModuleOptions = {
     outputFilepath: string;
@@ -221,6 +221,9 @@ const getRouteOptionMetadata = (node: ts.ObjectLiteralExpression | undefined) =>
 
     return { optionKeys, normalizedOptionKeys, invalidOptionKeys, reservedOptionKeys };
 };
+
+const buildInjectedRouteMetadata = (sourceFilepath: string, sourceLocation: TIndexedSourceLocation, extra: string[] = []) =>
+    `{ filepath: ${JSON.stringify(normalizeFilepath(sourceFilepath))}, sourceLocation: { line: ${sourceLocation.line}, column: ${sourceLocation.column} }${extra.length > 0 ? `, ${extra.join(', ')}` : ''} }`;
 
 const routeModuleExtensions = ['.ts', '.tsx', '.js', '.jsx'];
 
@@ -467,7 +470,10 @@ const buildClientRegisterArgs = (
     clientRoute: TGeneratedClientRouteModuleOptions,
 ) => {
     const { optionsArg, setupArg, renderArg } = getClientRouteSignature(sourceFile, definition);
-    const injectedOptions = `{ id: ${JSON.stringify(clientRoute.chunkId)}, filepath: ${JSON.stringify(clientRoute.filepath)} }`;
+    const sourceLocation = getNodeLocation(sourceFile, definition.callExpression);
+    const injectedOptions = buildInjectedRouteMetadata(sourceFile.fileName, sourceLocation, [
+        `id: ${JSON.stringify(clientRoute.chunkId)}`,
+    ]);
 
     if (!optionsArg && !setupArg) {
         return [injectedOptions, getNodeText(sourceFile, renderArg)];
@@ -475,7 +481,7 @@ const buildClientRegisterArgs = (
 
     if (optionsArg && !setupArg) {
         return [
-            `{ ...(${getNodeText(sourceFile, optionsArg)}), id: ${JSON.stringify(clientRoute.chunkId)}, filepath: ${JSON.stringify(clientRoute.filepath)} }`,
+            `{ ...(${getNodeText(sourceFile, optionsArg)}), ...${injectedOptions} }`,
             getNodeText(sourceFile, renderArg),
         ];
     }
@@ -485,10 +491,33 @@ const buildClientRegisterArgs = (
     }
 
     return [
-        `{ ...(${getNodeText(sourceFile, optionsArg!)}), id: ${JSON.stringify(clientRoute.chunkId)}, filepath: ${JSON.stringify(clientRoute.filepath)} }`,
+        `{ ...(${getNodeText(sourceFile, optionsArg!)}), ...${injectedOptions} }`,
         getNodeText(sourceFile, setupArg!),
         getNodeText(sourceFile, renderArg),
     ];
+};
+
+const buildServerRegisterArgs = (sourceFile: ts.SourceFile, definition: TRouteDefinition) => {
+    const sourceLocation = getNodeLocation(sourceFile, definition.callExpression);
+    const [targetArg, ...routeArgs] = [...definition.args];
+    const controllerArg = routeArgs[routeArgs.length - 1];
+    const optionsArg =
+        routeArgs.length >= 2 && ts.isObjectLiteralExpression(routeArgs[0]) ? routeArgs[0] : undefined;
+    const injectedOptions = buildInjectedRouteMetadata(sourceFile.fileName, sourceLocation);
+
+    if (routeArgs.length === 1) {
+        return [getNodeText(sourceFile, targetArg), injectedOptions, getNodeText(sourceFile, controllerArg)];
+    }
+
+    if (optionsArg) {
+        return [
+            getNodeText(sourceFile, targetArg),
+            `{ ...(${getNodeText(sourceFile, optionsArg)}), ...${injectedOptions} }`,
+            getNodeText(sourceFile, controllerArg),
+        ];
+    }
+
+    return [getNodeText(sourceFile, targetArg), ...routeArgs.map((arg) => getNodeText(sourceFile, arg))];
 };
 
 const buildRegisterStatements = (
@@ -519,7 +548,7 @@ const buildRegisterStatements = (
     }
 
     return definitions.map((definition) => {
-        const args = [...definition.args].map((arg) => getNodeText(sourceFile, arg));
+        const args = buildServerRegisterArgs(sourceFile, definition);
 
         return `${definition.serviceLocalName}.${definition.methodName}(${args.join(', ')});`;
     });

@@ -7,6 +7,7 @@ import type {
 } from '@common/dev/profiler';
 import type { TDevCommandDefinition, TDevCommandExecution } from '@common/dev/commands';
 import type { TDoctorResponse } from '@common/dev/diagnostics';
+import type { TDiagnoseResponse } from '@common/dev/inspection';
 import type { TProteumManifest } from '@common/dev/proteumManifest';
 
 type TProfilerState = {
@@ -25,7 +26,14 @@ type TProfilerState = {
         status: 'idle' | 'loading' | 'ready' | 'error';
         tasks: TProfilerCronTask[];
     };
+    diagnose: {
+        errorMessage?: string;
+        lastLoadedAt?: string;
+        response?: TDiagnoseResponse;
+        status: 'idle' | 'loading' | 'ready' | 'error';
+    };
     doctor: {
+        contracts?: TDoctorResponse;
         errorMessage?: string;
         lastLoadedAt?: string;
         response?: TDoctorResponse;
@@ -55,6 +63,9 @@ const noopState: TProfilerState = {
         status: 'idle',
         tasks: [],
     },
+    diagnose: {
+        status: 'idle',
+    },
     doctor: {
         status: 'idle',
     },
@@ -75,6 +86,7 @@ export const profilerRuntime = {
     runCommand: async (_path: string) => undefined,
     refreshCronTasks: async () => undefined,
     runCronTask: async (_name: string) => undefined,
+    refreshDiagnose: async (_sessionId?: string) => undefined,
     refreshDoctor: async () => undefined,
     refreshExplain: async () => undefined,
     ensureInitialSession: (_input: { path: string; requestId?: string; url: string }) => undefined,

@@ -23,7 +23,15 @@ class KeyboardCommands {
     }
 
     private listen() {
+        if (!process.stdin) return;
+
         readline.emitKeypressEvents(process.stdin);
+
+        if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
+            logVerbose('Keyboard shortcuts disabled because stdin is not an interactive TTY.');
+            return;
+        }
+
         process.stdin.setRawMode(true);
         process.stdin.on('keypress', async (chunk: string, key: Key) => {
             let str = key.name;

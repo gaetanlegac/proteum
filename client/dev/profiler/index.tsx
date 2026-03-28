@@ -9,6 +9,7 @@ import {
     type THumanTextBlock,
 } from '@common/dev/diagnostics';
 import type { TDevCommandDefinition, TDevCommandExecution } from '@common/dev/commands';
+import { summarizeTraceForDiagnose, type TExplainOwnerMatch } from '@common/dev/inspection';
 import type {
     TProfilerCronTask,
     TProfilerNavigationSession,
@@ -818,6 +819,7 @@ const panelLabels: Record<TProfilerPanel, string> = {
     ssr: 'SSR',
     api: 'API',
     sql: 'SQL',
+    diagnose: 'Diagnose',
     errors: 'Errors',
     explain: 'Explain',
     doctor: 'Doctor',
@@ -850,6 +852,8 @@ const formatStructuredValue = (value: unknown) => {
         return String(value);
     }
 };
+const formatOwnerSource = (match: TExplainOwnerMatch) =>
+    `${match.source.filepath}${formatManifestLocation(match.source.line, match.source.column)}`;
 
 const renderSummaryValue = (value: TTraceSummaryValue | undefined): string => {
     if (value === undefined) return '';
@@ -2515,6 +2519,83 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
         return <SqlPanel session={session} />;
     }
 
+    if (panel === 'diagnose') {
+        const diagnose = state.diagnose;
+        const response = diagnose.response;
+        const suspectRows =
+            response?.suspects.map((suspect, index) => ({
+                key: `suspect:${index}`,
+                title: `${suspect.score} · ${suspect.label}`,
+                value: `${suspect.filepath}${formatManifestLocation(suspect.line, suspect.column)} reasons=${suspect.reasons.join(', ')}`,
+            })) || [];
+        const ownerRows =
+            response?.owner.matches.map((match, index) => ({
+                key: `owner:${index}`,
+                title: `[${match.kind}] ${match.label}`,
+                value: `score=${match.score} source=${formatOwnerSource(match)} matchedOn=${match.matchedOn.join(', ') || 'n/a'}`,
+            })) || [];
+        const contractRows =
+            response?.contracts.diagnostics.map((diagnostic, index) => ({
+                key: `contract:${diagnostic.code}:${index}`,
+                title: `[${diagnostic.level}] ${diagnostic.code}`,
+                value: `${diagnostic.message} source=${diagnostic.filepath}${formatManifestLocation(
+                    diagnostic.sourceLocation?.line,
+                    diagnostic.sourceLocation?.column,
+                )}`,
+            })) || [];
+        const logRows =
+            response?.serverLogs.logs.map((entry, index) => ({
+                key: `log:${index}`,
+                title: `[${entry.level}] ${formatTimestamp(entry.time)}`,
+                value: truncate(entry.text, 220),
+            })) || [];
+
+        return (
+            <div className="proteum-profiler__section">
+                <div className="proteum-profiler__sectionHeader">
+                    <div className="proteum-profiler__sectionTitle">Diagnose</div>
+                    <div className="proteum-profiler__actions">
+                        <button className="proteum-profiler__pill" onClick={() => void profilerRuntime.refreshDiagnose(session.id)} type="button">
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                {diagnose.errorMessage ? (
+                    <div className="proteum-profiler__row">
+                        <div className="proteum-profiler__rowHeader">
+                            <strong>Last diagnose panel error</strong>
+                        </div>
+                        <div className="proteum-profiler__mono">{diagnose.errorMessage}</div>
+                    </div>
+                ) : null}
+
+                {diagnose.status === 'loading' && !response ? (
+                    <div className="proteum-profiler__empty">Loading diagnose data...</div>
+                ) : !response ? (
+                    <div className="proteum-profiler__empty">No diagnose data is available for this session yet.</div>
+                ) : (
+                    <>
+                        <div className="proteum-profiler__metrics">
+                            <SummaryRow label="Query" value={response.query} />
+                            <SummaryRow label="Request" value={response.request ? summarizeTraceForDiagnose(response.request) : 'No trace'} />
+                            <SummaryRow label="Doctor" value={`${response.doctor.summary.errors} errors / ${response.doctor.summary.warnings} warnings`} />
+                            <SummaryRow label="Contracts" value={`${response.contracts.summary.errors} errors / ${response.contracts.summary.warnings} warnings`} />
+                            <SummaryRow
+                                label="Refreshed"
+                                value={diagnose.lastLoadedAt ? formatTimestamp(diagnose.lastLoadedAt) : 'Not loaded'}
+                            />
+                        </div>
+                        <SimpleSection empty="No likely suspect files were found." rows={suspectRows} title="Suspects" />
+                        <SimpleSection empty="No owner matches were found." rows={ownerRows} title="Owner Matches" />
+                        <SimpleSection empty="No contract diagnostics were found." rows={contractRows} title="Contracts" />
+                        <SimpleSection empty="No recent server logs were captured." rows={logRows} title="Server Logs" />
+                    </>
+                )}
+            </div>
+        );
+    }
+
     if (panel === 'explain') {
         const explain = state.explain;
         const blocks = explain.manifest
@@ -2570,6 +2651,15 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
 
     if (panel === 'doctor') {
         const doctor = state.doctor;
+        const contractRows =
+            doctor.contracts?.diagnostics.map((diagnostic, index) => ({
+                key: `contract:${diagnostic.code}:${index}`,
+                title: `[${diagnostic.level}] ${diagnostic.code}`,
+                value: `${diagnostic.message} source=${diagnostic.filepath}${formatManifestLocation(
+                    diagnostic.sourceLocation?.line,
+                    diagnostic.sourceLocation?.column,
+                )}${diagnostic.relatedFilepaths?.length ? ` related=${diagnostic.relatedFilepaths.join(',')}` : ''}`,
+            })) || [];
         const doctorRows =
             doctor.response?.diagnostics.map((diagnostic, index) => ({
                 key: `${diagnostic.code}:${index}`,
@@ -2610,6 +2700,14 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         <div className="proteum-profiler__metrics">
                             <SummaryRow label="Errors" value={String(doctor.response.summary.errors)} />
                             <SummaryRow label="Warnings" value={String(doctor.response.summary.warnings)} />
+                            <SummaryRow
+                                label="Contracts"
+                                value={
+                                    doctor.contracts
+                                        ? `${doctor.contracts.summary.errors} errors / ${doctor.contracts.summary.warnings} warnings`
+                                        : 'not loaded'
+                                }
+                            />
                             <SummaryRow label="Strict" value={doctor.response.summary.strictFailed ? 'failed' : 'ok'} />
                             <SummaryRow
                                 label="Refreshed"
@@ -2621,6 +2719,7 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         ) : (
                             <SimpleSection empty="No manifest diagnostics were found." rows={doctorRows} title="Diagnostics" />
                         )}
+                        <SimpleSection empty="No contract diagnostics were found." rows={contractRows} title="Contracts" />
                     </>
                 )}
             </div>
@@ -2991,6 +3090,11 @@ export default function DevProfiler() {
                                 tone="error"
                             />
                         ) : null}
+                        <StatusToken
+                            label="Diagnose"
+                            onClick={() => profilerRuntime.openPanel('diagnose')}
+                            tone={summary.errorCount > 0 ? 'error' : 'warn'}
+                        />
                         <div className="proteum-profiler__spacer" />
                         <button className="proteum-profiler__token" onClick={() => profilerRuntime.setUiState('pinned-handle')} type="button">
                             Hide

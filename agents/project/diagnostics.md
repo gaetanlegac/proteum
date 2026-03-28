@@ -4,14 +4,16 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 
 ## Initial Triage
 
-- Start with machine-readable app state before reading large parts of the codebase: `./.proteum/manifest.json`, `npx proteum explain --json`, and `npx proteum doctor`.
+- Start with machine-readable app state before reading large parts of the codebase: `./.proteum/manifest.json`, `npx proteum explain --json`, `npx proteum doctor --json`, and `npx proteum doctor --contracts --json` when generated artifacts or manifest-owned files may be stale.
 - Use `rg -n` first to narrow the exact code path, then read only the relevant files.
 - Inspect `./server/index.ts`, `./server/config/*.ts`, and the touched files under `./commands`, `./server/controllers`, `./server/services`, `./server/routes`, `./client/pages`, and `./tests`.
 - Distinguish real app failures from wrapper, transport, tooling, or environment failures as early as possible.
 
 ## Runtime Diagnostics
 
-- For request-time issues in dev, inspect traces before adding logs.
+- For request-time issues in dev, start with `npx proteum diagnose <path> --port <port>` when you have a concrete failing route, page, controller path, or request target. It combines owner lookup, manifest diagnostics, contract diagnostics, matching trace data, and buffered server logs in one pass.
+- Use `npx proteum explain owner <query>` when you need a fast ownership graph for a route, controller path, source file, or generated artifact before reading code.
+- For request-time issues in dev, inspect traces before adding logs when the diagnose surface is still too coarse.
 - If a server is already running on the default port from `PORT` or `./.proteum/manifest.json`, inspect existing traces before reproducing the issue.
 - If existing traces are insufficient, arm `npx proteum trace arm --capture deep`, reproduce once, then inspect the new request with `npx proteum trace latest` or `npx proteum trace show <requestId>`.
 - Inspect browser console errors and warnings for frontend, SSR, hydration, and controller-call issues.

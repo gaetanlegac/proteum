@@ -6,7 +6,7 @@ Proteum ships with a dev-only in-memory request trace buffer so routing, control
 
 - tracing is available only when the app runs with `profile: dev`
 - traces are exposed through `proteum trace` and the dev-only `__proteum/trace` HTTP endpoints
-- explain/doctor are separate manifest-backed diagnostics surfaces; see [diagnostics.md](diagnostics.md)
+- `proteum diagnose` is a separate composite surface that reads the same framework diagnostics plus one matching request trace and buffered server logs; see [diagnostics.md](diagnostics.md)
 - production requests are not traced by this feature
 
 ## Main Commands
@@ -38,6 +38,8 @@ proteum trace show <requestId> --port 3103
 Use `--url http://host:port` when the dev server is reachable on a non-standard host and `--port` is not enough.
 
 If the request under test is protected and login UX is not the feature under test, mint an auth cookie with `proteum session <email> --role <role>` before reproducing the request. This keeps the trace focused on the protected behavior instead of the login flow.
+
+If you already know the failing path and want a one-shot suspect list before reading raw events, start with `proteum diagnose <path> --port <port>` and drop into `proteum trace show <requestId>` only when the lower-level event stream is still needed.
 
 Trace summaries include `sql=<count>`. Detailed trace output includes both a `Calls` section for API/fetcher activity and a `SQL` section for captured Prisma queries.
 
@@ -88,6 +90,7 @@ During `proteum dev`, the bottom profiler renders the same live request traces.
 - `Auth` filters the selected session down to auth-specific events so matched rules, tracking, and allow/deny outcomes can be inspected without scanning unrelated events
 - `API` shows synchronous SSR/API fetcher calls plus async requests
 - `SQL` shows captured Prisma queries grouped by caller, with a waterfall and a detail sidebar for SQL text, params, tags, and timings
+- `Diagnose` combines the selected request summary with explain/doctor/contracts data and buffered server logs
 - expanding an auth event shows the summarized detail payload exactly as stored in the trace
 
 ## Configuration

@@ -141,6 +141,11 @@ export default class ServerResponse<
                 target: getRouteTraceTarget(route as TAnyRoute<TRouterContext<TServerRouter>>),
                 routeId: route.options.id || '',
                 filepath: route.options.filepath || '',
+                source: {
+                    filepath: route.options.filepath || '',
+                    line: route.options.sourceLocation?.line || 0,
+                    column: route.options.sourceLocation?.column || 0,
+                },
                 accept: route.options.accept || '',
             },
             'summary',
@@ -220,7 +225,14 @@ export default class ServerResponse<
         this.app.container.Trace.record(
             this.request.id,
             'setup.options',
-            { optionKeys: Object.keys(options) },
+            {
+                optionKeys: Object.keys(options),
+                source: {
+                    filepath: route.options.filepath || '',
+                    line: route.options.sourceLocation?.line || 0,
+                    column: route.options.sourceLocation?.column || 0,
+                },
+            },
             'resolve',
         );
 
@@ -260,6 +272,11 @@ export default class ServerResponse<
             {
                 target: getRouteTraceTarget(route as TAnyRoute<TRouterContext<TServerRouter>>),
                 routeId: route.options.id || '',
+                source: {
+                    filepath: route.options.filepath || '',
+                    line: route.options.sourceLocation?.line || 0,
+                    column: route.options.sourceLocation?.column || 0,
+                },
                 routerServiceKeys: Object.keys(contextServices),
                 controllerKeys: Object.keys(controllers),
                 customContextKeys: Object.keys(customSsrData as object),
@@ -318,6 +335,11 @@ export default class ServerResponse<
                 chunkId: page.chunkId || '',
                 dataKeys: Object.keys(page.data || {}),
                 data: page.data || {},
+                source: {
+                    filepath: page.route.options.filepath || '',
+                    line: page.route.options.sourceLocation?.line || 0,
+                    column: page.route.options.sourceLocation?.column || 0,
+                },
             },
             'resolve',
         );

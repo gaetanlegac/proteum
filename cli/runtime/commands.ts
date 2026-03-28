@@ -184,14 +184,17 @@ class DoctorCommand extends ProteumCommand {
 
     public static usage = buildUsage('doctor');
 
+    public contracts = Option.Boolean('--contracts', false, {
+        description: 'Run contract-focused diagnostics for generated artifacts and manifest-owned source files.',
+    });
     public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
     public strict = Option.Boolean('--strict', false, { description: 'Exit with failure if any diagnostics exist.' });
     public legacyArgs = Option.Rest();
 
     public async execute() {
-        const args = { json: this.json, strict: this.strict } satisfies TArgsObject;
+        const args = { contracts: this.contracts, json: this.json, strict: this.strict } satisfies TArgsObject;
 
-        applyLegacyBooleanArgs('doctor', this.legacyArgs, ['json', 'strict'], args);
+        applyLegacyBooleanArgs('doctor', this.legacyArgs, ['contracts', 'json', 'strict'], args);
         this.setCliArgs(args);
         await runCommandModule(() => import('../commands/doctor'));
     }
@@ -215,9 +218,19 @@ class ExplainCommand extends ProteumCommand {
     public diagnostics = Option.Boolean('--diagnostics', false, {
         description: 'Include the diagnostics section.',
     });
-    public legacyArgs = Option.Rest();
+    public args = Option.Rest();
 
     public async execute() {
+        const [mode = '', ...restArgs] = this.args;
+        if (mode === 'owner') {
+            this.setCliArgs({
+                json: this.json,
+                ownerQuery: restArgs.join(' ').trim(),
+            });
+            await runCommandModule(() => import('../commands/explain'));
+            return;
+        }
+
         const args = {
             json: this.json,
             all: this.all,
@@ -234,7 +247,7 @@ class ExplainCommand extends ProteumCommand {
 
         applyLegacyBooleanArgs(
             'explain',
-            this.legacyArgs,
+            this.args,
             ['json', 'all', 'app', 'conventions', 'env', 'services', 'controllers', 'commands', 'routes', 'layouts', 'diagnostics'],
             args,
         );
@@ -322,6 +335,80 @@ class SessionCommand extends ProteumCommand {
     }
 }
 
+class DiagnoseCommand extends ProteumCommand {
+    public static paths = [['diagnose']];
+
+    public static usage = buildUsage('diagnose');
+
+    public port = Option.String('--port', { description: 'Target an existing dev server on the given port.' });
+    public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL.' });
+    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public hit = Option.String('--hit', { description: 'Issue one HTTP request before diagnosing. Defaults to the target path when it starts with /.' });
+    public method = Option.String('--method', { description: 'HTTP method used with `--hit`.' });
+    public dataJson = Option.String('--data-json', { description: 'JSON request body used with `--hit`.' });
+    public sessionEmail = Option.String('--session-email', {
+        description: 'Mint a dev session before `--hit` and attach the returned cookie.',
+    });
+    public sessionRole = Option.String('--session-role', { description: 'Require the dev session user to have this role.' });
+    public capture = Option.String('--capture', { description: 'Trace capture mode armed before `--hit`.' });
+    public logsLevel = Option.String('--logs-level', { description: 'Minimum server log level included in the diagnose response.' });
+    public logsLimit = Option.String('--logs-limit', { description: 'Maximum number of server log lines included in the diagnose response.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [target = ''] = this.args;
+
+        this.setCliArgs({
+            capture: this.capture ?? '',
+            dataJson: this.dataJson ?? '',
+            hit: this.hit ?? '',
+            json: this.json,
+            logsLevel: this.logsLevel ?? '',
+            logsLimit: this.logsLimit ?? '',
+            method: this.method ?? '',
+            port: this.port ?? '',
+            sessionEmail: this.sessionEmail ?? '',
+            sessionRole: this.sessionRole ?? '',
+            target,
+            url: this.url ?? '',
+        });
+
+        await runCommandModule(() => import('../commands/diagnose'));
+    }
+}
+
+class VerifyCommand extends ProteumCommand {
+    public static paths = [['verify']];
+
+    public static usage = buildUsage('verify');
+
+    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public crosspath = Option.String('--crosspath', { description: 'Override the CrossPath reference app path.' });
+    public uniqueDomains = Option.String('--unique-domains', { description: 'Override the Unique Domains reference app path.' });
+    public crosspathPort = Option.String('--crosspath-port', { description: 'Port used for the CrossPath validation server.' });
+    public uniqueDomainsPort = Option.String('--unique-domains-port', {
+        description: 'Port used for the Unique Domains validation server.',
+    });
+    public route = Option.String('--route', { description: 'Route loaded in both apps during validation.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [action = 'framework-change'] = this.args;
+
+        this.setCliArgs({
+            action,
+            crosspath: this.crosspath ?? '',
+            crosspathPort: this.crosspathPort ?? '',
+            json: this.json,
+            route: this.route ?? '',
+            uniqueDomains: this.uniqueDomains ?? '',
+            uniqueDomainsPort: this.uniqueDomainsPort ?? '',
+        });
+
+        await runCommandModule(() => import('../commands/verify'));
+    }
+}
+
 export const registeredCommands = {
     init: InitCommand,
     create: CreateCommand,
@@ -333,9 +420,11 @@ export const registeredCommands = {
     check: CheckCommand,
     doctor: DoctorCommand,
     explain: ExplainCommand,
+    diagnose: DiagnoseCommand,
     trace: TraceCommand,
     command: CommandCommand,
     session: SessionCommand,
+    verify: VerifyCommand,
 } as const;
 
 export const createCli = (version: string) => {
@@ -358,9 +447,11 @@ export const createCli = (version: string) => {
     clipanion.register(CheckCommand);
     clipanion.register(DoctorCommand);
     clipanion.register(ExplainCommand);
+    clipanion.register(DiagnoseCommand);
     clipanion.register(TraceCommand);
     clipanion.register(CommandCommand);
     clipanion.register(SessionCommand);
+    clipanion.register(VerifyCommand);
 
     return clipanion;
 };

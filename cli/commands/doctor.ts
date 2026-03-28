@@ -1,9 +1,10 @@
 import cli from '..';
 import Compiler from '../compiler';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
-import { buildDoctorResponse, renderDoctorHuman } from '@common/dev/diagnostics';
+import { buildContractsDoctorResponse } from '@common/dev/contractsDoctor';
+import { buildDoctorResponse, renderDoctorHuman, renderDoctorResponseHuman } from '@common/dev/diagnostics';
 
-const allowedDoctorArgs = new Set(['json', 'strict']);
+const allowedDoctorArgs = new Set(['contracts', 'json', 'strict']);
 
 const validateDoctorArgs = () => {
     const enabledArgs = Object.entries(cli.args)
@@ -26,15 +27,27 @@ export const run = async (): Promise<void> => {
     await compiler.refreshGeneratedTypings();
 
     const manifest = readProteumManifest(cli.paths.appRoot);
-    const response = buildDoctorResponse(manifest, cli.args.strict === true);
+    const response =
+        cli.args.contracts === true
+            ? buildContractsDoctorResponse(manifest, cli.args.strict === true)
+            : buildDoctorResponse(manifest, cli.args.strict === true);
 
     if (cli.args.json === true) {
         console.log(JSON.stringify(response, null, 2));
     } else {
-        console.log(renderDoctorHuman(manifest, cli.args.strict === true));
+        console.log(
+            cli.args.contracts === true
+                ? renderDoctorResponseHuman({
+                      emptyMessage: 'No contract diagnostics were found.',
+                      manifest,
+                      response,
+                      title: 'Proteum doctor contracts',
+                  })
+                : renderDoctorHuman(manifest, cli.args.strict === true),
+        );
     }
 
-    if (cli.args.strict === true && manifest.diagnostics.length > 0) {
+    if (cli.args.strict === true && response.diagnostics.length > 0) {
         throw new Error(
             `Proteum doctor failed in strict mode with ${response.summary.errors} errors and ${response.summary.warnings} warnings.`,
         );

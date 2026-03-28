@@ -100,7 +100,7 @@ const generateClientRouteWrapperModules = () => {
             runtime: 'client',
             side: 'client',
             sourceFilepath: filepath,
-            clientRoute: { chunkId: pageChunk.chunkId, filepath: pageChunk.filepath },
+            clientRoute: { chunkId: pageChunk.chunkId },
             routeSourceFilepaths,
         });
 
@@ -109,7 +109,7 @@ const generateClientRouteWrapperModules = () => {
             runtime: 'server',
             side: 'client',
             sourceFilepath: filepath,
-            clientRoute: { chunkId: pageChunk.chunkId, filepath: pageChunk.filepath },
+            clientRoute: { chunkId: pageChunk.chunkId },
             routeSourceFilepaths,
         });
     }

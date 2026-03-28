@@ -68,7 +68,7 @@ curl -H "$(jq -r '.curlCookieHeader' session.json)" http://localhost:3101/api/Au
 
 - Prefer `proteum session` over UI login automation when the goal is to test or debug protected application behavior.
 - Use UI login automation only when the auth UX itself is the feature under test.
-- Pair it with `proteum trace` for protected request debugging.
+- Pair it with `proteum diagnose` for a fast protected-route summary, then use `proteum trace` when you need lower-level request events.
 
 Typical flow:
 
@@ -76,6 +76,7 @@ Typical flow:
 proteum trace arm --capture deep --port 3101
 proteum session admin@example.com --role ADMIN --port 3101 --json > session.json
 # add the returned cookie in Playwright, then load the protected page once
+proteum diagnose /dashboard --port 3101
 proteum trace latest --port 3101
 ```
 

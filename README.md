@@ -28,7 +28,7 @@ Proteum combines:
 - **Explicit request entrypoints.** Controllers are classes. Request access is explicit through `this.request`.
 - **Local validation.** Validate handler input inside the handler with `this.input(schema)`.
 - **Deterministic generation.** Proteum owns `.proteum/` and regenerates it from source.
-- **Explainability matters.** `proteum explain`, `proteum doctor`, and `proteum trace` expose the framework view of your app and its live requests, and the profiler renders the same diagnostics surfaces for humans in dev.
+- **Explainability matters.** `proteum explain`, `proteum doctor`, `proteum diagnose`, and `proteum trace` expose the framework view of your app and its live requests, and the profiler renders the same diagnostics surfaces for humans in dev.
 - **SEO is not an afterthought.** Identity, routes, layouts, and SSR data are part of the app contract.
 
 ## What a Proteum App Looks Like
@@ -287,9 +287,11 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum build --prod` | Produce the production server and client bundles into `bin/` |
 | `proteum doctor` | Inspect manifest diagnostics |
 | `proteum explain` | Explain routes, controllers, services, layouts, conventions, and env |
+| `proteum diagnose` | Combine owner lookup, diagnostics, trace data, and server logs for one concrete route or request target |
 | `proteum trace` | Inspect live dev-only request traces from the running SSR server |
 | `proteum command` | Run a dev-only internal command locally or against a running dev server |
 | `proteum session` | Mint a dev-only auth session token and Playwright-ready cookie payload |
+| `proteum verify` | Validate framework-facing workflows across one or more running dev apps; `framework-change` is the built-in cross-reference-app check |
 | `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
 | `proteum create` | Scaffold a page, controller, command, route, or root service inside an app |
 
@@ -306,10 +308,14 @@ Useful inspection commands:
 
 ```bash
 proteum doctor
+proteum doctor --contracts
 proteum doctor --json
 proteum explain
+proteum explain owner /api/Auth/CurrentUser
 proteum explain --routes --controllers --commands
 proteum explain --all --json
+proteum diagnose /
+proteum diagnose /dashboard --port 3101
 proteum command proteum/diagnostics/ping
 proteum command proteum/diagnostics/ping --port 3101
 proteum session admin@example.com --role ADMIN --port 3101
@@ -329,7 +335,7 @@ proteum create controller Founder/projects --method list
 proteum create service Conversion/Plans
 ```
 
-`proteum explain` and `proteum doctor` share the same manifest-backed diagnostics contract as the profiler `Explain` and `Doctor` tabs. For the full dev diagnostics model, see [docs/diagnostics.md](docs/diagnostics.md).
+`proteum explain`, `proteum doctor`, and `proteum diagnose` share the same dev diagnostics contract as the profiler `Explain`, `Doctor`, and `Diagnose` tabs. For the full dev diagnostics model, see [docs/diagnostics.md](docs/diagnostics.md).
 
 ## Dev Commands
 
@@ -342,7 +348,7 @@ Proteum includes a dev-only command surface for internal testing, debugging, and
 - `proteum command foo/bar` refreshes generated artifacts, builds the dev output, starts a temporary local dev server, runs the command, prints the result, and exits
 - `proteum command foo/bar --port 3101` runs the same command against an existing `proteum dev` instance
 - the dev profiler exposes the same command list and run action through the `Commands` tab
-- the same profiler also exposes `Explain` and `Doctor` tabs backed by the same manifest diagnostics contract as the CLI
+- the same profiler also exposes `Explain`, `Doctor`, and `Diagnose` tabs backed by the same diagnostics contract as the CLI
 
 Proteum itself also ships a small built-in diagnostic command at `proteum/diagnostics/ping`, so the command surface is never empty in dev.
 
@@ -371,7 +377,7 @@ The CLI talks to the running app over the dev-only `__proteum/session/start` end
 
 Proteum includes a dev-only in-memory request trace buffer for auth, routing, controller, context, SSR, API, Prisma SQL, and render debugging.
 
-This is separate from `proteum explain` and `proteum doctor`: tracing is live request-time data, while explain/doctor are manifest-backed structure and diagnostics.
+This is separate from `proteum explain` and `proteum doctor`: tracing is live request-time data, while explain/doctor are manifest-backed structure and diagnostics. When you already know the failing path and want the fastest suspect list, start with `proteum diagnose` and then drop into raw trace output only if needed.
 
 When diagnosing or testing against an app, first read the default port from `PORT` or `./.proteum/manifest.json` and check whether a server is already running there. If it is, inspect the existing traces before reproducing the issue so you can collect past errors and their context.
 
@@ -381,6 +387,7 @@ When diagnosing or testing against an app, first read the default port from `POR
 - `proteum trace arm --capture deep`: force the next request into deep capture mode
 - `proteum trace export <requestId>`: write one trace to disk
 - `proteum trace latest --url http://127.0.0.1:3010`: target a non-standard dev base URL directly
+- `proteum diagnose /dashboard --port 3101`: combine owner lookup, diagnostics, trace summary, and buffered logs for one concrete path
 
 Trace summaries include `sql=<count>`. Detailed trace output includes `Calls` and `SQL` sections so API/fetcher activity and Prisma queries can be inspected together.
 
@@ -431,7 +438,10 @@ Proteum answers those questions with explicit artifacts:
 - `.proteum/manifest.json` for machine-readable app structure
 - `proteum explain --json` for structured framework introspection
 - `proteum doctor --json` for structured diagnostics
-- the profiler `Explain` and `Doctor` tabs for a human-readable view over the same manifest-backed contract
+- `proteum doctor --contracts --json` for generated-artifact and manifest-owned file checks
+- `proteum explain owner <query>` for fast ownership lookup over routes, controllers, files, and generated artifacts
+- `proteum diagnose <path>` for a one-shot request diagnosis surface
+- the profiler `Explain`, `Doctor`, and `Diagnose` tabs for a human-readable view over the same diagnostics contract
 - `proteum command ...` plus the profiler `Commands` tab for dev-only internal execution
 - `proteum session ...` for explicit authenticated dev browser or API bootstrapping without login UI automation
 
@@ -446,7 +456,7 @@ If you are an LLM or automation agent, start here:
 7. Inspect `client/pages/**` for SSR routes and page setup contracts.
 8. If the task touches a protected route or controller in dev and login UX is not the feature under test, use `proteum session <email> --role <role>` before Playwright or direct HTTP calls.
 
-For implementation rules in a real Proteum app, treat the local `AGENTS.md` files plus `proteum explain`, `proteum doctor`, and `proteum trace` as the task contract. This README is the framework overview, not the project-local instruction layer.
+For implementation rules in a real Proteum app, treat the local `AGENTS.md` files plus `proteum explain`, `proteum doctor`, `proteum diagnose`, and `proteum trace` as the task contract. This README is the framework overview, not the project-local instruction layer.
 
 ## What Proteum Avoids
 

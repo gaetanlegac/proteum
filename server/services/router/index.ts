@@ -72,6 +72,8 @@ type TGeneratedRouteModule = { filepath: string; register?: TRouteModule['__regi
 
 type TGeneratedControllerDefinition = {
     path: string;
+    filepath: string;
+    sourceLocation: { line: number; column: number };
     Controller: new (request: TRouterContext<TServerRouter>) => { [method: string]: () => any };
     method: string;
 };
@@ -353,7 +355,7 @@ export default class ServerRouter<
                     const controller = new definition.Controller(requestContext);
                     return controller[definition.method]();
                 },
-                options: { ...defaultOptions },
+                options: { ...defaultOptions, filepath: definition.filepath, sourceLocation: definition.sourceLocation },
             };
 
             this.controllers[route.path] = route;
@@ -753,6 +755,11 @@ export default class ServerRouter<
                                     path: request.path,
                                     accept: controllerRoute.options.accept || '',
                                     filepath: controllerRoute.options.filepath || '',
+                                    source: {
+                                        filepath: controllerRoute.options.filepath || '',
+                                        line: controllerRoute.options.sourceLocation?.line || 0,
+                                        column: controllerRoute.options.sourceLocation?.column || 0,
+                                    },
                                 },
                                 'summary',
                             );
@@ -785,6 +792,11 @@ export default class ServerRouter<
                                             routePath: route.path || '',
                                             routeId: route.options.id || '',
                                             filepath: route.options.filepath || '',
+                                            source: {
+                                                filepath: route.options.filepath || '',
+                                                line: route.options.sourceLocation?.line || 0,
+                                                column: route.options.sourceLocation?.column || 0,
+                                            },
                                         },
                                         'deep',
                                     );
@@ -805,6 +817,11 @@ export default class ServerRouter<
                                             routePath: route.path || '',
                                             routeId: route.options.id || '',
                                             filepath: route.options.filepath || '',
+                                            source: {
+                                                filepath: route.options.filepath || '',
+                                                line: route.options.sourceLocation?.line || 0,
+                                                column: route.options.sourceLocation?.column || 0,
+                                            },
                                         },
                                         'deep',
                                     );
@@ -824,6 +841,11 @@ export default class ServerRouter<
                                             routePath: route.path || '',
                                             routeId: route.options.id || '',
                                             filepath: route.options.filepath || '',
+                                            source: {
+                                                filepath: route.options.filepath || '',
+                                                line: route.options.sourceLocation?.line || 0,
+                                                column: route.options.sourceLocation?.column || 0,
+                                            },
                                         },
                                         'deep',
                                     );
@@ -875,6 +897,11 @@ export default class ServerRouter<
                 routePath: route.path || '',
                 routeId: route.options.id || '',
                 filepath: route.options.filepath || '',
+                source: {
+                    filepath: route.options.filepath || '',
+                    line: route.options.sourceLocation?.line || 0,
+                    column: route.options.sourceLocation?.column || 0,
+                },
                 accept: route.options.accept || '',
                 method: route.method,
             },

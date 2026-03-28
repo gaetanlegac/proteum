@@ -16,6 +16,7 @@ import Ansi2Html from 'ansi-to-html';
 // Core libs
 import type ApplicationContainer from '..';
 import context from '@server/context';
+import type { TDevConsoleLogChannel, TDevConsoleLogEntry, TDevConsoleLogLevel } from '@common/dev/console';
 import type { ServerBug, TCatchedError } from '@common/errors';
 import type { TTraceCallOrigin, TTraceSqlQueryKind } from '@common/dev/requestTrace';
 import type ServerRequest from '@server/services/router/request';
@@ -37,18 +38,8 @@ export type Services = {};
 - TYPES
 ----------------------------------*/
 
-export type ChannelInfos = {
-    channelType: 'cron' | 'master' | 'request' | 'socket';
-    channelId?: string;
-
-    method?: string;
-    path?: string;
-
-    user?: string;
-    traceCallId?: string;
+export type ChannelInfos = TDevConsoleLogChannel & {
     traceCallOrigin?: TTraceCallOrigin;
-    traceCallLabel?: string;
-    traceCallFetcherId?: string;
     prismaOperations?: Array<{ kind: TTraceSqlQueryKind; model?: string; operation: string }>;
 };
 
@@ -237,6 +228,43 @@ export default class Console {
 
     public getLogLevelId(logLevelName: TLogLevel) {
         return logLevels[logLevelName];
+    }
+
+    private serializeLogChannel(channel: ChannelInfos): TDevConsoleLogChannel {
+        return {
+            channelType: channel.channelType,
+            ...(typeof channel.channelId === 'string' ? { channelId: channel.channelId } : {}),
+            ...(typeof channel.method === 'string' ? { method: channel.method } : {}),
+            ...(typeof channel.path === 'string' ? { path: channel.path } : {}),
+            ...(typeof channel.user === 'string' ? { user: channel.user } : {}),
+            ...(typeof channel.traceCallId === 'string' ? { traceCallId: channel.traceCallId } : {}),
+            ...(typeof channel.traceCallOrigin === 'string' ? { traceCallOrigin: channel.traceCallOrigin } : {}),
+            ...(typeof channel.traceCallLabel === 'string' ? { traceCallLabel: channel.traceCallLabel } : {}),
+            ...(typeof channel.traceCallFetcherId === 'string' ? { traceCallFetcherId: channel.traceCallFetcherId } : {}),
+            ...(Array.isArray(channel.prismaOperations)
+                ? {
+                      prismaOperations: channel.prismaOperations.map((operation) => ({
+                          kind: operation.kind,
+                          ...(typeof operation.model === 'string' ? { model: operation.model } : {}),
+                          operation: operation.operation,
+                      })),
+                  }
+                : {}),
+        };
+    }
+
+    public listLogs(limit = 100, minimumLevel: TDevConsoleLogLevel = 'log'): TDevConsoleLogEntry[] {
+        const minimumLogLevel = logLevels[minimumLevel];
+
+        return this.logs
+            .filter((entry) => logLevels[entry.level] >= minimumLogLevel)
+            .slice(-Math.max(0, limit))
+            .map((entry) => ({
+                channel: this.serializeLogChannel(entry.channel),
+                level: entry.level,
+                text: formatWithOptions({ breakLength: 120, colors: false, depth: 3 }, ...entry.args),
+                time: entry.time.toISOString(),
+            }));
     }
 
     private clean() {

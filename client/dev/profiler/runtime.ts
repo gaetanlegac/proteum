@@ -13,6 +13,7 @@ import {
 } from '@common/dev/profiler';
 import type { TDevCommandDefinition, TDevCommandExecution } from '@common/dev/commands';
 import type { TDoctorResponse } from '@common/dev/diagnostics';
+import type { TDiagnoseResponse } from '@common/dev/inspection';
 import type { TProteumManifest } from '@common/dev/proteumManifest';
 import type { TRequestTrace } from '@common/dev/requestTrace';
 
@@ -33,9 +34,17 @@ type TProfilerCronState = {
 };
 
 type TProfilerDoctorState = {
+    contracts?: TDoctorResponse;
     errorMessage?: string;
     lastLoadedAt?: string;
     response?: TDoctorResponse;
+    status: 'idle' | 'loading' | 'ready' | 'error';
+};
+
+type TProfilerDiagnoseState = {
+    errorMessage?: string;
+    lastLoadedAt?: string;
+    response?: TDiagnoseResponse;
     status: 'idle' | 'loading' | 'ready' | 'error';
 };
 
@@ -50,6 +59,7 @@ type TProfilerState = {
     activePanel: TProfilerPanel;
     commands: TProfilerCommandsState;
     cron: TProfilerCronState;
+    diagnose: TProfilerDiagnoseState;
     doctor: TProfilerDoctorState;
     explain: TProfilerExplainState;
     currentSessionId?: string;
@@ -124,7 +134,12 @@ const cloneCronState = (cron: TProfilerCronState) => ({
 });
 const cloneDoctorState = (doctor: TProfilerDoctorState) => ({
     ...doctor,
+    contracts: doctor.contracts ? cloneDoctorResponse(doctor.contracts) : undefined,
     response: doctor.response ? cloneDoctorResponse(doctor.response) : undefined,
+});
+const cloneDiagnoseState = (diagnose: TProfilerDiagnoseState) => ({
+    ...diagnose,
+    response: diagnose.response ? (JSON.parse(JSON.stringify(diagnose.response)) as TDiagnoseResponse) : undefined,
 });
 const cloneExplainState = (explain: TProfilerExplainState) => ({
     ...explain,
@@ -156,6 +171,9 @@ class ProfilerRuntime {
             status: 'idle',
             tasks: [],
         },
+        diagnose: {
+            status: 'idle',
+        },
         doctor: {
             status: 'idle',
         },
@@ -185,6 +203,7 @@ class ProfilerRuntime {
         this.emit();
         if (panel === 'commands') void this.refreshCommands();
         if (panel === 'cron') void this.refreshCronTasks();
+        if (panel === 'diagnose') void this.refreshDiagnose();
         if (panel === 'doctor') void this.refreshDoctor();
         if (panel === 'doctor' || panel === 'explain') void this.refreshExplain();
     }
@@ -353,16 +372,20 @@ class ProfilerRuntime {
         this.emit();
 
         try {
-            const response = await fetch('/__proteum/doctor', { cache: 'no-store' });
+            const [response, contractsResponse] = await Promise.all([
+                fetch('/__proteum/doctor', { cache: 'no-store' }),
+                fetch('/__proteum/doctor/contracts', { cache: 'no-store' }),
+            ]);
             const body = (await response.json()) as TDoctorResponse & { error?: string };
+            const contractsBody = (await contractsResponse.json()) as TDoctorResponse & { error?: string };
 
-            if (!response.ok) {
-                throw new Error(body.error || 'Failed to load doctor diagnostics.');
-            }
+            if (!response.ok) throw new Error(body.error || 'Failed to load doctor diagnostics.');
+            if (!contractsResponse.ok) throw new Error(contractsBody.error || 'Failed to load doctor contract diagnostics.');
 
             this.state = {
                 ...this.state,
                 doctor: {
+                    contracts: cloneDoctorResponse(contractsBody),
                     errorMessage: undefined,
                     lastLoadedAt: nowIso(),
                     response: cloneDoctorResponse(body),
@@ -375,6 +398,55 @@ class ProfilerRuntime {
                 ...this.state,
                 doctor: {
                     ...this.state.doctor,
+                    errorMessage: error instanceof Error ? error.message : String(error),
+                    status: 'error',
+                },
+            };
+            this.emit();
+        }
+    }
+
+    public async refreshDiagnose(sessionId?: string) {
+        const session = this.getSession(sessionId || this.state.selectedSessionId || this.state.currentSessionId);
+        const params = new URLSearchParams();
+        if (session?.requestId) params.set('requestId', session.requestId);
+        else if (session?.path) params.set('query', session.path);
+
+        this.state = {
+            ...this.state,
+            diagnose: {
+                ...this.state.diagnose,
+                errorMessage: undefined,
+                status: 'loading',
+            },
+        };
+        this.emit();
+
+        try {
+            const response = await fetch(`/__proteum/diagnose${params.size > 0 ? `?${params.toString()}` : ''}`, {
+                cache: 'no-store',
+            });
+            const body = (await response.json()) as TDiagnoseResponse & { error?: string };
+
+            if (!response.ok) {
+                throw new Error(body.error || 'Failed to load diagnose data.');
+            }
+
+            this.state = {
+                ...this.state,
+                diagnose: {
+                    errorMessage: undefined,
+                    lastLoadedAt: nowIso(),
+                    response: JSON.parse(JSON.stringify(body)) as TDiagnoseResponse,
+                    status: 'ready',
+                },
+            };
+            this.emit();
+        } catch (error) {
+            this.state = {
+                ...this.state,
+                diagnose: {
+                    ...this.state.diagnose,
                     errorMessage: error instanceof Error ? error.message : String(error),
                     status: 'error',
                 },
@@ -784,6 +856,7 @@ class ProfilerRuntime {
             ...this.state,
             commands: cloneCommandsState(this.state.commands),
             cron: cloneCronState(this.state.cron),
+            diagnose: cloneDiagnoseState(this.state.diagnose),
             doctor: cloneDoctorState(this.state.doctor),
             explain: cloneExplainState(this.state.explain),
             sessions: this.state.sessions.map((candidate) => (candidate.id === session.id ? cloneSession(session) : candidate)),

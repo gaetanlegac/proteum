@@ -53,7 +53,7 @@ export class ApplicationContainer<TServicesIndex extends StartedServicesIndex = 
         const configParser = new ConfigParser(this.path.root);
         this.Environment = configParser.env();
         this.Identity = configParser.identity();
-        this.Console = new Console(this, defaultConsoleConfig);
+        this.Console = new Console(this, { ...defaultConsoleConfig, enable: this.Environment.profile === 'dev' });
         this.Trace = new Trace(this, this.Environment.trace);
     }
 

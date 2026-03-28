@@ -114,6 +114,8 @@ export type { TControllers } from '@generated/common/controllers';
         controller.methods.map(
             (method) => `    {
         path: ${JSON.stringify('/api/' + method.routePath)},
+        filepath: ${JSON.stringify(normalizeAbsolutePath(controller.filepath))},
+        sourceLocation: { line: ${method.sourceLocation.line}, column: ${method.sourceLocation.column} },
         Controller: Controller${controllerIndex},
         method: ${JSON.stringify(method.name)},
     },`,
@@ -134,6 +136,8 @@ ${controllerImports ? '\n' + controllerImports : ''}
 
 export type TGeneratedControllerDefinition = {
     path: string,
+    filepath: string,
+    sourceLocation: { line: number, column: number },
     Controller: new (request: any) => Controller,
     method: string,
 }

@@ -53,8 +53,10 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 Do not stop at static analysis for routing, controllers, generated code, SSR, client runtime, services, webpack, Babel, or emitted assets.
 
 - Run `npx proteum dev --no-cache --port 3xxx` in both reference apps on explicit ports.
+- When validating a concrete route, controller path, or failing page on a running dev server, prefer `proteum diagnose <path> --port <port>` first. Use raw `proteum trace ...` output when you need lower-level event detail beyond the diagnose summary.
 - For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` to mint a dev auth cookie instead of automating the login UI. Use the login UI only when login itself is the feature under test.
 - For request-time behavior, arm traces with `proteum trace arm --capture deep`, reproduce once, then inspect `proteum trace latest` or `proteum trace show <requestId>`.
+- When the framework-facing workflow itself changed, verify the CLI surface too with `proteum verify framework-change --crosspath-port <port> --unique-domains-port <port>`.
 - Open the real pages with Playwright.
 - Inspect browser console errors and warnings.
 - Inspect server startup and runtime errors.

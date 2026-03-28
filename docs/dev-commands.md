@@ -72,6 +72,7 @@ The profiler also exposes the shared diagnostics surfaces for humans:
 
 - `Explain` renders the same manifest-backed data as `proteum explain`
 - `Doctor` renders the same manifest diagnostics as `proteum doctor`
+- `Diagnose` renders the same owner, suspect, contract, trace-summary, and buffered-log view as `proteum diagnose`
 
 For the shared diagnostics contract and the corresponding dev HTTP endpoints, see [diagnostics.md](diagnostics.md).
 

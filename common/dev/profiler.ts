@@ -15,6 +15,7 @@ export type TProfilerPanel =
     | 'ssr'
     | 'api'
     | 'sql'
+    | 'diagnose'
     | 'explain'
     | 'doctor'
     | 'commands'

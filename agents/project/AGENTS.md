@@ -85,7 +85,10 @@ Project code should consume:
 Prefer structured CLI surfaces over re-deriving framework facts from source:
 
 - `npx proteum explain --json`
+- `npx proteum explain owner <query>`
 - `npx proteum doctor --json`
+- `npx proteum doctor --contracts --json`
+- `npx proteum diagnose <path> --port <port>`
 - `npx proteum trace ...`
 - `npx proteum command ...`
 - `npx proteum session ...`

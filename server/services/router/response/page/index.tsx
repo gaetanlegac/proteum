@@ -70,6 +70,11 @@ export default class ServerPage<TRouter extends TServerRouter = TServerRouter> e
                 chunkId: this.chunkId || '',
                 title: this.title || '',
                 routeId: this.route.options['id'] || '',
+                source: {
+                    filepath: this.route.options.filepath || '',
+                    line: this.route.options.sourceLocation?.line || 0,
+                    column: this.route.options.sourceLocation?.column || 0,
+                },
             },
             'summary',
         );
@@ -103,6 +108,11 @@ export default class ServerPage<TRouter extends TServerRouter = TServerRouter> e
                     documentLength: document.length,
                     styleCount: this.style.length,
                     scriptCount: this.scripts.length,
+                    source: {
+                        filepath: this.route.options.filepath || '',
+                        line: this.route.options.sourceLocation?.line || 0,
+                        column: this.route.options.sourceLocation?.column || 0,
+                    },
                 },
                 'summary',
             );

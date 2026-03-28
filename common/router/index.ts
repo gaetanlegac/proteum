@@ -75,6 +75,7 @@ export type TRouteOptions = {
     // Injected by the page plugin
     id?: string;
     filepath?: string;
+    sourceLocation?: { line: number; column: number };
     setup?: TPageSetup;
 
     // Indexing

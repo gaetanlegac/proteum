@@ -14,9 +14,11 @@ export const proteumCommandNames = [
     'check',
     'doctor',
     'explain',
+    'diagnose',
     'trace',
     'command',
     'session',
+    'verify',
 ] as const;
 
 export type TProteumCommandName = (typeof proteumCommandNames)[number];
@@ -49,7 +51,7 @@ export const proteumRecommendedFlow: TRow[] = [
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
-    { title: 'Manifest and contracts', names: ['doctor', 'explain', 'trace', 'command', 'session'] },
+    { title: 'Manifest and contracts', names: ['doctor', 'explain', 'diagnose', 'trace', 'command', 'session', 'verify'] },
     { title: 'Project scaffolding', names: ['init', 'create'] },
 ];
 
@@ -194,22 +196,23 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'doctor',
         category: 'Manifest and contracts',
         summary: 'Inspect the generated Proteum manifest diagnostics.',
-        usage: 'proteum doctor [--json] [--strict]',
+        usage: 'proteum doctor [--contracts] [--json] [--strict]',
         bestFor:
             'Auditing manifest warnings and errors, especially in CI or when route/controller generation behaves unexpectedly.',
         examples: [
             { description: 'Print a human-readable diagnostic summary', command: 'proteum doctor' },
+            { description: 'Inspect missing generated contracts and source files', command: 'proteum doctor --contracts' },
             { description: 'Fail if any diagnostics exist', command: 'proteum doctor --strict' },
             { description: 'Emit machine-readable diagnostics', command: 'proteum doctor --json' },
         ],
-        notes: ['`--strict` is intended for CI and pre-release verification.'],
+        notes: ['`--strict` is intended for CI and pre-release verification.', '`--contracts` checks manifest-owned source files and expected generated artifacts on disk.'],
         status: 'stable',
     },
     explain: {
         name: 'explain',
         category: 'Manifest and contracts',
         summary: 'Explain the generated Proteum manifest.',
-        usage: 'proteum explain [--all|--app|--conventions|--env|--services|--controllers|--commands|--routes|--layouts|--diagnostics] [--json]',
+        usage: 'proteum explain [owner <query>] [--all|--app|--conventions|--env|--services|--controllers|--commands|--routes|--layouts|--diagnostics] [--json]',
         bestFor:
             'Inspecting how source files became generated routes, controllers, commands, layouts, services, and diagnostics without reading compiler internals.',
         examples: [
@@ -218,10 +221,29 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
                 description: 'Inspect generated routes, controllers, and commands together',
                 command: 'proteum explain --routes --controllers --commands',
             },
+            { description: 'Resolve the most likely manifest owner for a path or file', command: 'proteum explain owner /api/Auth/CurrentUser' },
             { description: 'Emit the selected manifest sections as JSON', command: 'proteum explain --routes --json' },
         ],
-        notes: ['Legacy positional section selection remains supported, for example `proteum explain routes services`.'],
+        notes: ['Legacy positional section selection remains supported, for example `proteum explain routes services`.', '`proteum explain owner <query>` ranks matching routes, controllers, services, commands, layouts, and diagnostics from the manifest.'],
         status: 'stable',
+    },
+    diagnose: {
+        name: 'diagnose',
+        category: 'Manifest and contracts',
+        summary: 'Combine owner lookup, doctor output, contract checks, traces, and server logs into one report.',
+        usage: 'proteum diagnose [<query>] [--hit <path>] [--method <verb>] [--data-json <json>] [--session-email <email>] [--session-role <role>] [--port <port>|--url <baseUrl>] [--json]',
+        bestFor:
+            'Collapsing the usual explain + doctor + trace + session + server log loop into one structured debugging pass.',
+        examples: [
+            { description: 'Diagnose the latest matching route trace on the running dev server', command: 'proteum diagnose /domains' },
+            { description: 'Arm a deep trace, mint an admin session, hit a protected page once, then diagnose it', command: 'proteum diagnose /godmode/users --hit /godmode/users --session-email god@example.com --session-role GOD' },
+            { description: 'Diagnose an API call with a JSON payload', command: 'proteum diagnose /api/Auth/CurrentUser --hit /api/Auth/CurrentUser --method POST --data-json "{}"' },
+        ],
+        notes: [
+            'This command talks to the running app over the dev-only diagnostics, trace, and session endpoints.',
+            'When `--hit` is omitted, Proteum diagnoses the latest matching request trace if one already exists.',
+        ],
+        status: 'experimental',
     },
     trace: {
         name: 'trace',
@@ -297,6 +319,23 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'You must provide the target user email explicitly; Proteum does not guess your admin account universally across apps.',
             'The command returns a token plus Playwright-ready cookie JSON so agents can inject the session into a browser context directly.',
             'Without `--port` or `--url`, Proteum refreshes generated artifacts, builds the dev output, starts a temporary local dev server, creates the session, prints the payload, and exits.',
+        ],
+        status: 'experimental',
+    },
+    verify: {
+        name: 'verify',
+        category: 'Manifest and contracts',
+        summary: 'Validate framework changes against both reference apps with one command.',
+        usage: 'proteum verify [framework-change] [--crosspath <path>] [--unique-domains <path>] [--crosspath-port <port>] [--unique-domains-port <port>] [--route <path>] [--json]',
+        bestFor:
+            'Framework-repo smoke validation when Proteum changes must be exercised against CrossPath and Unique Domains before review.',
+        examples: [
+            { description: 'Run the default framework smoke verification against both reference apps', command: 'proteum verify framework-change' },
+            { description: 'Load a specific route in both apps during validation', command: 'proteum verify framework-change --route /' },
+        ],
+        notes: [
+            'When a reference app is already running on the requested port, Proteum reuses it instead of spawning a new `proteum dev` process.',
+            'This command is intended for the framework repo and will be most useful where the reference app paths exist locally.',
         ],
         status: 'experimental',
     },

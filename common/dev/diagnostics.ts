@@ -90,13 +90,13 @@ const formatDiagnosticItem = (manifest: TProteumManifest, diagnostic: TProteumMa
 export const pickExplainManifestSections = (manifest: TProteumManifest, sectionNames: TExplainSectionName[]) => {
     if (sectionNames.length === 0) return manifest;
 
-    const selected: Partial<TProteumManifest> = {};
+    const selected: Record<string, unknown> = {};
 
     for (const sectionName of sectionNames) {
         selected[sectionName] = manifest[sectionName];
     }
 
-    return selected;
+    return selected as Partial<TProteumManifest>;
 };
 
 export const buildExplainSummaryItems = (manifest: TProteumManifest) => {
@@ -254,9 +254,12 @@ export const buildDoctorResponse = (manifest: TProteumManifest, strict = false):
     };
 };
 
-export const buildDoctorBlocks = (manifest: TProteumManifest): THumanTextBlock[] => {
-    const errors = manifest.diagnostics.filter((diagnostic) => diagnostic.level === 'error');
-    const warnings = manifest.diagnostics.filter((diagnostic) => diagnostic.level === 'warning');
+export const buildDoctorBlocksFromDiagnostics = (
+    manifest: TProteumManifest,
+    diagnostics: TProteumManifestDiagnostic[],
+): THumanTextBlock[] => {
+    const errors = diagnostics.filter((diagnostic) => diagnostic.level === 'error');
+    const warnings = diagnostics.filter((diagnostic) => diagnostic.level === 'warning');
 
     return [
         {
@@ -284,15 +287,34 @@ export const buildDoctorBlocks = (manifest: TProteumManifest): THumanTextBlock[]
     ];
 };
 
-export const renderDoctorHuman = (manifest: TProteumManifest, strict = false) => {
-    const response = buildDoctorResponse(manifest, strict);
-    if (response.diagnostics.length === 0) return 'Proteum doctor\n- No manifest diagnostics were found.';
+export const buildDoctorBlocks = (manifest: TProteumManifest) => buildDoctorBlocksFromDiagnostics(manifest, manifest.diagnostics);
+
+export const renderDoctorResponseHuman = ({
+    manifest,
+    response,
+    title,
+    emptyMessage,
+}: {
+    manifest: TProteumManifest;
+    response: TDoctorResponse;
+    title: string;
+    emptyMessage?: string;
+}) => {
+    if (response.diagnostics.length === 0) return `${title}\n- ${emptyMessage || 'No manifest diagnostics were found.'}`;
 
     return [
-        'Proteum doctor',
+        title,
         `- ${response.summary.errors} errors`,
         `- ${response.summary.warnings} warnings`,
         '',
-        ...buildDoctorBlocks(manifest).map(renderHumanBlock),
+        ...buildDoctorBlocksFromDiagnostics(manifest, response.diagnostics).map(renderHumanBlock),
     ].join('\n');
 };
+
+export const renderDoctorHuman = (manifest: TProteumManifest, strict = false) =>
+    renderDoctorResponseHuman({
+        emptyMessage: 'No manifest diagnostics were found.',
+        manifest,
+        response: buildDoctorResponse(manifest, strict),
+        title: 'Proteum doctor',
+    });

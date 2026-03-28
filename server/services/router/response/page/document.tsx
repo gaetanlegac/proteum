@@ -195,6 +195,11 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                 customContextKeys,
                 serializedBytes: Buffer.byteLength(context, 'utf8'),
                 routeCount: this.router.ssrRoutes.length,
+                source: {
+                    filepath: page.route.options.filepath || '',
+                    line: page.route.options.sourceLocation?.line || 0,
+                    column: page.route.options.sourceLocation?.column || 0,
+                },
             },
             'resolve',
         );

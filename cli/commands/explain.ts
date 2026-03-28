@@ -7,6 +7,7 @@ import {
     renderExplainHuman,
     type TExplainSectionName,
 } from '@common/dev/diagnostics';
+import { explainOwner } from '@common/dev/inspection';
 
 const allowedExplainArgs = new Set(['json', 'all', ...explainSectionNames]);
 
@@ -37,6 +38,30 @@ export const run = async (): Promise<void> => {
     await compiler.refreshGeneratedTypings();
 
     const manifest = readProteumManifest(cli.paths.appRoot);
+    const ownerQuery = typeof cli.args.ownerQuery === 'string' ? cli.args.ownerQuery.trim() : '';
+
+    if (ownerQuery) {
+        const response = explainOwner(manifest, ownerQuery);
+        if (cli.args.json === true) {
+            console.log(JSON.stringify(response, null, 2));
+            return;
+        }
+
+        console.log(
+            [
+                'Proteum explain owner',
+                `- query=${ownerQuery}`,
+                ...(response.matches.length === 0
+                    ? ['- No matching manifest owners were found.']
+                    : response.matches.map(
+                          (match) =>
+                              `- [${match.kind}] ${match.label} score=${match.score} source=${match.source.filepath}${match.source.line ? `:${match.source.line}` : ''}${match.source.column ? `:${match.source.column}` : ''}`,
+                      )),
+            ].join('\n'),
+        );
+        return;
+    }
+
     const selectedSections = getSelectedSections();
 
     if (cli.args.json === true) {
