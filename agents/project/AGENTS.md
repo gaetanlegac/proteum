@@ -16,6 +16,7 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 - Follow project-root `diagnostics.md` for diagnosis, runtime reproduction, temporary instrumentation, error-solving workflow, and verification method selection.
 - For new app or artifact boilerplate, prefer `npx proteum init ...` and `npx proteum create ...` before creating files by hand. Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.
 - After running `npx proteum create ...`, adapt the generated code to the real feature instead of leaving placeholder logic in place.
+- When framework work changes Proteum CLI commands, profiler panels/features, or the `proteum dev` banners, keep this file, project-root `diagnostics.md`, and any narrower area `AGENTS.md` that mentions the same workflow aligned with the live framework behavior in the same pass.
 - Before finishing, double-check the touched files and generated output against the applicable optimization, diagnostics, and coding-style sources: project-root `optimizations.md`, project-root `diagnostics.md`, project-root `CODING_STYLE.md`, and any narrower area `AGENTS.md`.
 - When you have finished your work, summarize in one top-level short sentence ALL the changes you made since the beginning of the WHOLE conversation. Output as "Commit message".
 
