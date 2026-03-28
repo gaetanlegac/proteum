@@ -8,6 +8,8 @@ Proteum exposes two manifest-backed diagnostics surfaces plus one composite requ
 
 These are not separate models for different tools. `explain` and `doctor` share the same generated manifest snapshot, while `diagnose` layers live dev-only request data on top of that same framework view.
 
+Performance inspection is a sibling surface, not a separate instrumentation stack: `proteum perf` and the profiler `Perf` tab aggregate the same dev-only request traces that back `proteum trace`.
+
 ## Shared Contract
 
 The canonical snapshot lives in `./.proteum/manifest.json`.
@@ -43,6 +45,11 @@ proteum doctor --strict
 proteum diagnose /
 proteum diagnose /dashboard --port 3101
 proteum diagnose /api/Auth/CurrentUser --url http://127.0.0.1:3101
+
+proteum perf top --since today
+proteum perf request /dashboard --port 3101
+proteum perf compare --baseline yesterday --target today --group-by route
+proteum perf memory --since 1h --group-by controller
 ```
 
 `proteum explain --json` emits the selected manifest sections as machine-readable JSON.
@@ -64,6 +71,13 @@ proteum diagnose /api/Auth/CurrentUser --url http://127.0.0.1:3101
 - `suspects`
 - `serverLogs`
 
+`proteum perf` emits trace-derived performance views:
+
+- `top`: grouped hot paths with avg, p95, CPU, SQL, render, and heap deltas
+- `request`: one traced request waterfall with stage timings, CPU, SQL, render, self time, and payload sizes
+- `compare`: grouped baseline vs target deltas
+- `memory`: grouped heap and RSS drift summaries
+
 ## Dev HTTP Endpoints
 
 In `profile: dev`, the running app exposes:
@@ -74,6 +88,10 @@ In `profile: dev`, the running app exposes:
 - `GET /__proteum/doctor/contracts`
 - `GET /__proteum/logs`
 - `GET /__proteum/diagnose`
+- `GET /__proteum/perf/top`
+- `GET /__proteum/perf/compare`
+- `GET /__proteum/perf/memory`
+- `GET /__proteum/perf/request`
 
 `/__proteum/explain` supports optional section selection:
 
@@ -113,8 +131,10 @@ During `proteum dev`, the bottom profiler is the human-facing UI over the same d
 - `Explain` calls `/__proteum/explain`
 - `Doctor` calls `/__proteum/doctor`
 - `Diagnose` calls `/__proteum/diagnose` and renders the same owner, diagnostics, suspect, and log summary that the CLI uses
+- `Perf` calls the `/__proteum/perf/*` endpoints and renders the same grouped rollups and current-request waterfall that `proteum perf` uses, plus visual charts for hot paths, time breakdowns, regression deltas, and memory drift
 - `Commands` uses the dev command endpoints
-- `Auth`, `Timeline`, `Routing`, `Controller`, `SSR`, `API`, `SQL`, and related panels remain request-trace views
+- `Summary`, `Auth`, `Routing`, `Controller`, `SSR`, `API`, `SQL`, `Errors`, `Diagnose`, `Explain`, `Doctor`, `Commands`, and `Cron` now layer focused charts over the same trace and diagnostics contracts instead of only showing rows
+- `Timeline` remains the primary waterfall and event-stream inspection surface
 
 Use the profiler when a human needs to browse the same data that an agent or CLI command can already inspect directly.
 
@@ -126,5 +146,6 @@ For AI coding agents or automation:
 2. Run `proteum doctor --json` and `proteum doctor --contracts --json` to inspect framework and generated-artifact diagnostics.
 3. Run `proteum explain owner <query>` when you need to map a route, controller path, or generated artifact back to source.
 4. For concrete request-time behavior, start with `proteum diagnose <path> --port <port>`.
-5. Use `proteum trace ...` when you need lower-level event detail than `diagnose` provides.
-6. Open the profiler only when a human-readable view helps; it should agree with the CLI after refresh.
+5. For performance, CPU, SQL, render, or memory questions, use `proteum perf top|request|compare|memory` against the same running dev server.
+6. Use `proteum trace ...` when you need lower-level event detail than `diagnose` or `perf` provides.
+7. Open the profiler only when a human-readable view helps; it should agree with the CLI after refresh.

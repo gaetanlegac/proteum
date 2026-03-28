@@ -14,6 +14,7 @@ import {
     type TTraceSqlQueryKind,
     type TTraceSummaryValue,
     type TRequestTrace,
+    type TTraceMemorySnapshot,
     type TRequestTraceListItem,
 } from '@common/dev/requestTrace';
 
@@ -159,11 +160,29 @@ const summarizeCaptureValue = (value: TTraceInspectable, capture: TTraceCaptureM
     summarizeValue(value, capture === 'deep' ? 3 : 1, new WeakSet<object>(), [key]);
 
 const nowIso = () => new Date().toISOString();
+const snapshotMemory = (): TTraceMemorySnapshot => {
+    const usage = process.memoryUsage();
+
+    return {
+        arrayBuffers: typeof usage.arrayBuffers === 'number' ? usage.arrayBuffers : 0,
+        external: usage.external,
+        heapTotal: usage.heapTotal,
+        heapUsed: usage.heapUsed,
+        rss: usage.rss,
+    };
+};
 
 export default class Trace {
     private requests = new Map<string, TRequestTrace>();
     private order: string[] = [];
     private armedCapture?: TTraceCaptureMode;
+    private activeMeasurements = new Map<
+        string,
+        {
+            cpu: ReturnType<typeof process.cpuUsage>;
+            memory: TTraceMemorySnapshot;
+        }
+    >();
 
     public constructor(
         private container: typeof ApplicationContainer,
@@ -217,6 +236,7 @@ export default class Trace {
         };
 
         this.requests.set(trace.id, trace);
+        this.activeMeasurements.set(trace.id, { cpu: process.cpuUsage(), memory: snapshotMemory() });
         this.order.push(trace.id);
         this.trimRequestBuffer();
 
@@ -269,6 +289,21 @@ export default class Trace {
         if (output.user) trace.user = output.user;
         trace.statusCode = output.statusCode;
         trace.errorMessage = output.errorMessage;
+        const measurement = this.activeMeasurements.get(requestId);
+        if (measurement) {
+            const cpu = process.cpuUsage(measurement.cpu);
+            trace.performance = {
+                cpu: {
+                    systemMicros: cpu.system,
+                    userMicros: cpu.user,
+                },
+                memory: {
+                    after: snapshotMemory(),
+                    before: measurement.memory,
+                },
+            };
+            this.activeMeasurements.delete(requestId);
+        }
 
         this.record(
             requestId,
@@ -433,6 +468,14 @@ export default class Trace {
             }));
     }
 
+    public listTraceRequests(limit = this.config.requestsLimit) {
+        return [...this.order]
+            .reverse()
+            .slice(0, Math.max(1, limit))
+            .map((requestId) => this.requests.get(requestId))
+            .filter((trace): trace is TRequestTrace => trace !== undefined);
+    }
+
     public getLatestRequest() {
         const latestRequestId = this.order[this.order.length - 1];
         return latestRequestId ? this.requests.get(latestRequestId) : undefined;
@@ -464,6 +507,7 @@ export default class Trace {
 
         for (const requestId of this.order.splice(0, overflow)) {
             this.requests.delete(requestId);
+            this.activeMeasurements.delete(requestId);
         }
     }
 }

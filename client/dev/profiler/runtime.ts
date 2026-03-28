@@ -1,4 +1,10 @@
 import {
+    type TPerfCompareResponse,
+    type TPerfGroupBy,
+    type TPerfMemoryResponse,
+    type TPerfTopResponse,
+} from '@common/dev/performance';
+import {
     profilerOriginHeader,
     profilerParentRequestIdHeader,
     profilerSessionIdHeader,
@@ -55,6 +61,19 @@ type TProfilerExplainState = {
     status: 'idle' | 'loading' | 'ready' | 'error';
 };
 
+type TProfilerPerfState = {
+    baseline: string;
+    compare?: TPerfCompareResponse;
+    errorMessage?: string;
+    groupBy: TPerfGroupBy;
+    lastLoadedAt?: string;
+    memory?: TPerfMemoryResponse;
+    since: string;
+    status: 'idle' | 'loading' | 'ready' | 'error';
+    target: string;
+    top?: TPerfTopResponse;
+};
+
 type TProfilerState = {
     activePanel: TProfilerPanel;
     commands: TProfilerCommandsState;
@@ -62,6 +81,7 @@ type TProfilerState = {
     diagnose: TProfilerDiagnoseState;
     doctor: TProfilerDoctorState;
     explain: TProfilerExplainState;
+    perf: TProfilerPerfState;
     currentSessionId?: string;
     selectedSessionId?: string;
     sessions: TProfilerNavigationSession[];
@@ -145,6 +165,12 @@ const cloneExplainState = (explain: TProfilerExplainState) => ({
     ...explain,
     manifest: explain.manifest ? cloneManifest(explain.manifest) : undefined,
 });
+const clonePerfState = (perf: TProfilerPerfState) => ({
+    ...perf,
+    compare: perf.compare ? (JSON.parse(JSON.stringify(perf.compare)) as TPerfCompareResponse) : undefined,
+    memory: perf.memory ? (JSON.parse(JSON.stringify(perf.memory)) as TPerfMemoryResponse) : undefined,
+    top: perf.top ? (JSON.parse(JSON.stringify(perf.top)) as TPerfTopResponse) : undefined,
+});
 const cloneCommandsState = (commands: TProfilerCommandsState) => ({
     ...commands,
     commands: commands.commands.map(cloneCommand),
@@ -180,6 +206,13 @@ class ProfilerRuntime {
         explain: {
             status: 'idle',
         },
+        perf: {
+            baseline: 'yesterday',
+            groupBy: 'path',
+            since: 'today',
+            status: 'idle',
+            target: 'today',
+        },
         sessions: [],
         uiState: initialUiState(),
     };
@@ -201,6 +234,7 @@ class ProfilerRuntime {
         this.state = { ...this.state, activePanel: panel, uiState: 'expanded' };
         safeSessionStorage.set(profilerStorageKey, 'expanded');
         this.emit();
+        if (panel === 'perf') void this.refreshPerf();
         if (panel === 'commands') void this.refreshCommands();
         if (panel === 'cron') void this.refreshCronTasks();
         if (panel === 'diagnose') void this.refreshDiagnose();
@@ -251,6 +285,89 @@ class ProfilerRuntime {
                 ...this.state,
                 commands: {
                     ...this.state.commands,
+                    errorMessage: error instanceof Error ? error.message : String(error),
+                    status: 'error',
+                },
+            };
+            this.emit();
+        }
+    }
+
+    public setPerfFilters(filters: Partial<Pick<TProfilerPerfState, 'baseline' | 'groupBy' | 'since' | 'target'>>) {
+        this.state = {
+            ...this.state,
+            perf: {
+                ...this.state.perf,
+                ...filters,
+            },
+        };
+        this.emit();
+    }
+
+    public async refreshPerf(overrides: Partial<Pick<TProfilerPerfState, 'baseline' | 'groupBy' | 'since' | 'target'>> = {}) {
+        const nextPerf = {
+            ...this.state.perf,
+            ...overrides,
+        };
+        const topParams = new URLSearchParams({
+            groupBy: nextPerf.groupBy,
+            limit: '8',
+            since: nextPerf.since,
+        });
+        const compareParams = new URLSearchParams({
+            baseline: nextPerf.baseline,
+            groupBy: nextPerf.groupBy,
+            limit: '8',
+            target: nextPerf.target,
+        });
+        const memoryParams = new URLSearchParams({
+            groupBy: nextPerf.groupBy,
+            limit: '8',
+            since: nextPerf.since,
+        });
+
+        this.state = {
+            ...this.state,
+            perf: {
+                ...nextPerf,
+                errorMessage: undefined,
+                status: 'loading',
+            },
+        };
+        this.emit();
+
+        try {
+            const [topResponse, compareResponse, memoryResponse] = await Promise.all([
+                fetch(`/__proteum/perf/top?${topParams.toString()}`, { cache: 'no-store' }),
+                fetch(`/__proteum/perf/compare?${compareParams.toString()}`, { cache: 'no-store' }),
+                fetch(`/__proteum/perf/memory?${memoryParams.toString()}`, { cache: 'no-store' }),
+            ]);
+            const topBody = (await topResponse.json()) as TPerfTopResponse & { error?: string };
+            const compareBody = (await compareResponse.json()) as TPerfCompareResponse & { error?: string };
+            const memoryBody = (await memoryResponse.json()) as TPerfMemoryResponse & { error?: string };
+
+            if (!topResponse.ok) throw new Error(topBody.error || 'Failed to load perf top data.');
+            if (!compareResponse.ok) throw new Error(compareBody.error || 'Failed to load perf compare data.');
+            if (!memoryResponse.ok) throw new Error(memoryBody.error || 'Failed to load perf memory data.');
+
+            this.state = {
+                ...this.state,
+                perf: {
+                    ...nextPerf,
+                    compare: JSON.parse(JSON.stringify(compareBody)) as TPerfCompareResponse,
+                    errorMessage: undefined,
+                    lastLoadedAt: nowIso(),
+                    memory: JSON.parse(JSON.stringify(memoryBody)) as TPerfMemoryResponse,
+                    status: 'ready',
+                    top: JSON.parse(JSON.stringify(topBody)) as TPerfTopResponse,
+                },
+            };
+            this.emit();
+        } catch (error) {
+            this.state = {
+                ...this.state,
+                perf: {
+                    ...nextPerf,
                     errorMessage: error instanceof Error ? error.message : String(error),
                     status: 'error',
                 },
@@ -859,6 +976,7 @@ class ProfilerRuntime {
             diagnose: cloneDiagnoseState(this.state.diagnose),
             doctor: cloneDoctorState(this.state.doctor),
             explain: cloneExplainState(this.state.explain),
+            perf: clonePerfState(this.state.perf),
             sessions: this.state.sessions.map((candidate) => (candidate.id === session.id ? cloneSession(session) : candidate)),
         };
         this.emit();

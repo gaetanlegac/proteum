@@ -67,14 +67,17 @@ In `proteum dev`, the bottom profiler exposes a `Commands` tab.
 - it shows the backing class, method, scope, and source location
 - clicking `Run now` executes the command through the running dev server
 - the last result or error stays attached to that command row in the panel
+- it now adds scope, execution-duration, and status charts over the same command definitions and latest execution snapshots
 
 The profiler also exposes the shared diagnostics surfaces for humans:
 
 - `Explain` renders the same manifest-backed data as `proteum explain`
 - `Doctor` renders the same manifest diagnostics as `proteum doctor`
 - `Diagnose` renders the same owner, suspect, contract, trace-summary, and buffered-log view as `proteum diagnose`
+- `Perf` renders the same hot-path, request-waterfall, compare, and memory views as `proteum perf`
+- the other profiler tabs now add focused visual charts over the same trace, manifest, and dev-runtime contracts instead of only row lists
 
-For the shared diagnostics contract and the corresponding dev HTTP endpoints, see [diagnostics.md](diagnostics.md).
+For the shared diagnostics contract, trace-derived perf contract, and the corresponding dev HTTP endpoints, see [diagnostics.md](diagnostics.md) and [request-tracing.md](request-tracing.md).
 
 ### HTTP Endpoints
 

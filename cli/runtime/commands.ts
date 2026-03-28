@@ -377,6 +377,41 @@ class DiagnoseCommand extends ProteumCommand {
     }
 }
 
+class PerfCommand extends ProteumCommand {
+    public static paths = [['perf']];
+
+    public static usage = buildUsage('perf');
+
+    public port = Option.String('--port', { description: 'Target an existing dev server on the given port.' });
+    public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL.' });
+    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public since = Option.String('--since', { description: 'Window used by `top` and `memory`, for example `today`, `yesterday`, or `1h`.' });
+    public baseline = Option.String('--baseline', { description: 'Baseline window used by `compare`.' });
+    public target = Option.String('--target', { description: 'Target window used by `compare`.' });
+    public groupBy = Option.String('--group-by', { description: 'Aggregate by `path`, `route`, or `controller`.' });
+    public limit = Option.String('--limit', { description: 'Maximum number of rows to print.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [action = 'top', target = ''] = this.args;
+
+        this.setCliArgs({
+            action,
+            baseline: this.baseline ?? '',
+            groupBy: this.groupBy ?? '',
+            json: this.json,
+            limit: this.limit ?? '',
+            port: this.port ?? '',
+            since: this.since ?? '',
+            target,
+            targetWindow: this.target ?? '',
+            url: this.url ?? '',
+        });
+
+        await runCommandModule(() => import('../commands/perf'));
+    }
+}
+
 class VerifyCommand extends ProteumCommand {
     public static paths = [['verify']];
 
@@ -421,6 +456,7 @@ export const registeredCommands = {
     doctor: DoctorCommand,
     explain: ExplainCommand,
     diagnose: DiagnoseCommand,
+    perf: PerfCommand,
     trace: TraceCommand,
     command: CommandCommand,
     session: SessionCommand,
@@ -448,6 +484,7 @@ export const createCli = (version: string) => {
     clipanion.register(DoctorCommand);
     clipanion.register(ExplainCommand);
     clipanion.register(DiagnoseCommand);
+    clipanion.register(PerfCommand);
     clipanion.register(TraceCommand);
     clipanion.register(CommandCommand);
     clipanion.register(SessionCommand);

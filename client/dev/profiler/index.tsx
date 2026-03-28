@@ -1,4 +1,5 @@
 import React from 'react';
+import type { ApexOptions } from 'apexcharts';
 
 import {
     buildDoctorBlocks,
@@ -10,6 +11,12 @@ import {
 } from '@common/dev/diagnostics';
 import type { TDevCommandDefinition, TDevCommandExecution } from '@common/dev/commands';
 import { summarizeTraceForDiagnose, type TExplainOwnerMatch } from '@common/dev/inspection';
+import {
+    buildRequestPerformance,
+    perfGroupByValues,
+    perfWindowPresets,
+    type TRequestPerformance,
+} from '@common/dev/performance';
 import type {
     TProfilerCronTask,
     TProfilerNavigationSession,
@@ -19,6 +26,7 @@ import type {
 import type { TRequestTrace, TTraceCall, TTraceEventType, TTraceSqlQuery, TTraceSummaryValue } from '@common/dev/requestTrace';
 
 import { profilerRuntime } from './runtime';
+import ApexChart from './ApexChart';
 
 const profilerStyles = `
 .proteum-profiler {
@@ -256,6 +264,10 @@ const profilerStyles = `
     min-height: 0;
     padding: 0;
     background: transparent;
+}
+
+.proteum-profiler__panelBody--split {
+    overflow: hidden;
 }
 
 .proteum-profiler__metrics {
@@ -509,6 +521,7 @@ const profilerStyles = `
     align-items: stretch;
     min-height: 100%;
     height: 100%;
+    max-height: 100%;
 }
 
 .proteum-profiler__splitView {
@@ -518,6 +531,7 @@ const profilerStyles = `
     align-items: stretch;
     min-height: 100%;
     height: 100%;
+    max-height: 100%;
 }
 
 .proteum-profiler__splitView--stacked {
@@ -529,7 +543,12 @@ const profilerStyles = `
     display: grid;
     gap: 0;
     min-width: 0;
+    min-height: 0;
+    height: 100%;
     align-content: start;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
 }
 
 .proteum-profiler__requestGroups {
@@ -560,8 +579,6 @@ const profilerStyles = `
 }
 
 .proteum-profiler__sidebar {
-    position: sticky;
-    top: 0;
     display: flex;
     align-self: stretch;
     height: 100%;
@@ -572,6 +589,7 @@ const profilerStyles = `
     border-radius: 0;
     background: transparent;
     box-shadow: none;
+    overflow: hidden;
 }
 
 .proteum-profiler__sidebarScroller {
@@ -661,6 +679,44 @@ const profilerStyles = `
     background: transparent !important;
 }
 
+.proteum-profiler__chartGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    border-top: 1px solid var(--profiler-line);
+}
+
+.proteum-profiler__chartCard {
+    display: grid;
+    align-content: start;
+    min-width: 0;
+    border-top: 1px solid var(--profiler-line);
+    border-left: 1px solid var(--profiler-line);
+}
+
+.proteum-profiler__chartCard:nth-child(2n + 1) {
+    border-left: none;
+}
+
+.proteum-profiler__chartHeader {
+    display: grid;
+    gap: 4px;
+    padding: 8px 10px;
+    background: var(--profiler-title-row-bg);
+}
+
+.proteum-profiler__chartSubtitle {
+    color: var(--profiler-muted);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.proteum-profiler__chartMount {
+    min-width: 0;
+    padding: 8px 8px 2px;
+    background: transparent;
+}
+
 .proteum-profiler__traceEventRow {
     --profiler-trace-depth: 0;
     --profiler-trace-guide-opacity: 0;
@@ -711,6 +767,18 @@ const profilerStyles = `
         gap: 10px;
     }
 
+    .proteum-profiler__panelBody--split {
+        overflow: auto;
+    }
+
+    .proteum-profiler__chartGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .proteum-profiler__chartCard {
+        border-left: none;
+    }
+
     .proteum-profiler__metricRow {
         grid-template-columns: minmax(90px, 110px) 1fr;
     }
@@ -723,12 +791,19 @@ const profilerStyles = `
         grid-template-columns: 1fr;
         min-height: 0;
         height: auto;
+        max-height: none;
     }
 
     .proteum-profiler__splitView {
         grid-template-columns: 1fr;
         min-height: 0;
         height: auto;
+        max-height: none;
+    }
+
+    .proteum-profiler__splitColumn {
+        height: auto;
+        overflow: visible;
     }
 
     .proteum-profiler__sidebar {
@@ -768,6 +843,7 @@ type TApiRequestItem = {
     finishedAt?: string;
     label?: string;
     method: string;
+    originLabel?: string;
     path: string;
     requestData?: TTraceSummaryValue;
     requestDataJson?: unknown;
@@ -813,6 +889,7 @@ type TProfilerState = ReturnType<typeof profilerRuntime.getState>;
 const panelLabels: Record<TProfilerPanel, string> = {
     summary: 'Summary',
     timeline: 'Timeline',
+    perf: 'Perf',
     routing: 'Routing',
     auth: 'Auth',
     controller: 'Controller',
@@ -838,10 +915,23 @@ const readNumber = (value: TTraceSummaryValue | undefined) => (typeof value === 
 const readString = (value: TTraceSummaryValue | undefined) => (typeof value === 'string' ? value : undefined);
 const formatDuration = (value?: number) => (value === undefined ? 'pending' : `${Math.round(value)} ms`);
 const formatBytes = (value?: number) => (value === undefined ? 'n/a' : `${(value / 1024).toFixed(value >= 1024 ? 1 : 2)} KB`);
+const formatSignedBytes = (value?: number) =>
+    value === undefined ? 'n/a' : `${value >= 0 ? '+' : '-'}${formatBytes(Math.abs(value))}`;
+const formatSignedPercent = (value?: number) => (value === undefined ? 'n/a' : `${value >= 0 ? '+' : ''}${value.toFixed(0)}%`);
 const formatTimestamp = (value?: string) => {
     if (!value) return 'never';
     const date = new Date(value);
     return Number.isNaN(date.valueOf()) ? value : date.toLocaleString();
+};
+const formatTimeLabel = (value?: string) => {
+    if (!value) return 'n/a';
+    const date = new Date(value);
+    return Number.isNaN(date.valueOf())
+        ? value
+        : date.toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+          });
 };
 const formatCronFrequency = (task: TProfilerCronTask) =>
     task.frequency.kind === 'cron' ? task.frequency.value : `once at ${formatTimestamp(task.frequency.value)}`;
@@ -854,6 +944,27 @@ const formatStructuredValue = (value: unknown) => {
 };
 const formatOwnerSource = (match: TExplainOwnerMatch) =>
     `${match.source.filepath}${formatManifestLocation(match.source.line, match.source.column)}`;
+const toRoundedNumber = (value?: number, precision = 1) => {
+    if (value === undefined || Number.isNaN(value)) return 0;
+    return Number(value.toFixed(precision));
+};
+const toKilobytes = (value?: number, precision = 1) => toRoundedNumber((value || 0) / 1024, precision);
+const buildChartHeight = (rowCount: number, options?: { max?: number; min?: number; rowHeight?: number }) =>
+    Math.max(options?.min || 240, Math.min(options?.max || 460, 112 + rowCount * (options?.rowHeight || 34)));
+
+const profilerChartTheme = {
+    amber: '#f59e0b',
+    blue: '#175fe6',
+    cyan: '#0ea5e9',
+    green: '#15803d',
+    indigo: '#6366f1',
+    line: 'rgba(19, 32, 51, 0.1)',
+    muted: '#627186',
+    orange: '#ea580c',
+    red: '#b91c1c',
+    teal: '#0f766e',
+    text: '#132033',
+};
 
 const renderSummaryValue = (value: TTraceSummaryValue | undefined): string => {
     if (value === undefined) return '';
@@ -1463,6 +1574,7 @@ const ApiPanel = ({ session }: { session: TProfilerNavigationSession }) => {
             finishedAt: call.finishedAt,
             label: call.label,
             method: call.method,
+            originLabel: call.origin,
             path: call.path,
             requestData: call.requestData,
             requestDataJson: call.requestDataJson,
@@ -1487,6 +1599,7 @@ const ApiPanel = ({ session }: { session: TProfilerNavigationSession }) => {
             finishedAt: trace.finishedAt,
             label: trace.label,
             method: trace.method,
+            originLabel: 'client-async',
             path: trace.path,
             requestData: getTraceRequestData(trace.trace),
             requestDataJson: trace.trace?.requestDataJson,
@@ -1499,6 +1612,33 @@ const ApiPanel = ({ session }: { session: TProfilerNavigationSession }) => {
         }));
     const requestItems = [...syncItems, ...asyncItems];
     const [selectedRequestId, setSelectedRequestId] = React.useState<string | undefined>(() => requestItems[0]?.id);
+    const endpointDurationChart = buildHorizontalBarChartOptions({
+        color: profilerChartTheme.blue,
+        entries: buildDurationEntries(
+            requestItems,
+            (item) => formatApiReference(item.method, item.path, item.requestData, item.label),
+            (item) => item.durationMs,
+        ),
+        title: 'Endpoint workload',
+        valueUnit: 'Milliseconds',
+    });
+    const originWorkloadChart = buildColumnChartOptions({
+        colors: [profilerChartTheme.indigo],
+        entries: buildDurationEntries(
+            requestItems,
+            (item) => getApiOriginLabel(item),
+            (item) => item.durationMs,
+            6,
+        ),
+        title: 'Origin time share',
+        valueUnit: 'Milliseconds',
+    });
+    const statusCountChart = buildColumnChartOptions({
+        colors: [profilerChartTheme.amber],
+        entries: buildCountEntries(requestItems.map((item) => getRequestStatusGroup(item.statusCode, item.statusLabel))),
+        title: 'Status groups',
+        valueUnit: 'Requests',
+    });
 
     React.useEffect(() => {
         if (requestItems.some((item) => item.id === selectedRequestId)) return;
@@ -1511,6 +1651,27 @@ const ApiPanel = ({ session }: { session: TProfilerNavigationSession }) => {
     return (
         <div className="proteum-profiler__requestWorkspace">
             <div className="proteum-profiler__splitColumn">
+                <div className="proteum-profiler__chartGrid">
+                    <ChartSection
+                        emptyLabel="No API request timings were captured for this session."
+                        options={endpointDurationChart}
+                        subtitle="Rank the most expensive endpoints across synchronous and async requests."
+                        title="Hot Endpoints"
+                    />
+                    <ChartSection
+                        emptyLabel="No API origin timings were captured for this session."
+                        options={originWorkloadChart}
+                        subtitle="Compare time spent in SSR fetchers, batch fetchers, and client async calls."
+                        title="Origin Mix"
+                    />
+                    <ChartSection
+                        emptyLabel="No API status information was captured for this session."
+                        options={statusCountChart}
+                        subtitle="Spot failures or pending requests without scanning every row."
+                        title="Status Spread"
+                    />
+                </div>
+
                 <WaterfallChart
                     emptyLabel="No API requests were captured for this session."
                     itemLabel="request"
@@ -1577,6 +1738,36 @@ const ApiPanel = ({ session }: { session: TProfilerNavigationSession }) => {
 const SqlPanel = ({ session }: { session: TProfilerNavigationSession }) => {
     const { groups, queryItems } = buildSqlQueryWorkspace(session);
     const [selectedQueryId, setSelectedQueryId] = React.useState<string | undefined>(() => queryItems[0]?.id);
+    const callerDurationChart = buildHorizontalBarChartOptions({
+        color: profilerChartTheme.teal,
+        entries: buildDurationEntries(queryItems, (item) => item.callerLabel, (item) => item.durationMs),
+        title: 'Hot SQL callers',
+        valueUnit: 'Milliseconds',
+    });
+    const operationCountChart = buildColumnChartOptions({
+        colors: [profilerChartTheme.amber],
+        entries: buildCountEntries(queryItems.map((item) => `${item.operation}${item.model ? `:${item.model}` : ''}`)),
+        title: 'Operation volume',
+        valueUnit: 'Queries',
+    });
+    const selectedCallers = buildDurationEntries(queryItems, (item) => item.callerLabel, (item) => item.durationMs, 6).map((entry) => entry.label);
+    const selectedOperations = buildCountEntries(
+        queryItems.map((item) => `${item.operation}${item.model ? `:${item.model}` : ''}`),
+        6,
+    ).map((entry) => entry.label);
+    const callerOperationHeatmap = buildHeatmapChartOptions({
+        rows: selectedCallers.map((callerLabel) => ({
+            data: selectedOperations.map((operationLabel) => ({
+                x: truncate(operationLabel, 22),
+                y: queryItems.filter(
+                    (item) => item.callerLabel === callerLabel && `${item.operation}${item.model ? `:${item.model}` : ''}` === operationLabel,
+                ).length,
+            })),
+            name: truncate(callerLabel, 28),
+        })),
+        title: 'Caller x operation density',
+        valueUnit: 'Operation',
+    });
 
     React.useEffect(() => {
         if (queryItems.some((item) => item.id === selectedQueryId)) return;
@@ -1589,6 +1780,27 @@ const SqlPanel = ({ session }: { session: TProfilerNavigationSession }) => {
     return (
         <div className="proteum-profiler__requestWorkspace">
             <div className="proteum-profiler__splitColumn">
+                <div className="proteum-profiler__chartGrid">
+                    <ChartSection
+                        emptyLabel="No SQL timings were captured for this session."
+                        options={callerDurationChart}
+                        subtitle="Show which callers are driving the most database time."
+                        title="Hot Callers"
+                    />
+                    <ChartSection
+                        emptyLabel="No SQL operation counts were captured for this session."
+                        options={operationCountChart}
+                        subtitle="Highlight whether reads, writes, or raw queries dominate the request."
+                        title="Operation Mix"
+                    />
+                    <ChartSection
+                        emptyLabel="No caller or operation overlap was captured for this session."
+                        options={callerOperationHeatmap}
+                        subtitle="Surface dense caller and operation combinations at a glance."
+                        title="Caller Heatmap"
+                    />
+                </div>
+
                 <WaterfallChart
                     emptyLabel="No SQL queries were captured for this session."
                     itemLabel="query"
@@ -2056,6 +2268,30 @@ const buildSqlWaterfallItems = (queryItems: TSqlQueryItem[]): TWaterfallChartIte
     });
 };
 
+const getPerfStageColor = (stageId: TRequestPerformance['stages'][number]['id']) => {
+    if (stageId === 'auth') return '#0ea5e9';
+    if (stageId === 'routing') return '#3b82f6';
+    if (stageId === 'controller') return '#6366f1';
+    if (stageId === 'page-data') return '#14b8a6';
+    if (stageId === 'render') return '#f59e0b';
+    return '#22c55e';
+};
+
+const buildPerfWaterfallItems = (request: TRequestPerformance): TWaterfallChartItem[] =>
+    request.stages.map((stage) => ({
+        barLabel: `${stage.label} ${formatDuration(stage.durationMs)}`,
+        color: getPerfStageColor(stage.id),
+        detailLines: [
+            `Start: +${Math.round(stage.startOffsetMs)} ms`,
+            `End: +${Math.round(stage.endOffsetMs)} ms`,
+            `Duration: ${formatDuration(stage.durationMs)}`,
+        ],
+        endOffsetMs: stage.endOffsetMs,
+        id: stage.id,
+        startOffsetMs: stage.startOffsetMs,
+        title: stage.label,
+    }));
+
 const pluralizeCountLabel = (label: string, count: number) => {
     if (count === 1) return label;
     if (/[bcdfghjklmnpqrstvwxyz]y$/i.test(label)) return `${label.slice(0, -1)}ies`;
@@ -2073,135 +2309,124 @@ const WaterfallChart = ({
     items: TWaterfallChartItem[];
     onSelect?: (itemId: string) => void;
 }) => {
-    const [ApexChartComponent, setApexChartComponent] = React.useState<unknown>(null);
-
-    React.useEffect(() => {
-        let isDisposed = false;
-
-        void import('react-apexcharts').then((module) => {
-            if (isDisposed) return;
-            setApexChartComponent(() => module.default);
-        });
-
-        return () => {
-            isDisposed = true;
-        };
-    }, []);
-
     const totalDurationMs = Math.max(items.length > 0 ? Math.max(...items.map((item) => item.endOffsetMs)) : 1, 1);
     const chartHeight = Math.max(260, items.length * waterfallRowHeight + 24);
-    const ChartComponent = ApexChartComponent as any;
-
-    const series = [
-        {
-            data: items.map((item) => ({
-                fillColor: item.color,
-                x: item.barLabel,
-                y: [item.startOffsetMs, item.endOffsetMs],
-            })),
-            name: itemLabel,
-        },
-    ];
-
-    const options = {
-        chart: {
-            animations: { enabled: false },
-            background: 'transparent',
-            events: onSelect
-                ? {
-                      dataPointSelection: (
-                          _event: unknown,
-                          _chartContext: unknown,
-                          config: { dataPointIndex: number },
-                      ) => {
-                          const item = items[config.dataPointIndex];
-                          if (item) onSelect(item.id);
+    const options: ApexOptions | undefined =
+        items.length === 0
+            ? undefined
+            : ({
+                  chart: {
+                      animations: { enabled: false },
+                      background: 'transparent',
+                      ...(onSelect
+                          ? {
+                                events: {
+                                    dataPointSelection: (
+                                        _event: unknown,
+                                        _chartContext: unknown,
+                                        config: { dataPointIndex: number },
+                                    ) => {
+                                        const item = items[config.dataPointIndex];
+                                        if (item) onSelect(item.id);
+                                    },
+                                },
+                            }
+                          : {}),
+                      foreColor: profilerChartTheme.muted,
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+                      height: chartHeight,
+                      parentHeightOffset: 0,
+                      toolbar: { show: false },
+                      type: 'rangeBar',
+                      zoom: { enabled: false },
+                  },
+                  dataLabels: {
+                      enabled: false,
+                  },
+                  fill: {
+                      opacity: 1,
+                  },
+                  grid: {
+                      borderColor: profilerChartTheme.line,
+                      padding: { bottom: 0, left: 0, right: 0, top: 4 },
+                      xaxis: { lines: { show: true } },
+                      yaxis: { lines: { show: false } },
+                  },
+                  legend: {
+                      show: false,
+                  },
+                  noData: {
+                      style: {
+                          color: profilerChartTheme.muted,
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+                          fontSize: '11px',
                       },
-                  }
-                : undefined,
-            foreColor: '#627186',
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-            toolbar: { show: false },
-            type: 'rangeBar',
-            zoom: { enabled: false },
-        },
-        dataLabels: {
-            enabled: false,
-        },
-        fill: {
-            opacity: 1,
-        },
-        grid: {
-            borderColor: 'rgba(19, 32, 51, 0.08)',
-            padding: { bottom: 0, left: 0, right: 0, top: 4 },
-            xaxis: { lines: { show: true } },
-            yaxis: { lines: { show: false } },
-        },
-        legend: {
-            show: false,
-        },
-        noData: {
-            style: {
-                color: '#627186',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-                fontSize: '11px',
-            },
-            text: emptyLabel,
-        },
-        plotOptions: {
-            bar: {
-                barHeight: waterfallBarHeight,
-                borderRadius: 2,
-                horizontal: true,
-                rangeBarGroupRows: false,
-            },
-        },
-        stroke: {
-            colors: ['#ffffff'],
-            width: 1,
-        },
-        tooltip: {
-            custom: ({ dataPointIndex }: { dataPointIndex: number }) => {
-                const item = items[dataPointIndex];
-                if (!item) return '';
+                      text: emptyLabel,
+                  },
+                  plotOptions: {
+                      bar: {
+                          barHeight: waterfallBarHeight,
+                          borderRadius: 2,
+                          horizontal: true,
+                          rangeBarGroupRows: false,
+                      },
+                  },
+                  series: [
+                      {
+                          data: items.map((item) => ({
+                              fillColor: item.color,
+                              x: item.barLabel,
+                              y: [item.startOffsetMs, item.endOffsetMs],
+                          })),
+                          name: itemLabel,
+                      },
+                  ],
+                  stroke: {
+                      colors: ['#ffffff'],
+                      width: 1,
+                  },
+                  tooltip: {
+                      custom: ({ dataPointIndex }: { dataPointIndex: number }) => {
+                          const item = items[dataPointIndex];
+                          if (!item) return '';
 
-                return `
-                    <div style="padding:8px 10px; color:#132033; font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace; font-size:11px; line-height:1.5;">
-                        <div style="font-weight:700;">${escapeHtml(item.title)}</div>
-                        ${item.subtitle ? `<div style="color:#627186;">${escapeHtml(item.subtitle)}</div>` : ''}
-                        ${item.detailLines
-                            .map(
-                                (line, index) =>
-                                    `<div style="${index === 0 ? 'margin-top:6px;' : ''} color:#627186;">${escapeHtml(line)}</div>`,
-                            )
-                            .join('')}
-                    </div>
-                `;
-            },
-        },
-        xaxis: {
-            axisBorder: { show: false },
-            axisTicks: { show: false },
-            labels: {
-                formatter: (value: string | number) => `${Math.round(Number(value))} ms`,
-                style: {
-                    colors: '#627186',
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-                    fontSize: '10px',
-                },
-            },
-            max: totalDurationMs,
-            min: 0,
-            tickAmount: Math.min(6, Math.max(2, items.length > 0 ? 6 : 2)),
-            type: 'numeric',
-        },
-        yaxis: {
-            show: false,
-            labels: {
-                show: false,
-            },
-        },
-    };
+                          return `
+                              <div style="padding:8px 10px; color:#132033; font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace; font-size:11px; line-height:1.5;">
+                                  <div style="font-weight:700;">${escapeHtml(item.title)}</div>
+                                  ${item.subtitle ? `<div style="color:#627186;">${escapeHtml(item.subtitle)}</div>` : ''}
+                                  ${item.detailLines
+                                      .map(
+                                          (line, index) =>
+                                              `<div style="${index === 0 ? 'margin-top:6px;' : ''} color:#627186;">${escapeHtml(line)}</div>`,
+                                      )
+                                      .join('')}
+                              </div>
+                          `;
+                      },
+                  },
+                  xaxis: {
+                      axisBorder: { show: false },
+                      axisTicks: { show: false },
+                      labels: {
+                          formatter: (value: string | number) => `${Math.round(Number(value))} ms`,
+                          style: {
+                              colors: profilerChartTheme.muted,
+                              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+                              fontSize: '10px',
+                          },
+                      },
+                      max: totalDurationMs,
+                      min: 0,
+                      tickAmount: Math.min(6, Math.max(2, items.length > 0 ? 6 : 2)),
+                      type: 'numeric',
+                  },
+                  yaxis: {
+                      show: false,
+                      labels: {
+                          show: false,
+                      },
+                  },
+              }) as ApexOptions;
 
     return (
         <div className="proteum-profiler__section">
@@ -2214,10 +2439,8 @@ const WaterfallChart = ({
                 </div>
 
                 <div className="proteum-profiler__timelineChartCanvas" style={{ height: `${chartHeight}px` }}>
-                    {ChartComponent && items.length > 0 ? (
-                        <ChartComponent height={chartHeight} options={options} series={series} type="rangeBar" width="100%" />
-                    ) : items.length > 0 ? (
-                        <div className="proteum-profiler__empty">Loading waterfall chart...</div>
+                    {options ? (
+                        <ApexChart emptyLabel={emptyLabel} options={options} />
                     ) : (
                         <div className="proteum-profiler__empty">{emptyLabel}</div>
                     )}
@@ -2226,6 +2449,693 @@ const WaterfallChart = ({
         </div>
     );
 };
+
+const createProfilerBarChartOptions = ({
+    categories,
+    colors,
+    height,
+    series,
+    stacked = false,
+    title,
+    valueUnit,
+}: {
+    categories: string[];
+    colors: string[];
+    height: number;
+    series: Array<{ data: number[]; name: string }>;
+    stacked?: boolean;
+    title: string;
+    valueUnit: string;
+}): ApexOptions => ({
+    chart: {
+        animations: { enabled: false },
+        background: 'transparent',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        foreColor: profilerChartTheme.muted,
+        height,
+        parentHeightOffset: 0,
+        stacked,
+        toolbar: { show: false },
+        type: 'bar',
+        zoom: { enabled: false },
+    },
+    colors,
+    dataLabels: { enabled: false },
+    grid: {
+        borderColor: profilerChartTheme.line,
+        padding: { bottom: 4, left: 8, right: 8, top: 0 },
+        strokeDashArray: 2,
+    },
+    legend: {
+        fontSize: '11px',
+        horizontalAlign: 'left',
+        position: 'top',
+    },
+    noData: { text: 'No chart data.' },
+    plotOptions: {
+        bar: {
+            barHeight: '68%',
+            horizontal: true,
+        },
+    },
+    series,
+    stroke: { width: 1 },
+    title: {
+        style: {
+            color: profilerChartTheme.text,
+            fontSize: '12px',
+            fontWeight: 700,
+        },
+        text: title,
+    },
+    tooltip: { intersect: false, shared: stacked },
+    xaxis: {
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        categories,
+        labels: { style: { colors: profilerChartTheme.muted, fontSize: '11px' } },
+        title: {
+            style: {
+                color: profilerChartTheme.muted,
+                fontSize: '10px',
+                fontWeight: 600,
+            },
+            text: valueUnit,
+        },
+    },
+    yaxis: {
+        labels: {
+            style: { colors: profilerChartTheme.text, fontSize: '11px' },
+        },
+    },
+});
+
+const createProfilerColumnChartOptions = ({
+    categories,
+    colors,
+    height,
+    series,
+    stacked = false,
+    title,
+    valueUnit,
+}: {
+    categories: string[];
+    colors: string[];
+    height: number;
+    series: Array<{ data: number[]; name: string }>;
+    stacked?: boolean;
+    title: string;
+    valueUnit: string;
+}): ApexOptions => ({
+    chart: {
+        animations: { enabled: false },
+        background: 'transparent',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        foreColor: profilerChartTheme.muted,
+        height,
+        parentHeightOffset: 0,
+        stacked,
+        toolbar: { show: false },
+        type: 'bar',
+        zoom: { enabled: false },
+    },
+    colors,
+    dataLabels: { enabled: false },
+    grid: {
+        borderColor: profilerChartTheme.line,
+        padding: { bottom: 4, left: 8, right: 8, top: 0 },
+        strokeDashArray: 2,
+    },
+    legend: {
+        fontSize: '11px',
+        horizontalAlign: 'left',
+        position: 'top',
+    },
+    noData: { text: 'No chart data.' },
+    plotOptions: {
+        bar: {
+            borderRadius: 2,
+            columnWidth: '58%',
+            horizontal: false,
+        },
+    },
+    series,
+    stroke: { width: 1 },
+    title: {
+        style: {
+            color: profilerChartTheme.text,
+            fontSize: '12px',
+            fontWeight: 700,
+        },
+        text: title,
+    },
+    tooltip: { intersect: false, shared: stacked },
+    xaxis: {
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        categories,
+        labels: {
+            rotate: -28,
+            style: { colors: profilerChartTheme.muted, fontSize: '11px' },
+            trim: true,
+        },
+    },
+    yaxis: {
+        labels: { style: { colors: profilerChartTheme.muted, fontSize: '11px' } },
+        title: {
+            style: {
+                color: profilerChartTheme.muted,
+                fontSize: '10px',
+                fontWeight: 600,
+            },
+            text: valueUnit,
+        },
+    },
+});
+
+const createProfilerLineChartOptions = ({
+    categories,
+    colors,
+    height,
+    series,
+    title,
+    valueUnit,
+}: {
+    categories: string[];
+    colors: string[];
+    height: number;
+    series: Array<{ data: number[]; name: string }>;
+    title: string;
+    valueUnit: string;
+}): ApexOptions => ({
+    chart: {
+        animations: { enabled: false },
+        background: 'transparent',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        foreColor: profilerChartTheme.muted,
+        height,
+        parentHeightOffset: 0,
+        toolbar: { show: false },
+        type: 'line',
+        zoom: { enabled: false },
+    },
+    colors,
+    dataLabels: { enabled: false },
+    grid: {
+        borderColor: profilerChartTheme.line,
+        padding: { bottom: 4, left: 8, right: 8, top: 0 },
+        strokeDashArray: 2,
+    },
+    legend: {
+        fontSize: '11px',
+        horizontalAlign: 'left',
+        position: 'top',
+    },
+    markers: { size: 4, strokeWidth: 0 },
+    noData: { text: 'No chart data.' },
+    series,
+    stroke: { curve: 'smooth', width: 2 },
+    title: {
+        style: {
+            color: profilerChartTheme.text,
+            fontSize: '12px',
+            fontWeight: 700,
+        },
+        text: title,
+    },
+    tooltip: { intersect: false, shared: true },
+    xaxis: {
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        categories,
+        labels: { rotate: -24, style: { colors: profilerChartTheme.muted, fontSize: '11px' }, trim: true },
+    },
+    yaxis: {
+        labels: { style: { colors: profilerChartTheme.muted, fontSize: '11px' } },
+        title: {
+            style: {
+                color: profilerChartTheme.muted,
+                fontSize: '10px',
+                fontWeight: 600,
+            },
+            text: valueUnit,
+        },
+    },
+});
+
+const createProfilerScatterChartOptions = ({
+    colors,
+    height,
+    series,
+    title,
+    xaxisTitle,
+    yaxisTitle,
+}: {
+    colors: string[];
+    height: number;
+    series: Array<{ data: Array<{ x: number; y: number }>; name: string }>;
+    title: string;
+    xaxisTitle: string;
+    yaxisTitle: string;
+}): ApexOptions => ({
+    chart: {
+        animations: { enabled: false },
+        background: 'transparent',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        foreColor: profilerChartTheme.muted,
+        height,
+        parentHeightOffset: 0,
+        toolbar: { show: false },
+        type: 'scatter',
+        zoom: { enabled: false },
+    },
+    colors,
+    dataLabels: { enabled: false },
+    grid: {
+        borderColor: profilerChartTheme.line,
+        padding: { bottom: 4, left: 8, right: 8, top: 0 },
+        strokeDashArray: 2,
+    },
+    legend: {
+        fontSize: '11px',
+        horizontalAlign: 'left',
+        position: 'top',
+    },
+    markers: { size: 6, strokeWidth: 0 },
+    noData: { text: 'No chart data.' },
+    series,
+    title: {
+        style: {
+            color: profilerChartTheme.text,
+            fontSize: '12px',
+            fontWeight: 700,
+        },
+        text: title,
+    },
+    tooltip: { intersect: false, shared: false },
+    xaxis: {
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        labels: { style: { colors: profilerChartTheme.muted, fontSize: '11px' } },
+        title: {
+            style: {
+                color: profilerChartTheme.muted,
+                fontSize: '10px',
+                fontWeight: 600,
+            },
+            text: xaxisTitle,
+        },
+        tickAmount: 6,
+    },
+    yaxis: {
+        labels: { style: { colors: profilerChartTheme.muted, fontSize: '11px' } },
+        title: {
+            style: {
+                color: profilerChartTheme.muted,
+                fontSize: '10px',
+                fontWeight: 600,
+            },
+            text: yaxisTitle,
+        },
+        tickAmount: 6,
+    },
+});
+
+const createProfilerHeatmapOptions = ({
+    height,
+    series,
+    title,
+    valueUnit,
+}: {
+    height: number;
+    series: Array<{ data: Array<{ x: string; y: number }>; name: string }>;
+    title: string;
+    valueUnit: string;
+}): ApexOptions => ({
+    chart: {
+        animations: { enabled: false },
+        background: 'transparent',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        foreColor: profilerChartTheme.muted,
+        height,
+        parentHeightOffset: 0,
+        toolbar: { show: false },
+        type: 'heatmap',
+        zoom: { enabled: false },
+    },
+    colors: [profilerChartTheme.blue],
+    dataLabels: { enabled: false },
+    grid: {
+        borderColor: profilerChartTheme.line,
+        padding: { bottom: 4, left: 8, right: 8, top: 0 },
+        strokeDashArray: 2,
+    },
+    legend: { show: false },
+    noData: { text: 'No chart data.' },
+    plotOptions: {
+        heatmap: {
+            colorScale: {
+                ranges: [
+                    { color: '#eef4ff', from: 0, to: 0 },
+                    { color: '#bfdbfe', from: 0.01, to: 5 },
+                    { color: '#60a5fa', from: 5.01, to: 25 },
+                    { color: '#2563eb', from: 25.01, to: 1000000 },
+                ],
+            },
+            radius: 0,
+        },
+    },
+    series,
+    stroke: { width: 1 },
+    title: {
+        style: {
+            color: profilerChartTheme.text,
+            fontSize: '12px',
+            fontWeight: 700,
+        },
+        text: title,
+    },
+    tooltip: { intersect: false, shared: false },
+    xaxis: {
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        labels: { rotate: -24, style: { colors: profilerChartTheme.muted, fontSize: '11px' } },
+        title: {
+            style: {
+                color: profilerChartTheme.muted,
+                fontSize: '10px',
+                fontWeight: 600,
+            },
+            text: valueUnit,
+        },
+    },
+    yaxis: {
+        labels: { style: { colors: profilerChartTheme.text, fontSize: '11px' } },
+    },
+});
+
+const buildTopEntries = (entries: Array<{ label: string; value: number }>, limit = 8) =>
+    entries
+        .filter((entry) => entry.label && entry.value > 0)
+        .sort((left, right) => right.value - left.value || left.label.localeCompare(right.label))
+        .slice(0, limit);
+
+const buildCountEntries = (labels: string[], limit = 8) => {
+    const counts = new Map<string, number>();
+    for (const label of labels) counts.set(label, (counts.get(label) || 0) + 1);
+    return buildTopEntries(
+        [...counts.entries()].map(([label, value]) => ({ label, value })),
+        limit,
+    );
+};
+
+const buildDurationEntries = <T,>(items: T[], readLabel: (item: T) => string | undefined, readValue: (item: T) => number | undefined, limit = 8) => {
+    const totals = new Map<string, number>();
+    for (const item of items) {
+        const label = readLabel(item);
+        const value = readValue(item);
+        if (!label || value === undefined) continue;
+        totals.set(label, (totals.get(label) || 0) + value);
+    }
+
+    return buildTopEntries(
+        [...totals.entries()].map(([label, value]) => ({ label, value })),
+        limit,
+    );
+};
+
+const buildHorizontalBarChartOptions = ({
+    color,
+    entries,
+    title,
+    valueUnit,
+}: {
+    color: string;
+    entries: Array<{ label: string; value: number }>;
+    title: string;
+    valueUnit: string;
+}) =>
+    entries.length === 0
+        ? undefined
+        : createProfilerBarChartOptions({
+              categories: entries.map((entry) => truncate(entry.label, 44)),
+              colors: [color],
+              height: buildChartHeight(entries.length),
+              series: [{ data: entries.map((entry) => toRoundedNumber(entry.value)), name: valueUnit }],
+              title,
+              valueUnit,
+          });
+
+const buildColumnChartOptions = ({
+    colors,
+    entries,
+    title,
+    valueUnit,
+}: {
+    colors: string[];
+    entries: Array<{ label: string; value: number }>;
+    title: string;
+    valueUnit: string;
+}) =>
+    entries.length === 0
+        ? undefined
+        : createProfilerColumnChartOptions({
+              categories: entries.map((entry) => truncate(entry.label, 28)),
+              colors,
+              height: 280,
+              series: [{ data: entries.map((entry) => toRoundedNumber(entry.value)), name: valueUnit }],
+              title,
+              valueUnit,
+          });
+
+const buildLineChartOptions = ({
+    color,
+    entries,
+    title,
+    valueUnit,
+}: {
+    color: string;
+    entries: Array<{ label: string; value: number }>;
+    title: string;
+    valueUnit: string;
+}) =>
+    entries.length === 0
+        ? undefined
+        : createProfilerLineChartOptions({
+              categories: entries.map((entry) => truncate(entry.label, 28)),
+              colors: [color],
+              height: 280,
+              series: [{ data: entries.map((entry) => toRoundedNumber(entry.value)), name: valueUnit }],
+              title,
+              valueUnit,
+          });
+
+const buildScatterChartOptions = ({
+    color,
+    points,
+    seriesName,
+    title,
+    xaxisTitle,
+    yaxisTitle,
+}: {
+    color: string;
+    points: Array<{ x: number; y: number }>;
+    seriesName: string;
+    title: string;
+    xaxisTitle: string;
+    yaxisTitle: string;
+}) =>
+    points.length === 0
+        ? undefined
+        : createProfilerScatterChartOptions({
+              colors: [color],
+              height: 300,
+              series: [{ data: points, name: seriesName }],
+              title,
+              xaxisTitle,
+              yaxisTitle,
+          });
+
+const buildStackedColumnChartOptions = ({
+    categories,
+    colors,
+    series,
+    title,
+    valueUnit,
+}: {
+    categories: string[];
+    colors: string[];
+    series: Array<{ data: number[]; name: string }>;
+    title: string;
+    valueUnit: string;
+}) =>
+    categories.length === 0 || series.length === 0 || series.every((entry) => entry.data.every((value) => value === 0))
+        ? undefined
+        : createProfilerColumnChartOptions({
+              categories,
+              colors,
+              height: 300,
+              series,
+              stacked: true,
+              title,
+              valueUnit,
+          });
+
+const buildHeatmapChartOptions = ({
+    rows,
+    title,
+    valueUnit,
+}: {
+    rows: Array<{ data: Array<{ x: string; y: number }>; name: string }>;
+    title: string;
+    valueUnit: string;
+}) =>
+    rows.length === 0 || rows.every((row) => row.data.every((entry) => entry.y === 0))
+        ? undefined
+        : createProfilerHeatmapOptions({
+              height: buildChartHeight(rows.length, { max: 360, min: 240, rowHeight: 36 }),
+              series: rows,
+              title,
+              valueUnit,
+          });
+
+const getSessionChartLabel = (candidate: TProfilerNavigationSession, summary: TSessionSummary) =>
+    truncate(`${formatTimeLabel(candidate.startedAt)} ${summary.routeLabel}`, 28);
+
+const getApiOriginLabel = (item: TApiRequestItem) => item.originLabel || item.groupLabel;
+
+const getRequestStatusGroup = (statusCode?: number, statusLabel?: string) => {
+    if (statusCode === undefined) return statusLabel || 'pending';
+    if (statusCode >= 500) return '5xx';
+    if (statusCode >= 400) return '4xx';
+    if (statusCode >= 300) return '3xx';
+    if (statusCode >= 200) return '2xx';
+    return String(statusCode);
+};
+
+const buildPerfTopLatencyChartOptions = (rows: NonNullable<TProfilerState['perf']['top']>['rows']): ApexOptions | undefined => {
+    if (rows.length === 0) return undefined;
+
+    return createProfilerBarChartOptions({
+        categories: rows.map((row) => truncate(row.label, 40)),
+        colors: [profilerChartTheme.blue, profilerChartTheme.indigo],
+        height: buildChartHeight(rows.length),
+        series: [
+            { data: rows.map((row) => toRoundedNumber(row.avgDurationMs)), name: 'Avg ms' },
+            { data: rows.map((row) => toRoundedNumber(row.p95DurationMs)), name: 'P95 ms' },
+        ],
+        title: 'Latency by hot path',
+        valueUnit: 'Milliseconds',
+    });
+};
+
+const buildPerfBreakdownChartOptions = (rows: NonNullable<TProfilerState['perf']['top']>['rows']): ApexOptions | undefined => {
+    if (rows.length === 0) return undefined;
+
+    return createProfilerBarChartOptions({
+        categories: rows.map((row) => truncate(row.label, 40)),
+        colors: [profilerChartTheme.blue, profilerChartTheme.amber, profilerChartTheme.teal, profilerChartTheme.green],
+        height: buildChartHeight(rows.length),
+        series: [
+            { data: rows.map((row) => toRoundedNumber(row.avgSelfDurationMs)), name: 'Self ms' },
+            { data: rows.map((row) => toRoundedNumber(row.avgSqlDurationMs)), name: 'SQL ms' },
+            { data: rows.map((row) => toRoundedNumber(row.avgCallDurationMs)), name: 'Calls ms' },
+            { data: rows.map((row) => toRoundedNumber(row.avgRenderDurationMs)), name: 'Render ms' },
+        ],
+        stacked: true,
+        title: 'Average time breakdown',
+        valueUnit: 'Milliseconds',
+    });
+};
+
+const buildPerfCompareChartOptions = (rows: NonNullable<TProfilerState['perf']['compare']>['rows']): ApexOptions | undefined => {
+    if (rows.length === 0) return undefined;
+
+    const values = rows.map((row) => toRoundedNumber(row.p95DurationMs.deltaPercent));
+    const minValue = Math.min(...values, 0);
+    const maxValue = Math.max(...values, 0);
+
+    return {
+        ...createProfilerBarChartOptions({
+            categories: rows.map((row) => truncate(row.label, 40)),
+            colors: rows.map((row) =>
+                row.change === 'improved'
+                    ? profilerChartTheme.green
+                    : row.change === 'regressed'
+                      ? profilerChartTheme.red
+                      : row.change === 'new'
+                        ? profilerChartTheme.blue
+                        : row.change === 'removed'
+                          ? profilerChartTheme.muted
+                          : profilerChartTheme.orange,
+            ),
+            height: buildChartHeight(rows.length, { max: 420 }),
+            series: [{ data: values, name: 'P95 delta %' }],
+            title: 'Regression pressure',
+            valueUnit: 'Percent vs baseline',
+        }),
+        plotOptions: {
+            bar: {
+                barHeight: '68%',
+                distributed: true,
+                horizontal: true,
+            },
+        },
+        xaxis: {
+            axisBorder: { show: false },
+            axisTicks: { show: false },
+            categories: rows.map((row) => truncate(row.label, 40)),
+            labels: { style: { colors: profilerChartTheme.muted, fontSize: '11px' } },
+            max: Math.max(10, Math.ceil(maxValue / 10) * 10),
+            min: Math.min(-10, Math.floor(minValue / 10) * 10),
+            title: {
+                style: {
+                    color: profilerChartTheme.muted,
+                    fontSize: '10px',
+                    fontWeight: 600,
+                },
+                text: 'Percent vs baseline',
+            },
+        },
+    };
+};
+
+const buildPerfMemoryChartOptions = (rows: NonNullable<TProfilerState['perf']['memory']>['rows']): ApexOptions | undefined => {
+    if (rows.length === 0) return undefined;
+
+    return createProfilerBarChartOptions({
+        categories: rows.map((row) => truncate(row.label, 40)),
+        colors: [profilerChartTheme.amber, profilerChartTheme.red, profilerChartTheme.cyan],
+        height: buildChartHeight(rows.length),
+        series: [
+            { data: rows.map((row) => toKilobytes(row.avgHeapDeltaBytes)), name: 'Avg heap KB' },
+            { data: rows.map((row) => toKilobytes(row.maxHeapDeltaBytes)), name: 'Max heap KB' },
+            { data: rows.map((row) => toKilobytes(row.avgRssDeltaBytes)), name: 'Avg RSS KB' },
+        ],
+        title: 'Memory drift by group',
+        valueUnit: 'Kilobytes',
+    });
+};
+
+const ChartSection = ({
+    emptyLabel,
+    options,
+    subtitle,
+    title,
+}: {
+    emptyLabel: string;
+    options?: ApexOptions;
+    subtitle: string;
+    title: string;
+}) => (
+    <div className="proteum-profiler__chartCard">
+        <div className="proteum-profiler__chartHeader">
+            <div className="proteum-profiler__sectionTitle">{title}</div>
+            <div className="proteum-profiler__chartSubtitle">{subtitle}</div>
+        </div>
+        <ApexChart emptyLabel={emptyLabel} options={options} />
+    </div>
+);
 
 const TimelinePanel = ({ session }: { session: TProfilerNavigationSession }) => {
     const selections: TTraceEventInspectorSelection[] = session.traces.flatMap((traceItem) =>
@@ -2322,6 +3232,46 @@ const AuthPanel = ({ session }: { session: TProfilerNavigationSession }) => {
             ? [{ authEvents, id: traceItem.id, label: formatSessionTraceDisplay(traceItem), trace: traceItem.trace }]
             : [];
     });
+    const allAuthEvents = authSections.flatMap((section) => section.authEvents);
+    const authEventTypeChart = buildHorizontalBarChartOptions({
+        color: profilerChartTheme.cyan,
+        entries: buildCountEntries(allAuthEvents.map((event) => event.type.replace(/^auth\./, ''))),
+        title: 'Auth event frequency',
+        valueUnit: 'Events',
+    });
+    const authRuleChart = buildColumnChartOptions({
+        colors: [profilerChartTheme.indigo],
+        entries: buildCountEntries(
+            allAuthEvents
+                .filter((event) => event.type === 'auth.check.rule')
+                .map(
+                    (event) =>
+                        readString(event.details.rule) ||
+                        readString(event.details.name) ||
+                        readString(event.details.label) ||
+                        `rule ${event.index}`,
+                ),
+        ),
+        title: 'Rule hits',
+        valueUnit: 'Checks',
+    });
+    const authResultChart = buildColumnChartOptions({
+        colors: [profilerChartTheme.green],
+        entries: buildCountEntries(
+            allAuthEvents
+                .filter((event) => event.type === 'auth.check.result' || event.type === 'auth.route')
+                .map(
+                    (event) =>
+                        readString(event.details.result) ||
+                        readString(event.details.status) ||
+                        readString(event.details.mode) ||
+                        renderSummaryValue(event.details.allowed) ||
+                        event.type,
+                ),
+        ),
+        title: 'Auth outcomes',
+        valueUnit: 'Events',
+    });
     const selections: TTraceEventInspectorSelection[] = authSections.flatMap((section) =>
         section.authEvents.map((event) => ({
             event,
@@ -2344,6 +3294,27 @@ const AuthPanel = ({ session }: { session: TProfilerNavigationSession }) => {
     return (
         <div className="proteum-profiler__splitView">
             <div className="proteum-profiler__splitColumn">
+                <div className="proteum-profiler__chartGrid">
+                    <ChartSection
+                        emptyLabel="No auth events were captured for this session."
+                        options={authEventTypeChart}
+                        subtitle="See which auth phases are actually active for the selected navigation."
+                        title="Auth Flow"
+                    />
+                    <ChartSection
+                        emptyLabel="No rule checks were captured for this session."
+                        options={authRuleChart}
+                        subtitle="Highlight the rules that are firing most often in the current auth flow."
+                        title="Rule Pressure"
+                    />
+                    <ChartSection
+                        emptyLabel="No auth outcome events were captured for this session."
+                        options={authResultChart}
+                        subtitle="Summarize allow, deny, and routing outcomes without reading every trace row."
+                        title="Outcomes"
+                    />
+                </div>
+
                 {authSections.map((section) => (
                     <AuthTraceSection
                         authEvents={section.authEvents}
@@ -2422,25 +3393,101 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
     const primaryTrace = summary.primaryTrace?.trace;
 
     if (panel === 'summary') {
+        const recentSessionRows = state.sessions.slice(-8).map((candidate) => ({
+            session: candidate,
+            summary: getSummary(candidate),
+        }));
+        const recentSessionLabels = recentSessionRows.map(({ session: candidate, summary: candidateSummary }) =>
+            getSessionChartLabel(candidate, candidateSummary),
+        );
+        const durationTrendChart = buildLineChartOptions({
+            color: profilerChartTheme.blue,
+            entries: recentSessionRows.map(({ session: candidate, summary: candidateSummary }) => ({
+                label: getSessionChartLabel(candidate, candidateSummary),
+                value: candidateSummary.totalMs || 0,
+            })),
+            title: 'Recent navigation duration',
+            valueUnit: 'Milliseconds',
+        });
+        const workloadChart =
+            recentSessionLabels.length === 0
+                ? undefined
+                : createProfilerColumnChartOptions({
+                      categories: recentSessionLabels,
+                      colors: [profilerChartTheme.indigo, profilerChartTheme.teal, profilerChartTheme.red],
+                      height: 300,
+                      series: [
+                          {
+                              data: recentSessionRows.map(({ summary: candidateSummary }) => candidateSummary.apiSyncCount + candidateSummary.apiAsyncCount),
+                              name: 'API',
+                          },
+                          { data: recentSessionRows.map(({ summary: candidateSummary }) => candidateSummary.sqlCount), name: 'SQL' },
+                          { data: recentSessionRows.map(({ summary: candidateSummary }) => candidateSummary.errorCount), name: 'Errors' },
+                      ],
+                      title: 'Recent workload mix',
+                      valueUnit: 'Count',
+                  });
+        const routeFrequencyChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.amber,
+            entries: buildCountEntries(recentSessionRows.map(({ summary: candidateSummary }) => candidateSummary.routeLabel)),
+            title: 'Hot recent routes',
+            valueUnit: 'Sessions',
+        });
+        const statusSpreadChart = buildColumnChartOptions({
+            colors: [profilerChartTheme.green],
+            entries: buildCountEntries(recentSessionRows.map(({ summary: candidateSummary }) => candidateSummary.statusLabel)),
+            title: 'Recent status spread',
+            valueUnit: 'Sessions',
+        });
+
         return (
-            <div className="proteum-profiler__metrics">
-                <SummaryRow label="Session" value={session.label} />
-                <SummaryRow label="Status" value={summary.statusLabel} />
-                <SummaryRow label="Duration" value={formatDuration(summary.totalMs)} />
-                <SummaryRow label="Route" value={summary.routeLabel} />
-                <SummaryRow
-                    label="SSR"
-                    value={
-                        summary.ssrPayloadBytes !== undefined
-                            ? `${formatDuration(summary.renderMs)} | ${formatBytes(summary.ssrPayloadBytes)}`
-                            : formatDuration(summary.renderMs)
-                    }
-                />
-                <SummaryRow label="API" value={`sync ${summary.apiSyncCount} / async ${summary.apiAsyncCount}`} />
-                <SummaryRow label="SQL" value={String(summary.sqlCount)} />
-                <SummaryRow label="Errors" value={String(summary.errorCount)} />
-                <SummaryRow label="Request" value={session.requestId || 'client-only'} />
-            </div>
+            <>
+                <div className="proteum-profiler__chartGrid">
+                    <ChartSection
+                        emptyLabel="No recent session durations were captured yet."
+                        options={durationTrendChart}
+                        subtitle="Track how the last few navigations are trending instead of reading one request in isolation."
+                        title="Duration Trend"
+                    />
+                    <ChartSection
+                        emptyLabel="No recent workload data was captured yet."
+                        options={workloadChart}
+                        subtitle="Compare API, SQL, and error volume across the most recent sessions."
+                        title="Workload Mix"
+                    />
+                    <ChartSection
+                        emptyLabel="No recent route frequency data was captured yet."
+                        options={routeFrequencyChart}
+                        subtitle="See which routes are dominating the recent debugging session."
+                        title="Route Frequency"
+                    />
+                    <ChartSection
+                        emptyLabel="No recent session statuses were captured yet."
+                        options={statusSpreadChart}
+                        subtitle="Quick view of SSR, navigation, and request status patterns."
+                        title="Status Spread"
+                    />
+                </div>
+
+                <div className="proteum-profiler__metrics">
+                    <SummaryRow label="Session" value={session.label} />
+                    <SummaryRow label="Status" value={summary.statusLabel} />
+                    <SummaryRow label="Duration" value={formatDuration(summary.totalMs)} />
+                    <SummaryRow label="Route" value={summary.routeLabel} />
+                    <SummaryRow
+                        label="SSR"
+                        value={
+                            summary.ssrPayloadBytes !== undefined
+                                ? `${formatDuration(summary.renderMs)} | ${formatBytes(summary.ssrPayloadBytes)}`
+                                : formatDuration(summary.renderMs)
+                        }
+                    />
+                    <SummaryRow label="API" value={`sync ${summary.apiSyncCount} / async ${summary.apiAsyncCount}`} />
+                    <SummaryRow label="SQL" value={String(summary.sqlCount)} />
+                    <SummaryRow label="Errors" value={String(summary.errorCount)} />
+                    <SummaryRow label="Request" value={session.requestId || 'client-only'} />
+                </div>
+            </>
         );
     }
 
@@ -2448,66 +3495,435 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
         return <TimelinePanel session={session} />;
     }
 
+    if (panel === 'perf') {
+        const perf = state.perf;
+        const currentRequest = primaryTrace ? buildRequestPerformance(primaryTrace) : undefined;
+        const waterfallItems = currentRequest ? buildPerfWaterfallItems(currentRequest) : [];
+        const topRows =
+            perf.top?.rows.map((row) => ({
+                key: `top:${row.key}`,
+                title: `${row.label} · ${formatDuration(row.avgDurationMs)}`,
+                value: `requests=${row.requestCount} p95=${formatDuration(row.p95DurationMs)} cpu=${formatDuration(row.avgCpuMs)} sql=${formatDuration(row.avgSqlDurationMs)} heap=${formatSignedBytes(row.avgHeapDeltaBytes)} slowest=${row.slowestRequestId || 'n/a'}`,
+            })) || [];
+        const compareRows =
+            perf.compare?.rows.map((row) => ({
+                key: `compare:${row.key}`,
+                title: `[${row.change}] ${row.label}`,
+                value: `p95=${formatSignedPercent(row.p95DurationMs.deltaPercent)} avg=${formatSignedPercent(row.avgDurationMs.deltaPercent)} cpu=${formatSignedPercent(row.avgCpuMs.deltaPercent)} heap=${formatSignedBytes(row.avgHeapDeltaBytes.delta)} sql=${formatSignedPercent(row.avgSqlDurationMs.deltaPercent)}`,
+            })) || [];
+        const memoryRows =
+            perf.memory?.rows.map((row) => ({
+                key: `memory:${row.key}`,
+                title: `[${row.trend}] ${row.label}`,
+                value: `requests=${row.requestCount} heap avg=${formatSignedBytes(row.avgHeapDeltaBytes)} max=${formatSignedBytes(row.maxHeapDeltaBytes)} rss avg=${formatSignedBytes(row.avgRssDeltaBytes)} drift=${formatSignedPercent(row.positiveHeapDriftRatio * 100)}`,
+            })) || [];
+        const callRows =
+            currentRequest?.hottestCalls.map((call) => ({
+                key: `call:${call.id}`,
+                title: call.label,
+                value: `duration=${formatDuration(call.durationMs)} status=${call.statusCode ?? 'pending'} origin=${call.origin}${call.errorMessage ? ` error=${call.errorMessage}` : ''}`,
+            })) || [];
+        const sqlRows =
+            currentRequest?.hottestSqlQueries.map((query) => ({
+                key: `sql:${query.id}`,
+                title: `${query.callerLabel} · ${formatDuration(query.durationMs)}`,
+                value: `${query.operation}${query.model ? ` ${query.model}` : ''} | ${truncate(query.query, 160)}`,
+            })) || [];
+        const topLatencyChart = perf.top ? buildPerfTopLatencyChartOptions(perf.top.rows) : undefined;
+        const topBreakdownChart = perf.top ? buildPerfBreakdownChartOptions(perf.top.rows) : undefined;
+        const compareChart = perf.compare ? buildPerfCompareChartOptions(perf.compare.rows) : undefined;
+        const memoryChart = perf.memory ? buildPerfMemoryChartOptions(perf.memory.rows) : undefined;
+
+        return (
+            <div className="proteum-profiler__section">
+                <div className="proteum-profiler__sectionHeader">
+                    <div className="proteum-profiler__sectionTitle">Performance</div>
+                    <div className="proteum-profiler__actions">
+                        <select
+                            aria-label="Performance top window"
+                            className="proteum-profiler__select"
+                            onChange={(event) => void profilerRuntime.refreshPerf({ since: event.currentTarget.value })}
+                            value={perf.since}
+                        >
+                            {perfWindowPresets.map((windowPreset) => (
+                                <option key={`since:${windowPreset}`} value={windowPreset}>
+                                    since {windowPreset}
+                                </option>
+                            ))}
+                        </select>
+                        <select
+                            aria-label="Performance baseline window"
+                            className="proteum-profiler__select"
+                            onChange={(event) => void profilerRuntime.refreshPerf({ baseline: event.currentTarget.value })}
+                            value={perf.baseline}
+                        >
+                            {perfWindowPresets.map((windowPreset) => (
+                                <option key={`baseline:${windowPreset}`} value={windowPreset}>
+                                    baseline {windowPreset}
+                                </option>
+                            ))}
+                        </select>
+                        <select
+                            aria-label="Performance target window"
+                            className="proteum-profiler__select"
+                            onChange={(event) => void profilerRuntime.refreshPerf({ target: event.currentTarget.value })}
+                            value={perf.target}
+                        >
+                            {perfWindowPresets.map((windowPreset) => (
+                                <option key={`target:${windowPreset}`} value={windowPreset}>
+                                    target {windowPreset}
+                                </option>
+                            ))}
+                        </select>
+                        <select
+                            aria-label="Performance grouping"
+                            className="proteum-profiler__select"
+                            onChange={(event) => void profilerRuntime.refreshPerf({ groupBy: event.currentTarget.value as (typeof perfGroupByValues)[number] })}
+                            value={perf.groupBy}
+                        >
+                            {perfGroupByValues.map((groupBy) => (
+                                <option key={`group:${groupBy}`} value={groupBy}>
+                                    group {groupBy}
+                                </option>
+                            ))}
+                        </select>
+                        <button className="proteum-profiler__pill" onClick={() => void profilerRuntime.refreshPerf()} type="button">
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                {perf.errorMessage ? (
+                    <div className="proteum-profiler__row">
+                        <div className="proteum-profiler__rowHeader">
+                            <strong>Last perf panel error</strong>
+                        </div>
+                        <div className="proteum-profiler__mono">{perf.errorMessage}</div>
+                    </div>
+                ) : null}
+
+                {perf.status === 'loading' && !perf.top && !currentRequest ? (
+                    <div className="proteum-profiler__empty">Loading performance data...</div>
+                ) : (
+                    <>
+                        <div className="proteum-profiler__metrics">
+                            <SummaryRow
+                                label="Window"
+                                value={
+                                    perf.top
+                                        ? `${perf.top.window.label} (${perf.top.window.requestCount}/${perf.top.window.availableRequestCount})`
+                                        : perf.since
+                                }
+                            />
+                            <SummaryRow label="Group By" value={perf.groupBy} />
+                            <SummaryRow label="Avg" value={perf.top ? formatDuration(perf.top.summary.avgDurationMs) : 'n/a'} />
+                            <SummaryRow label="P95" value={perf.top ? formatDuration(perf.top.summary.p95DurationMs) : 'n/a'} />
+                            <SummaryRow label="CPU" value={perf.top ? formatDuration(perf.top.summary.avgCpuMs) : 'n/a'} />
+                            <SummaryRow label="Heap" value={perf.top ? formatSignedBytes(perf.top.summary.avgHeapDeltaBytes) : 'n/a'} />
+                            <SummaryRow
+                                label="Current Request"
+                                value={currentRequest ? `${currentRequest.requestId} ${formatDuration(currentRequest.totalDurationMs)}` : 'No request'}
+                            />
+                            <SummaryRow label="Refreshed" value={perf.lastLoadedAt ? formatTimestamp(perf.lastLoadedAt) : 'Not loaded'} />
+                        </div>
+
+                        {currentRequest ? (
+                            <>
+                                <WaterfallChart
+                                    emptyLabel="No request stages were captured."
+                                    itemLabel="stage"
+                                    items={waterfallItems}
+                                />
+                                <div className="proteum-profiler__metrics">
+                                    <SummaryRow label="Route" value={currentRequest.routeLabel} />
+                                    <SummaryRow label="Controller" value={currentRequest.controllerLabel} />
+                                    <SummaryRow label="Total" value={formatDuration(currentRequest.totalDurationMs)} />
+                                    <SummaryRow label="SQL" value={`${currentRequest.sqlCount} / ${formatDuration(currentRequest.sqlDurationMs)}`} />
+                                    <SummaryRow label="Calls" value={`${currentRequest.callCount} / ${formatDuration(currentRequest.callDurationMs)}`} />
+                                    <SummaryRow
+                                        label="Render"
+                                        value={`${formatDuration(currentRequest.renderDurationMs)} / ${formatBytes(currentRequest.ssrPayloadBytes)}`}
+                                    />
+                                    <SummaryRow label="CPU" value={formatDuration(currentRequest.cpuTotalMs)} />
+                                    <SummaryRow label="Heap" value={formatSignedBytes(currentRequest.heapDeltaBytes)} />
+                                </div>
+                            </>
+                        ) : (
+                            <div className="proteum-profiler__empty">No traced request is attached to this session yet.</div>
+                        )}
+
+                        <div className="proteum-profiler__chartGrid">
+                            <ChartSection
+                                emptyLabel="No hot-path latency data matched this window."
+                                options={topLatencyChart}
+                                subtitle={`Compare average and p95 latency across the hottest ${perf.groupBy}s.`}
+                                title={`Hot ${perf.groupBy}s`}
+                            />
+                            <ChartSection
+                                emptyLabel="No breakdown data matched this window."
+                                options={topBreakdownChart}
+                                subtitle="See whether self time, SQL, external calls, or render work dominates the response."
+                                title="Time Breakdown"
+                            />
+                            <ChartSection
+                                emptyLabel="No compare data matched these windows."
+                                options={compareChart}
+                                subtitle={`Track p95 regression pressure between ${perf.baseline} and ${perf.target}.`}
+                                title="Regression Delta"
+                            />
+                            <ChartSection
+                                emptyLabel="No memory drift data matched this window."
+                                options={memoryChart}
+                                subtitle="Compare average heap growth, peak heap growth, and average RSS drift per group."
+                                title="Memory Drift"
+                            />
+                        </div>
+
+                        <SimpleSection empty="No hot calls captured for this request." rows={callRows} title="Current Request Calls" />
+                        <SimpleSection empty="No hot SQL captured for this request." rows={sqlRows} title="Current Request SQL" />
+                        <SimpleSection empty="No perf rollups matched this window." rows={topRows} title={`Hot ${perf.groupBy}s`} />
+                        <SimpleSection empty="No compare deltas matched these windows." rows={compareRows} title="Compare" />
+                        <SimpleSection empty="No memory drift data matched this window." rows={memoryRows} title="Memory" />
+                    </>
+                )}
+            </div>
+        );
+    }
+
     if (panel === 'auth') {
         return <AuthPanel session={session} />;
     }
 
     if (panel === 'routing') {
-        return (
-            <SimpleSection
-                empty="No routing data captured yet."
-                rows={findTraceEvents(primaryTrace, [
-                    'resolve.start',
-                    'resolve.controller-route',
-                    'resolve.route-match',
-                    'resolve.routes-evaluated',
-                    'resolve.not-found',
-                ]).map((event) => ({
-                    key: `${event.index}:${event.type}`,
-                    title: event.type,
-                    value: Object.entries(event.details)
-                        .map(([key, value]) => `${key}=${renderSummaryValue(value)}`)
-                        .join(' '),
-                }))}
-                showTitle={false}
-                title="Routing"
-            />
-        );
-    }
+        const routingEvents = findTraceEvents(primaryTrace, [
+            'resolve.start',
+            'resolve.controller-route',
+            'resolve.route-match',
+            'resolve.route-skip',
+            'resolve.routes-evaluated',
+            'resolve.not-found',
+        ]);
+        const routingFlowChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.blue,
+            entries: buildCountEntries(routingEvents.map((event) => event.type.replace(/^resolve\./, ''))),
+            title: 'Resolve event flow',
+            valueUnit: 'Events',
+        });
+        const routingTimelineChart =
+            routingEvents.length === 0
+                ? undefined
+                : createProfilerColumnChartOptions({
+                      categories: routingEvents.map((event) => truncate(event.type.replace(/^resolve\./, ''), 22)),
+                      colors: [profilerChartTheme.indigo],
+                      height: 300,
+                      series: [{ data: routingEvents.map((event) => toRoundedNumber(event.elapsedMs)), name: 'Elapsed ms' }],
+                      title: 'Resolve milestone timing',
+                      valueUnit: 'Milliseconds',
+                  });
+        const routingDecisionChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.amber,
+            entries: buildCountEntries(
+                routingEvents.map((event) => {
+                    if (event.type === 'resolve.route-skip') {
+                        return `skip:${readString(event.details.reason) || readString(event.details.code) || 'unknown'}`;
+                    }
 
-    if (panel === 'controller') {
+                    if (event.type === 'resolve.route-match') {
+                        return `match:${readString(event.details.path) || readString(event.details.routePath) || 'route'}`;
+                    }
+
+                    if (event.type === 'resolve.controller-route') {
+                        return `controller:${readString(event.details.httpPath) || readString(event.details.routePath) || 'route'}`;
+                    }
+
+                    return event.type.replace(/^resolve\./, '');
+                }),
+            ),
+            title: 'Resolve decisions',
+            valueUnit: 'Events',
+        });
+
         return (
-            <SimpleSection
-                empty="No controller data captured yet."
-                rows={findTraceEvents(primaryTrace, ['controller.start', 'controller.result', 'setup.options', 'context.create']).map(
-                    (event) => ({
+            <>
+                <div className="proteum-profiler__chartGrid">
+                    <ChartSection
+                        emptyLabel="No routing events were captured yet."
+                        options={routingFlowChart}
+                        subtitle="Summarize the current request’s resolve flow without reading each trace event."
+                        title="Resolve Flow"
+                    />
+                    <ChartSection
+                        emptyLabel="No routing milestones were captured yet."
+                        options={routingTimelineChart}
+                        subtitle="Order the resolve milestones by elapsed time to spot slow route decisions."
+                        title="Resolve Timing"
+                    />
+                    <ChartSection
+                        emptyLabel="No routing decisions were captured yet."
+                        options={routingDecisionChart}
+                        subtitle="Highlight skip reasons, matched routes, and controller routing outcomes."
+                        title="Decisions"
+                    />
+                </div>
+
+                <SimpleSection
+                    empty="No routing data captured yet."
+                    rows={routingEvents.map((event) => ({
                         key: `${event.index}:${event.type}`,
                         title: event.type,
                         value: Object.entries(event.details)
                             .map(([key, value]) => `${key}=${renderSummaryValue(value)}`)
                             .join(' '),
-                    }),
-                )}
-                showTitle={false}
-                title="Controller"
-            />
+                    }))}
+                    showTitle={false}
+                    title="Routing"
+                />
+            </>
+        );
+    }
+
+    if (panel === 'controller') {
+        const controllerEvents = findTraceEvents(primaryTrace, ['controller.start', 'controller.result', 'setup.options', 'context.create']);
+        const controllerFlowChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.indigo,
+            entries: buildCountEntries(controllerEvents.map((event) => event.type.replace(/\./g, ' '))),
+            title: 'Controller lifecycle',
+            valueUnit: 'Events',
+        });
+        const controllerTimelineChart =
+            controllerEvents.length === 0
+                ? undefined
+                : createProfilerColumnChartOptions({
+                      categories: controllerEvents.map((event) => truncate(event.type.replace(/\./g, ' '), 22)),
+                      colors: [profilerChartTheme.teal],
+                      height: 300,
+                      series: [{ data: controllerEvents.map((event) => toRoundedNumber(event.elapsedMs)), name: 'Elapsed ms' }],
+                      title: 'Lifecycle timing',
+                      valueUnit: 'Milliseconds',
+                  });
+        const controllerDetailChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.cyan,
+            entries: buildCountEntries(
+                controllerEvents.flatMap((event) => Object.keys(event.details).map((key) => `${event.type}:${key}`)),
+            ),
+            title: 'Detail coverage',
+            valueUnit: 'Fields',
+        });
+
+        return (
+            <>
+                <div className="proteum-profiler__chartGrid">
+                    <ChartSection
+                        emptyLabel="No controller events were captured yet."
+                        options={controllerFlowChart}
+                        subtitle="See which controller phases are present in the traced request."
+                        title="Lifecycle"
+                    />
+                    <ChartSection
+                        emptyLabel="No controller timing data was captured yet."
+                        options={controllerTimelineChart}
+                        subtitle="Compare elapsed time at each controller milestone."
+                        title="Timing"
+                    />
+                    <ChartSection
+                        emptyLabel="No controller event details were captured yet."
+                        options={controllerDetailChart}
+                        subtitle="Highlight which detail fields are most common across controller events."
+                        title="Detail Keys"
+                    />
+                </div>
+
+                <SimpleSection
+                    empty="No controller data captured yet."
+                    rows={controllerEvents.map((event) => ({
+                        key: `${event.index}:${event.type}`,
+                        title: event.type,
+                        value: Object.entries(event.details)
+                            .map(([key, value]) => `${key}=${renderSummaryValue(value)}`)
+                            .join(' '),
+                    }))}
+                    showTitle={false}
+                    title="Controller"
+                />
+            </>
         );
     }
 
     if (panel === 'ssr') {
+        const ssrEvents = findTraceEvents(primaryTrace, ['page.data', 'ssr.payload', 'render.start', 'render.end']);
+        const recentSsrRows = state.sessions
+            .slice(-10)
+            .map((candidate) => ({ session: candidate, summary: getSummary(candidate) }))
+            .filter(({ summary: candidateSummary }) => candidateSummary.renderMs !== undefined || candidateSummary.ssrPayloadBytes !== undefined);
+        const ssrScatterChart = buildScatterChartOptions({
+            color: profilerChartTheme.amber,
+            points: recentSsrRows.map(({ summary: candidateSummary }) => ({
+                x: toRoundedNumber(candidateSummary.renderMs),
+                y: toKilobytes(candidateSummary.ssrPayloadBytes, 2),
+            })),
+            seriesName: 'Session',
+            title: 'Render vs payload',
+            xaxisTitle: 'Render ms',
+            yaxisTitle: 'Payload KB',
+        });
+        const payloadChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.teal,
+            entries: buildTopEntries(
+                recentSsrRows.map(({ summary: candidateSummary }) => ({
+                    label: candidateSummary.routeLabel,
+                    value: toKilobytes(candidateSummary.ssrPayloadBytes, 2),
+                })),
+                8,
+            ),
+            title: 'Largest payloads',
+            valueUnit: 'KB',
+        });
+        const renderTrendChart = buildLineChartOptions({
+            color: profilerChartTheme.orange,
+            entries: recentSsrRows.map(({ session: candidate, summary: candidateSummary }) => ({
+                label: getSessionChartLabel(candidate, candidateSummary),
+                value: candidateSummary.renderMs || 0,
+            })),
+            title: 'Recent render time',
+            valueUnit: 'Milliseconds',
+        });
+
         return (
-            <SimpleSection
-                empty="No SSR data captured for this session."
-                rows={findTraceEvents(primaryTrace, ['page.data', 'ssr.payload', 'render.start', 'render.end']).map((event) => ({
-                    key: `${event.index}:${event.type}`,
-                    title: event.type,
-                    value: Object.entries(event.details)
-                        .map(([key, value]) => `${key}=${renderSummaryValue(value)}`)
-                        .join(' '),
-                }))}
-                showTitle={false}
-                title="SSR"
-            />
+            <>
+                <div className="proteum-profiler__chartGrid">
+                    <ChartSection
+                        emptyLabel="No SSR timing and payload data was captured yet."
+                        options={ssrScatterChart}
+                        subtitle="Correlate render cost with payload size across recent navigations."
+                        title="Render vs Payload"
+                    />
+                    <ChartSection
+                        emptyLabel="No SSR payload sizes were captured yet."
+                        options={payloadChart}
+                        subtitle="Rank the largest payload producers from the recent session window."
+                        title="Payload Pressure"
+                    />
+                    <ChartSection
+                        emptyLabel="No SSR render timings were captured yet."
+                        options={renderTrendChart}
+                        subtitle="Track render time across the last few SSR sessions."
+                        title="Render Trend"
+                    />
+                </div>
+
+                <SimpleSection
+                    empty="No SSR data captured for this session."
+                    rows={ssrEvents.map((event) => ({
+                        key: `${event.index}:${event.type}`,
+                        title: event.type,
+                        value: Object.entries(event.details)
+                            .map(([key, value]) => `${key}=${renderSummaryValue(value)}`)
+                            .join(' '),
+                    }))}
+                    showTitle={false}
+                    title="SSR"
+                />
+            </>
         );
     }
 
@@ -2522,6 +3938,46 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
     if (panel === 'diagnose') {
         const diagnose = state.diagnose;
         const response = diagnose.response;
+        const suspectScoreChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.red,
+            entries:
+                response?.suspects.map((suspect) => ({
+                    label: suspect.label,
+                    value: suspect.score,
+                })) || [],
+            title: 'Suspect scoring',
+            valueUnit: 'Score',
+        });
+        const ownerScoreChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.indigo,
+            entries:
+                response?.owner.matches.map((match) => ({
+                    label: `[${match.kind}] ${match.label}`,
+                    value: match.score,
+                })) || [],
+            title: 'Owner confidence',
+            valueUnit: 'Score',
+        });
+        const diagnoseSeverityChart =
+            response === undefined
+                ? undefined
+                : createProfilerColumnChartOptions({
+                      categories: ['Errors', 'Warnings'],
+                      colors: [profilerChartTheme.red, profilerChartTheme.amber],
+                      height: 300,
+                      series: [
+                          {
+                              data: [response.doctor.summary.errors, response.doctor.summary.warnings],
+                              name: 'Doctor',
+                          },
+                          {
+                              data: [response.contracts.summary.errors, response.contracts.summary.warnings],
+                              name: 'Contracts',
+                          },
+                      ],
+                      title: 'Diagnostic severity',
+                      valueUnit: 'Count',
+                  });
         const suspectRows =
             response?.suspects.map((suspect, index) => ({
                 key: `suspect:${index}`,
@@ -2586,6 +4042,26 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                                 value={diagnose.lastLoadedAt ? formatTimestamp(diagnose.lastLoadedAt) : 'Not loaded'}
                             />
                         </div>
+                        <div className="proteum-profiler__chartGrid">
+                            <ChartSection
+                                emptyLabel="No suspect scores were returned for this diagnose run."
+                                options={suspectScoreChart}
+                                subtitle="Rank the files Proteum currently believes are most likely involved."
+                                title="Suspects"
+                            />
+                            <ChartSection
+                                emptyLabel="No owner matches were returned for this diagnose run."
+                                options={ownerScoreChart}
+                                subtitle="Compare owner candidates and their confidence scores."
+                                title="Owner Matches"
+                            />
+                            <ChartSection
+                                emptyLabel="No diagnose severity data was returned for this run."
+                                options={diagnoseSeverityChart}
+                                subtitle="Compare doctor diagnostics against contract diagnostics in one view."
+                                title="Severity"
+                            />
+                        </div>
                         <SimpleSection empty="No likely suspect files were found." rows={suspectRows} title="Suspects" />
                         <SimpleSection empty="No owner matches were found." rows={ownerRows} title="Owner Matches" />
                         <SimpleSection empty="No contract diagnostics were found." rows={contractRows} title="Contracts" />
@@ -2604,6 +4080,74 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                   ...buildExplainBlocks(explain.manifest, [...explainSectionNames]),
               ]
             : [];
+        const manifest = explain.manifest;
+        const structureChart = manifest
+            ? buildColumnChartOptions({
+                  colors: [profilerChartTheme.blue],
+                  entries: [
+                      { label: 'app services', value: manifest.services.app.length },
+                      { label: 'router plugins', value: manifest.services.routerPlugins.length },
+                      { label: 'controllers', value: manifest.controllers.length },
+                      { label: 'commands', value: manifest.commands.length },
+                      { label: 'client routes', value: manifest.routes.client.length },
+                      { label: 'server routes', value: manifest.routes.server.length },
+                      { label: 'layouts', value: manifest.layouts.length },
+                      { label: 'diagnostics', value: manifest.diagnostics.length },
+                  ],
+                  title: 'Manifest structure',
+                  valueUnit: 'Count',
+              })
+            : undefined;
+        const manifestScopeChart = manifest
+            ? buildColumnChartOptions({
+                  colors: [profilerChartTheme.indigo],
+                  entries: [
+                      {
+                          label: 'app',
+                          value: [
+                              ...manifest.services.app,
+                              ...manifest.services.routerPlugins,
+                              ...manifest.controllers,
+                              ...manifest.commands,
+                              ...manifest.routes.client,
+                              ...manifest.routes.server,
+                              ...manifest.layouts,
+                          ].filter((entry) => entry.scope === 'app').length,
+                      },
+                      {
+                          label: 'framework',
+                          value: [
+                              ...manifest.services.app,
+                              ...manifest.services.routerPlugins,
+                              ...manifest.controllers,
+                              ...manifest.commands,
+                              ...manifest.routes.client,
+                              ...manifest.routes.server,
+                              ...manifest.layouts,
+                          ].filter((entry) => entry.scope === 'framework').length,
+                      },
+                  ],
+                  title: 'Scope split',
+                  valueUnit: 'Entries',
+              })
+            : undefined;
+        const envReadinessChart = manifest
+            ? buildColumnChartOptions({
+                  colors: [profilerChartTheme.green, profilerChartTheme.red],
+                  entries: [
+                      {
+                          label: 'provided',
+                          value: manifest.env.requiredVariables.filter((variable) => variable.provided).length,
+                      },
+                      {
+                          label: 'missing',
+                          value: manifest.env.requiredVariables.filter((variable) => !variable.provided).length,
+                      },
+                  ],
+                  title: 'Env readiness',
+                  valueUnit: 'Variables',
+              })
+            : undefined;
 
         return (
             <div className="proteum-profiler__section">
@@ -2631,6 +4175,27 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                     <div className="proteum-profiler__empty">No explain manifest is available.</div>
                 ) : (
                     <>
+                        <div className="proteum-profiler__chartGrid">
+                            <ChartSection
+                                emptyLabel="No manifest structure data is available."
+                                options={structureChart}
+                                subtitle="Summarize the main object counts in the current Proteum manifest."
+                                title="Structure"
+                            />
+                            <ChartSection
+                                emptyLabel="No manifest scope data is available."
+                                options={manifestScopeChart}
+                                subtitle="Show how much of the current manifest comes from app code vs framework code."
+                                title="Scope Split"
+                            />
+                            <ChartSection
+                                emptyLabel="No manifest env readiness data is available."
+                                options={envReadinessChart}
+                                subtitle="Check required variable coverage before digging through the raw manifest."
+                                title="Env Ready"
+                            />
+                        </div>
+
                         <div className="proteum-profiler__row">
                             <div className="proteum-profiler__rowHeader">
                                 <strong>Manifest snapshot</strong>
@@ -2651,6 +4216,41 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
 
     if (panel === 'doctor') {
         const doctor = state.doctor;
+        const doctorSeverityChart =
+            doctor.response === undefined
+                ? undefined
+                : createProfilerColumnChartOptions({
+                      categories: ['Errors', 'Warnings'],
+                      colors: [profilerChartTheme.red, profilerChartTheme.amber],
+                      height: 300,
+                      series: [
+                          {
+                              data: [doctor.response.summary.errors, doctor.response.summary.warnings],
+                              name: 'Doctor',
+                          },
+                          {
+                              data: [
+                                  doctor.contracts?.summary.errors || 0,
+                                  doctor.contracts?.summary.warnings || 0,
+                              ],
+                              name: 'Contracts',
+                          },
+                      ],
+                      title: 'Severity overview',
+                      valueUnit: 'Count',
+                  });
+        const doctorCodeChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.orange,
+            entries: buildCountEntries(doctor.response?.diagnostics.map((diagnostic) => diagnostic.code) || []),
+            title: 'Diagnostic codes',
+            valueUnit: 'Hits',
+        });
+        const doctorFileChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.cyan,
+            entries: buildCountEntries(doctor.response?.diagnostics.map((diagnostic) => diagnostic.filepath) || []),
+            title: 'Hot files',
+            valueUnit: 'Diagnostics',
+        });
         const contractRows =
             doctor.contracts?.diagnostics.map((diagnostic, index) => ({
                 key: `contract:${diagnostic.code}:${index}`,
@@ -2714,6 +4314,26 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                                 value={doctor.lastLoadedAt ? formatTimestamp(doctor.lastLoadedAt) : 'Not loaded'}
                             />
                         </div>
+                        <div className="proteum-profiler__chartGrid">
+                            <ChartSection
+                                emptyLabel="No doctor severity data is available."
+                                options={doctorSeverityChart}
+                                subtitle="Compare doctor and contract diagnostics across errors and warnings."
+                                title="Severity"
+                            />
+                            <ChartSection
+                                emptyLabel="No diagnostic codes are available."
+                                options={doctorCodeChart}
+                                subtitle="See which diagnostic families are dominating the current manifest."
+                                title="Codes"
+                            />
+                            <ChartSection
+                                emptyLabel="No diagnostic file hotspots are available."
+                                options={doctorFileChart}
+                                subtitle="Highlight the files attracting the most diagnostics."
+                                title="Files"
+                            />
+                        </div>
                         {doctorBlocks.length > 0 ? (
                             <TextBlocks blocks={doctorBlocks} />
                         ) : (
@@ -2728,6 +4348,33 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
 
     if (panel === 'commands') {
         const commandsState = state.commands;
+        const commandScopeChart = buildColumnChartOptions({
+            colors: [profilerChartTheme.indigo],
+            entries: buildCountEntries(commandsState.commands.map((command) => command.scope)),
+            title: 'Command scope split',
+            valueUnit: 'Commands',
+        });
+        const commandDurationChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.blue,
+            entries: buildTopEntries(
+                commandsState.commands
+                    .map((command) => ({
+                        label: command.path,
+                        value: commandsState.executions[command.path]?.durationMs || 0,
+                    }))
+                    .filter((entry) => entry.value > 0),
+            ),
+            title: 'Latest execution duration',
+            valueUnit: 'Milliseconds',
+        });
+        const commandStatusChart = buildColumnChartOptions({
+            colors: [profilerChartTheme.green],
+            entries: buildCountEntries(
+                commandsState.commands.map((command) => commandsState.executions[command.path]?.status || 'never-run'),
+            ),
+            title: 'Execution status',
+            valueUnit: 'Commands',
+        });
 
         return (
             <div className="proteum-profiler__section">
@@ -2766,65 +4413,88 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                 ) : commandsState.commands.length === 0 ? (
                     <div className="proteum-profiler__empty">No commands are registered for this app.</div>
                 ) : (
-                    <div className="proteum-profiler__list">
-                        {commandsState.commands.map((command: TDevCommandDefinition) => {
-                            const execution = commandsState.executions[command.path] as TDevCommandExecution | undefined;
-                            return (
-                                <div className="proteum-profiler__row" key={command.path}>
-                                    <div className="proteum-profiler__rowHeader">
-                                        <strong>{command.path}</strong>
-                                        <div className="proteum-profiler__actions">
-                                            <span className="proteum-profiler__mono proteum-profiler__muted">
-                                                {execution ? formatTimestamp(execution.finishedAt) : 'Never run'}
-                                            </span>
-                                            <button
-                                                className="proteum-profiler__pill"
-                                                onClick={() => void profilerRuntime.runCommand(command.path)}
-                                                type="button"
-                                            >
-                                                Run now
-                                            </button>
-                                        </div>
-                                    </div>
+                    <>
+                        <div className="proteum-profiler__chartGrid">
+                            <ChartSection
+                                emptyLabel="No command scope data is available."
+                                options={commandScopeChart}
+                                subtitle="Show how the registered dev commands split between app and framework scopes."
+                                title="Scope"
+                            />
+                            <ChartSection
+                                emptyLabel="No command execution durations have been captured yet."
+                                options={commandDurationChart}
+                                subtitle="Highlight the commands with the slowest latest execution."
+                                title="Latest Duration"
+                            />
+                            <ChartSection
+                                emptyLabel="No command execution statuses have been captured yet."
+                                options={commandStatusChart}
+                                subtitle="Separate commands that have never run from completed or failed commands."
+                                title="Status"
+                            />
+                        </div>
 
-                                    <div className="proteum-profiler__tags">
-                                        <span className="proteum-profiler__tag">{command.className}</span>
-                                        <span className="proteum-profiler__tag">{command.methodName}</span>
-                                        <span className="proteum-profiler__tag">{command.scope}</span>
-                                        {execution ? <span className="proteum-profiler__tag">{execution.status}</span> : null}
+                        <div className="proteum-profiler__list">
+                            {commandsState.commands.map((command: TDevCommandDefinition) => {
+                                const execution = commandsState.executions[command.path] as TDevCommandExecution | undefined;
+                                return (
+                                    <div className="proteum-profiler__row" key={command.path}>
+                                        <div className="proteum-profiler__rowHeader">
+                                            <strong>{command.path}</strong>
+                                            <div className="proteum-profiler__actions">
+                                                <span className="proteum-profiler__mono proteum-profiler__muted">
+                                                    {execution ? formatTimestamp(execution.finishedAt) : 'Never run'}
+                                                </span>
+                                                <button
+                                                    className="proteum-profiler__pill"
+                                                    onClick={() => void profilerRuntime.runCommand(command.path)}
+                                                    type="button"
+                                                >
+                                                    Run now
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="proteum-profiler__tags">
+                                            <span className="proteum-profiler__tag">{command.className}</span>
+                                            <span className="proteum-profiler__tag">{command.methodName}</span>
+                                            <span className="proteum-profiler__tag">{command.scope}</span>
+                                            {execution ? <span className="proteum-profiler__tag">{execution.status}</span> : null}
+                                            {execution ? (
+                                                <span className="proteum-profiler__tag">{formatDuration(execution.durationMs)}</span>
+                                            ) : null}
+                                            {execution?.errorMessage ? (
+                                                <span className="proteum-profiler__tag">{truncate(execution.errorMessage, 72)}</span>
+                                            ) : null}
+                                        </div>
+
+                                        <div className="proteum-profiler__mono proteum-profiler__muted">
+                                            source {command.filepath}:{command.sourceLocation.line}:{command.sourceLocation.column}
+                                            {commandsState.lastLoadedAt
+                                                ? ` | refreshed ${formatTimestamp(commandsState.lastLoadedAt)}`
+                                                : ''}
+                                        </div>
+
                                         {execution ? (
-                                            <span className="proteum-profiler__tag">{formatDuration(execution.durationMs)}</span>
-                                        ) : null}
-                                        {execution?.errorMessage ? (
-                                            <span className="proteum-profiler__tag">{truncate(execution.errorMessage, 72)}</span>
+                                            <div className="proteum-profiler__section">
+                                                <div className="proteum-profiler__sectionTitle">Last result</div>
+                                                <JsonCodeBlock
+                                                    value={
+                                                        execution.result?.json !== undefined
+                                                            ? formatStructuredValue(execution.result.json)
+                                                            : execution.result
+                                                              ? formatStructuredValue(execution.result.summary)
+                                                              : execution.errorMessage || 'undefined'
+                                                    }
+                                                />
+                                            </div>
                                         ) : null}
                                     </div>
-
-                                    <div className="proteum-profiler__mono proteum-profiler__muted">
-                                        source {command.filepath}:{command.sourceLocation.line}:{command.sourceLocation.column}
-                                        {commandsState.lastLoadedAt
-                                            ? ` | refreshed ${formatTimestamp(commandsState.lastLoadedAt)}`
-                                            : ''}
-                                    </div>
-
-                                    {execution ? (
-                                        <div className="proteum-profiler__section">
-                                            <div className="proteum-profiler__sectionTitle">Last result</div>
-                                            <JsonCodeBlock
-                                                value={
-                                                    execution.result?.json !== undefined
-                                                        ? formatStructuredValue(execution.result.json)
-                                                        : execution.result
-                                                          ? formatStructuredValue(execution.result.summary)
-                                                          : execution.errorMessage || 'undefined'
-                                                }
-                                            />
-                                        </div>
-                                    ) : null}
-                                </div>
-                            );
-                        })}
-                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
                 )}
             </div>
         );
@@ -2832,6 +4502,30 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
 
     if (panel === 'cron') {
         const cron = state.cron;
+        const cronRunCountChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.blue,
+            entries: buildTopEntries(cron.tasks.map((task) => ({ label: task.name, value: task.runCount }))),
+            title: 'Run counts',
+            valueUnit: 'Runs',
+        });
+        const cronDurationChart = buildHorizontalBarChartOptions({
+            color: profilerChartTheme.orange,
+            entries: buildTopEntries(
+                cron.tasks
+                    .map((task) => ({ label: task.name, value: task.lastRunDurationMs || 0 }))
+                    .filter((entry) => entry.value > 0),
+            ),
+            title: 'Last run duration',
+            valueUnit: 'Milliseconds',
+        });
+        const cronStatusChart = buildColumnChartOptions({
+            colors: [profilerChartTheme.teal],
+            entries: buildCountEntries(
+                cron.tasks.map((task) => (task.running ? 'running' : task.lastRunStatus || 'never-run')),
+            ),
+            title: 'Task status',
+            valueUnit: 'Tasks',
+        });
 
         return (
             <div className="proteum-profiler__section">
@@ -2871,80 +4565,139 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                 ) : cron.tasks.length === 0 ? (
                     <div className="proteum-profiler__empty">No cron tasks are registered for this app.</div>
                 ) : (
-                    <div className="proteum-profiler__list">
-                        {cron.tasks.map((task) => (
-                            <div className="proteum-profiler__row" key={task.name}>
-                                <div className="proteum-profiler__rowHeader">
-                                    <strong>{task.name}</strong>
-                                    <div className="proteum-profiler__actions">
-                                        <span className="proteum-profiler__mono proteum-profiler__muted">
-                                            {task.running
-                                                ? 'Running...'
-                                                : task.lastRunFinishedAt
-                                                  ? formatTimestamp(task.lastRunFinishedAt)
-                                                  : 'Never run'}
+                    <>
+                        <div className="proteum-profiler__chartGrid">
+                            <ChartSection
+                                emptyLabel="No cron run counts are available."
+                                options={cronRunCountChart}
+                                subtitle="Highlight which tasks have been exercised the most in the current dev session."
+                                title="Runs"
+                            />
+                            <ChartSection
+                                emptyLabel="No cron duration data is available."
+                                options={cronDurationChart}
+                                subtitle="Compare the latest duration of tasks that have been executed."
+                                title="Duration"
+                            />
+                            <ChartSection
+                                emptyLabel="No cron status data is available."
+                                options={cronStatusChart}
+                                subtitle="Separate currently running, completed, failed, and never-run tasks."
+                                title="Status"
+                            />
+                        </div>
+
+                        <div className="proteum-profiler__list">
+                            {cron.tasks.map((task) => (
+                                <div className="proteum-profiler__row" key={task.name}>
+                                    <div className="proteum-profiler__rowHeader">
+                                        <strong>{task.name}</strong>
+                                        <div className="proteum-profiler__actions">
+                                            <span className="proteum-profiler__mono proteum-profiler__muted">
+                                                {task.running
+                                                    ? 'Running...'
+                                                    : task.lastRunFinishedAt
+                                                      ? formatTimestamp(task.lastRunFinishedAt)
+                                                      : 'Never run'}
+                                            </span>
+                                            <button
+                                                className="proteum-profiler__pill"
+                                                disabled={task.running}
+                                                onClick={() => void profilerRuntime.runCronTask(task.name)}
+                                                type="button"
+                                            >
+                                                {task.running ? 'Running...' : 'Run now'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="proteum-profiler__tags">
+                                        <span className="proteum-profiler__tag">schedule:{truncate(formatCronFrequency(task), 64)}</span>
+                                        <span className="proteum-profiler__tag">
+                                            next:{task.nextInvocation ? formatTimestamp(task.nextInvocation) : 'none'}
                                         </span>
-                                        <button
-                                            className="proteum-profiler__pill"
-                                            disabled={task.running}
-                                            onClick={() => void profilerRuntime.runCronTask(task.name)}
-                                            type="button"
-                                        >
-                                            {task.running ? 'Running...' : 'Run now'}
-                                        </button>
+                                        <span className="proteum-profiler__tag">autoexec:{task.autoexec ? 'yes' : 'no'}</span>
+                                        <span className="proteum-profiler__tag">
+                                            automatic:{task.automaticExecution ? 'enabled' : 'disabled in dev'}
+                                        </span>
+                                        <span className="proteum-profiler__tag">runs:{task.runCount}</span>
+                                        {task.lastTrigger ? <span className="proteum-profiler__tag">trigger:{task.lastTrigger}</span> : null}
+                                        {task.lastRunStatus ? <span className="proteum-profiler__tag">{task.lastRunStatus}</span> : null}
+                                        {task.lastRunDurationMs !== undefined ? (
+                                            <span className="proteum-profiler__tag">{formatDuration(task.lastRunDurationMs)}</span>
+                                        ) : null}
+                                        {task.lastErrorMessage ? (
+                                            <span className="proteum-profiler__tag">{truncate(task.lastErrorMessage, 72)}</span>
+                                        ) : null}
+                                    </div>
+
+                                    <div className="proteum-profiler__mono proteum-profiler__muted">
+                                        registered {formatTimestamp(task.registeredAt)}
+                                        {cron.lastLoadedAt ? ` | refreshed ${formatTimestamp(cron.lastLoadedAt)}` : ''}
                                     </div>
                                 </div>
-
-                                <div className="proteum-profiler__tags">
-                                    <span className="proteum-profiler__tag">schedule:{truncate(formatCronFrequency(task), 64)}</span>
-                                    <span className="proteum-profiler__tag">
-                                        next:{task.nextInvocation ? formatTimestamp(task.nextInvocation) : 'none'}
-                                    </span>
-                                    <span className="proteum-profiler__tag">autoexec:{task.autoexec ? 'yes' : 'no'}</span>
-                                    <span className="proteum-profiler__tag">
-                                        automatic:{task.automaticExecution ? 'enabled' : 'disabled in dev'}
-                                    </span>
-                                    <span className="proteum-profiler__tag">runs:{task.runCount}</span>
-                                    {task.lastTrigger ? <span className="proteum-profiler__tag">trigger:{task.lastTrigger}</span> : null}
-                                    {task.lastRunStatus ? <span className="proteum-profiler__tag">{task.lastRunStatus}</span> : null}
-                                    {task.lastRunDurationMs !== undefined ? (
-                                        <span className="proteum-profiler__tag">{formatDuration(task.lastRunDurationMs)}</span>
-                                    ) : null}
-                                    {task.lastErrorMessage ? (
-                                        <span className="proteum-profiler__tag">{truncate(task.lastErrorMessage, 72)}</span>
-                                    ) : null}
-                                </div>
-
-                                <div className="proteum-profiler__mono proteum-profiler__muted">
-                                    registered {formatTimestamp(task.registeredAt)}
-                                    {cron.lastLoadedAt ? ` | refreshed ${formatTimestamp(cron.lastLoadedAt)}` : ''}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
+                    </>
                 )}
             </div>
         );
     }
 
-    const errorRows = [
-        ...session.steps
+    const stepErrors = session.steps
             .filter((step) => step.status === 'error')
-            .map((step) => ({ key: step.id, title: step.label, value: step.errorMessage || 'Step failed' })),
-        ...session.traces
+            .map((step) => ({ key: step.id, title: step.label, value: step.errorMessage || 'Step failed' }));
+    const traceErrors = session.traces
             .filter((trace) => trace.status === 'error')
-            .map((trace) => ({ key: trace.id, title: trace.label, value: trace.errorMessage || 'Request failed' })),
-        ...findTraceEvents(primaryTrace, ['error']).map((event) => ({
+            .map((trace) => ({ key: trace.id, title: trace.label, value: trace.errorMessage || 'Request failed' }));
+    const eventErrors = findTraceEvents(primaryTrace, ['error']).map((event) => ({
             key: `${event.index}:error`,
             title: event.type,
             value: Object.entries(event.details)
                 .map(([key, value]) => `${key}=${renderSummaryValue(value)}`)
                 .join(' '),
-        })),
-    ];
+        }));
+    const errorRows = [...stepErrors, ...traceErrors, ...eventErrors];
+    const errorSourceChart = buildColumnChartOptions({
+        colors: [profilerChartTheme.red],
+        entries: [
+            { label: 'steps', value: stepErrors.length },
+            { label: 'traces', value: traceErrors.length },
+            { label: 'events', value: eventErrors.length },
+        ],
+        title: 'Error sources',
+        valueUnit: 'Errors',
+    });
+    const errorLabelChart = buildHorizontalBarChartOptions({
+        color: profilerChartTheme.orange,
+        entries: buildCountEntries(errorRows.map((row) => row.title)),
+        title: 'Error groups',
+        valueUnit: 'Errors',
+    });
 
-    return <SimpleSection empty="No errors captured." rows={errorRows} showTitle={false} title="Errors" />;
+    return (
+        <>
+            <div className="proteum-profiler__chartGrid">
+                <ChartSection
+                    emptyLabel="No errors were captured for this session."
+                    options={errorSourceChart}
+                    subtitle="Split captured failures between navigation steps, requests, and trace events."
+                    title="Sources"
+                />
+                <ChartSection
+                    emptyLabel="No grouped error labels were captured for this session."
+                    options={errorLabelChart}
+                    subtitle="Highlight the error families that are repeating in the selected session."
+                    title="Groups"
+                />
+            </div>
+
+            <SimpleSection empty="No errors captured." rows={errorRows} showTitle={false} title="Errors" />
+        </>
+    );
 };
+
+const splitScrollPanels = new Set<TProfilerPanel>(['timeline', 'auth', 'api', 'sql']);
 
 export default function DevProfiler() {
     const [state, setState] = React.useState(() => profilerRuntime.getState());
@@ -2974,6 +4727,7 @@ export default function DevProfiler() {
     const summary = getSummary(session);
     const tone = summary.errorCount > 0 ? 'error' : (summary.totalMs || 0) > 500 ? 'warn' : 'ok';
     const primaryTrace = summary.primaryTrace?.trace;
+    const currentPerfRequest = primaryTrace ? buildRequestPerformance(primaryTrace) : undefined;
     const minimizedLabel =
         session.kind === 'client-navigation'
             ? session.label
@@ -3041,7 +4795,13 @@ export default function DevProfiler() {
                                 </div>
                             </div>
 
-                            <div className="proteum-profiler__panelBody">{renderPanel(state.activePanel, session, summary, state)}</div>
+                            <div
+                                className={`proteum-profiler__panelBody ${
+                                    splitScrollPanels.has(state.activePanel) ? 'proteum-profiler__panelBody--split' : ''
+                                }`}
+                            >
+                                {renderPanel(state.activePanel, session, summary, state)}
+                            </div>
                         </div>
                     ) : null}
 
@@ -3082,6 +4842,15 @@ export default function DevProfiler() {
                             label={`SQL ${summary.sqlCount}`}
                             onClick={() => profilerRuntime.openPanel('sql')}
                             tone={summary.sqlCount > 0 ? 'ok' : 'warn'}
+                        />
+                        <StatusToken
+                            label={
+                                currentPerfRequest
+                                    ? `Perf ${formatDuration(currentPerfRequest.cpuTotalMs)} ${formatSignedBytes(currentPerfRequest.heapDeltaBytes)}`
+                                    : 'Perf'
+                            }
+                            onClick={() => profilerRuntime.openPanel('perf')}
+                            tone={currentPerfRequest?.heapDeltaBytes && currentPerfRequest.heapDeltaBytes > 0 ? 'warn' : 'ok'}
                         />
                         {summary.errorCount > 0 ? (
                             <StatusToken

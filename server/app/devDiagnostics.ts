@@ -12,6 +12,17 @@ import {
 } from '@common/dev/diagnostics';
 import { buildContractsDoctorResponse } from '@common/dev/contractsDoctor';
 import {
+    buildPerfCompareResponse,
+    buildPerfMemoryResponse,
+    buildPerfTopResponse,
+    resolvePerfRequest,
+    type TPerfCompareResponse,
+    type TPerfGroupBy,
+    type TPerfMemoryResponse,
+    type TPerfRequestResponse,
+    type TPerfTopResponse,
+} from '@common/dev/performance';
+import {
     buildDiagnoseResponse,
     explainOwner,
     type TDiagnoseResponse,
@@ -85,6 +96,10 @@ export default class DevDiagnosticsRegistry<TApplication extends Application = A
         return match ? this.app.container.Trace.getRequest(match.id) : undefined;
     }
 
+    private readPerfRequests() {
+        return this.app.container.Trace.listTraceRequests(Number.MAX_SAFE_INTEGER);
+    }
+
     public diagnose({
         logsLevel = 'warn',
         logsLimit = 40,
@@ -114,5 +129,63 @@ export default class DevDiagnosticsRegistry<TApplication extends Application = A
             request,
             serverLogs: this.readLogs(logsLimit, logsLevel),
         });
+    }
+
+    public perfTop({
+        groupBy = 'path',
+        limit = 12,
+        since = 'today',
+    }: {
+        groupBy?: TPerfGroupBy;
+        limit?: number;
+        since?: string;
+    } = {}): TPerfTopResponse {
+        return buildPerfTopResponse({
+            groupBy,
+            limit,
+            requests: this.readPerfRequests(),
+            since,
+        });
+    }
+
+    public perfCompare({
+        baseline = 'yesterday',
+        groupBy = 'path',
+        limit = 12,
+        target = 'today',
+    }: {
+        baseline?: string;
+        groupBy?: TPerfGroupBy;
+        limit?: number;
+        target?: string;
+    } = {}): TPerfCompareResponse {
+        return buildPerfCompareResponse({
+            baseline,
+            groupBy,
+            limit,
+            requests: this.readPerfRequests(),
+            target,
+        });
+    }
+
+    public perfMemory({
+        groupBy = 'path',
+        limit = 12,
+        since = 'today',
+    }: {
+        groupBy?: TPerfGroupBy;
+        limit?: number;
+        since?: string;
+    } = {}): TPerfMemoryResponse {
+        return buildPerfMemoryResponse({
+            groupBy,
+            limit,
+            requests: this.readPerfRequests(),
+            since,
+        });
+    }
+
+    public perfRequest(requestIdOrPath: string): TPerfRequestResponse {
+        return { request: resolvePerfRequest(this.readPerfRequests(), requestIdOrPath) };
     }
 }

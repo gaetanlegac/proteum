@@ -9,6 +9,7 @@ export type TProfilerUiState = 'expanded' | 'minimized' | 'pinned-handle';
 export type TProfilerPanel =
     | 'summary'
     | 'timeline'
+    | 'perf'
     | 'auth'
     | 'routing'
     | 'controller'

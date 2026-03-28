@@ -13,6 +13,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 
 - For request-time issues in dev, start with `npx proteum diagnose <path> --port <port>` when you have a concrete failing route, page, controller path, or request target. It combines owner lookup, manifest diagnostics, contract diagnostics, matching trace data, and buffered server logs in one pass.
 - Use `npx proteum explain owner <query>` when you need a fast ownership graph for a route, controller path, source file, or generated artifact before reading code.
+- For performance issues or regressions in dev, use `npx proteum perf top --since <window>` to rank hot paths, `npx proteum perf request <requestId|path>` for one request waterfall, `npx proteum perf compare --baseline <window> --target <window>` for regressions, and `npx proteum perf memory --since <window>` for heap or RSS drift.
 - For request-time issues in dev, inspect traces before adding logs when the diagnose surface is still too coarse.
 - If a server is already running on the default port from `PORT` or `./.proteum/manifest.json`, inspect existing traces before reproducing the issue.
 - If existing traces are insufficient, arm `npx proteum trace arm --capture deep`, reproduce once, then inspect the new request with `npx proteum trace latest` or `npx proteum trace show <requestId>`.
@@ -37,9 +38,13 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 ## Verification And Testing
 
 - Use the cheapest trustworthy verification that matches the failing layer.
+- After implementing a feature or behavior change, always verify it on a running app instead of stopping at static analysis or code review.
 - For compile-time or type-safety issues, start with the relevant typecheck or build command.
 - For request/runtime issues, verify through the real page, route, generated controller call, or command on a running app.
+- Start the smallest trustworthy runtime surface first: boot the server, run the relevant real URL, generated controller call, command, or `npx proteum diagnose <path> --port <port>`, then add targeted Playwright coverage when the change is browser-visible.
 - For browser regressions, prefer targeted Playwright coverage and inspect failure artifacts such as screenshots, videos, `error-context.md`, and Playwright traces.
+- Treat server startup failures, runtime errors, browser console errors or warnings, and Playwright failures as blocking unless they are clearly unrelated to the change.
+- When the touched surface can affect coding-style enforcement, run the smallest relevant project check such as `npx proteum lint` or `npx proteum check` before finishing.
 - Add `data-testid` when stable selectors are missing instead of relying on brittle text or DOM-shape selectors.
 - If an isolated test misses prerequisite state, run the smallest broader scope that reproduces the real setup.
 - After a fix, re-check traces, rendered HTML, browser console, and server output when those surfaces were part of the original failure.

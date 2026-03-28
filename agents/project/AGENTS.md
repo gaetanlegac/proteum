@@ -18,7 +18,8 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 - After running `npx proteum create ...`, adapt the generated code to the real feature instead of leaving placeholder logic in place.
 - When framework work changes Proteum CLI commands, profiler panels/features, or the `proteum dev` banners, keep this file, project-root `diagnostics.md`, and any narrower area `AGENTS.md` that mentions the same workflow aligned with the live framework behavior in the same pass.
 - Before finishing, double-check the touched files and generated output against the applicable optimization, diagnostics, and coding-style sources: project-root `optimizations.md`, project-root `diagnostics.md`, project-root `CODING_STYLE.md`, and any narrower area `AGENTS.md`.
-- When you have finished your work, summarize in one top-level short sentence ALL the changes you made since the beginning of the WHOLE conversation. Output as "Commit message".
+- After implementing any feature or behavior change, always verify it on a running app before finishing: start the server, exercise the affected flow with Playwright or the smallest real runtime or `npx proteum` surface, run the relevant diagnostics or perf commands, and confirm there is no meaningful regression in behavior, performance, bundle/load size, SEO output, or coding style.
+- When you have finished your work, summarize in one top-level short (up to 100 characters) sentence ALL the changes you made since the beginning of the WHOLE conversation. Output as "Commit message".
 
 ## Project Shape
 
@@ -89,6 +90,7 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - `npx proteum doctor --json`
 - `npx proteum doctor --contracts --json`
 - `npx proteum diagnose <path> --port <port>`
+- `npx proteum perf ...`
 - `npx proteum trace ...`
 - `npx proteum command ...`
 - `npx proteum session ...`
@@ -212,7 +214,7 @@ Verify at the correct layer:
 - router or plugin changes: verify request context, auth, redirects, metrics, and validation on a running app
 - For trace-first reproduction, session-based auth setup, temporary logs, and post-fix surface checks, follow project-root `diagnostics.md`.
 
-Useful commands: `npx proteum init <dir> --name <name>`, `npx proteum create <kind> <target>`, `proteum dev`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum command <path>`, `npx proteum session <email> --role <role>`.
+Useful commands: `npx proteum init <dir> --name <name>`, `npx proteum create <kind> <target>`, `proteum dev`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum perf top`, `npx proteum perf request <requestId|path>`, `npx proteum perf compare --baseline yesterday --target today`, `npx proteum command <path>`, `npx proteum session <email> --role <role>`.
 
 ## High-Impact Files
 

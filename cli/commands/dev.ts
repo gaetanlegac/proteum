@@ -344,6 +344,7 @@ export const run = async () => {
             appRoot: app.paths.root === process.cwd() ? '.' : app.paths.root,
             routerPort: app.env.router.port,
             devEventPort: devEventServer.port,
+            proteumVersion: String(cli.packageJson.version || ''),
         }),
     );
 

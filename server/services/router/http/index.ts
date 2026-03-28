@@ -25,6 +25,7 @@ import type CronTask from '@server/services/cron/CronTask';
 import type { TBasicUser } from '@server/services/auth';
 import type { TServerRouter } from '..';
 import type { TDevConsoleLogLevel } from '@common/dev/console';
+import type { TPerfGroupBy } from '@common/dev/performance';
 import type { TDevSessionStartResponse, TDevSessionUserSummary } from '@common/dev/session';
 import { serverHotReloadMessageType } from '@common/dev/serverHotReload';
 import { explainSectionNames } from '@common/dev/diagnostics';
@@ -419,6 +420,78 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 res.status(message.includes('required') || message.includes('Diagnose requires') ? 400 : 500).json({ error: message });
+            }
+        });
+
+        routes.get('/__proteum/perf/top', (req, res) => {
+            const readString = (value: unknown) => (Array.isArray(value) ? value[0] : value);
+            const readNumber = (value: unknown, fallback: number) => {
+                const parsed = Number(readString(value));
+                return Number.isFinite(parsed) ? parsed : fallback;
+            };
+
+            try {
+                res.json(
+                    this.app.getDevDiagnostics().perfTop({
+                        groupBy: typeof readString(req.query.groupBy) === 'string' ? (readString(req.query.groupBy) as TPerfGroupBy) : undefined,
+                        limit: readNumber(req.query.limit, 12),
+                        since: typeof readString(req.query.since) === 'string' ? readString(req.query.since) : undefined,
+                    }),
+                );
+            } catch (error) {
+                res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+            }
+        });
+
+        routes.get('/__proteum/perf/compare', (req, res) => {
+            const readString = (value: unknown) => (Array.isArray(value) ? value[0] : value);
+            const readNumber = (value: unknown, fallback: number) => {
+                const parsed = Number(readString(value));
+                return Number.isFinite(parsed) ? parsed : fallback;
+            };
+
+            try {
+                res.json(
+                    this.app.getDevDiagnostics().perfCompare({
+                        baseline: typeof readString(req.query.baseline) === 'string' ? readString(req.query.baseline) : undefined,
+                        groupBy: typeof readString(req.query.groupBy) === 'string' ? (readString(req.query.groupBy) as TPerfGroupBy) : undefined,
+                        limit: readNumber(req.query.limit, 12),
+                        target: typeof readString(req.query.target) === 'string' ? readString(req.query.target) : undefined,
+                    }),
+                );
+            } catch (error) {
+                res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+            }
+        });
+
+        routes.get('/__proteum/perf/memory', (req, res) => {
+            const readString = (value: unknown) => (Array.isArray(value) ? value[0] : value);
+            const readNumber = (value: unknown, fallback: number) => {
+                const parsed = Number(readString(value));
+                return Number.isFinite(parsed) ? parsed : fallback;
+            };
+
+            try {
+                res.json(
+                    this.app.getDevDiagnostics().perfMemory({
+                        groupBy: typeof readString(req.query.groupBy) === 'string' ? (readString(req.query.groupBy) as TPerfGroupBy) : undefined,
+                        limit: readNumber(req.query.limit, 12),
+                        since: typeof readString(req.query.since) === 'string' ? readString(req.query.since) : undefined,
+                    }),
+                );
+            } catch (error) {
+                res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+            }
+        });
+
+        routes.get('/__proteum/perf/request', (req, res) => {
+            const query = Array.isArray(req.query.query) ? req.query.query[0] : req.query.query;
+
+            try {
+                res.json(this.app.getDevDiagnostics().perfRequest(typeof query === 'string' ? query : ''));
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                res.status(message.includes('Could not find') || message.includes('required') ? 404 : 400).json({ error: message });
             }
         });
 

@@ -18,14 +18,15 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 - Prefer explicit typed contracts over runtime magic or hidden conventions.
 - Keep `server/index.ts` as the canonical type root for services, router context, request context, and models.
 - Keep generated code deterministic, auditable, and easy to map back to source.
-- Prefer typed traces and manifest-backed diagnostics over ad hoc logging.
+- Prefer typed traces, perf rollups, and manifest-backed diagnostics over ad hoc logging.
 - Follow `agents/project/optimizations.md` when choosing packages, helpers, runtimes, plugins, or build infrastructure.
 - Delete obsolete compatibility layers, helper indirection, and unused packages when safe.
 
 ## Workflow
 
 - If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it.
-- When you have finished your work, summarize in one top-level short sentence the changes you made since the beginning of the conversation. Output as "Commit message".
+- After implementing a framework feature or change, do not stop at code edits. Boot both reference apps, exercise the affected flow with Playwright or the smallest real Proteum surface, run the relevant `proteum` diagnostics or perf commands, and confirm there is no meaningful regression in runtime behavior, performance, load size, SEO output, or coding-style expectations before finishing.
+- When you have finished your work, summarize in one top-level short (up to 100 characters) sentence the changes you made since the beginning of the conversation. Output as "Commit message".
 
 ## Core Changes
 
@@ -54,6 +55,7 @@ Do not stop at static analysis for routing, controllers, generated code, SSR, cl
 
 - Run `npx proteum dev --no-cache --port 3xxx` in both reference apps on explicit ports.
 - When validating a concrete route, controller path, or failing page on a running dev server, prefer `proteum diagnose <path> --port <port>` first. Use raw `proteum trace ...` output when you need lower-level event detail beyond the diagnose summary.
+- When the issue is latency, CPU, SQL cost, render cost, or memory drift, inspect `proteum perf top`, `proteum perf request`, `proteum perf compare`, or `proteum perf memory` against the running dev server before adding custom instrumentation.
 - For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` to mint a dev auth cookie instead of automating the login UI. Use the login UI only when login itself is the feature under test.
 - For request-time behavior, arm traces with `proteum trace arm --capture deep`, reproduce once, then inspect `proteum trace latest` or `proteum trace show <requestId>`.
 - When the framework-facing workflow itself changed, verify the CLI surface too with `proteum verify framework-change --crosspath-port <port> --unique-domains-port <port>`.

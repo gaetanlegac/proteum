@@ -112,6 +112,25 @@ export type TTraceSqlQuery = {
     target?: string;
 };
 
+export type TTraceMemorySnapshot = {
+    arrayBuffers: number;
+    external: number;
+    heapTotal: number;
+    heapUsed: number;
+    rss: number;
+};
+
+export type TRequestTracePerformance = {
+    cpu: {
+        systemMicros: number;
+        userMicros: number;
+    };
+    memory: {
+        after: TTraceMemorySnapshot;
+        before: TTraceMemorySnapshot;
+    };
+};
+
 export type TRequestTrace = {
     id: string;
     method: string;
@@ -131,6 +150,7 @@ export type TRequestTrace = {
     errorMessage?: string;
     requestDataJson?: unknown;
     resultJson?: unknown;
+    performance?: TRequestTracePerformance;
     calls: TTraceCall[];
     sqlQueries: TTraceSqlQuery[];
     events: TTraceEvent[];

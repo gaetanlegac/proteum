@@ -15,6 +15,7 @@ export const proteumCommandNames = [
     'doctor',
     'explain',
     'diagnose',
+    'perf',
     'trace',
     'command',
     'session',
@@ -51,7 +52,7 @@ export const proteumRecommendedFlow: TRow[] = [
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
-    { title: 'Manifest and contracts', names: ['doctor', 'explain', 'diagnose', 'trace', 'command', 'session', 'verify'] },
+    { title: 'Manifest and contracts', names: ['doctor', 'explain', 'diagnose', 'perf', 'trace', 'command', 'session', 'verify'] },
     { title: 'Project scaffolding', names: ['init', 'create'] },
 ];
 
@@ -242,6 +243,32 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         notes: [
             'This command talks to the running app over the dev-only diagnostics, trace, and session endpoints.',
             'When `--hit` is omitted, Proteum diagnoses the latest matching request trace if one already exists.',
+        ],
+        status: 'experimental',
+    },
+    perf: {
+        name: 'perf',
+        category: 'Manifest and contracts',
+        summary: 'Inspect shared performance rollups built from live request traces on a running Proteum dev server.',
+        usage: 'proteum perf [top|request <requestId|path>|compare|memory] [--since <window>] [--baseline <window>] [--target <window>] [--group-by <path|route|controller>] [--limit <n>] [--port <port>|--url <baseUrl>] [--json]',
+        bestFor:
+            'Finding the routes or controllers with the biggest response-time, CPU, SQL, render, and memory impact without manually stitching traces together.',
+        examples: [
+            { description: 'Show the hottest paths for the current day', command: 'proteum perf top --since today' },
+            { description: 'Inspect one traced request or the latest request for a path', command: 'proteum perf request /domains' },
+            {
+                description: 'Compare today against yesterday by route',
+                command: 'proteum perf compare --baseline yesterday --target today --group-by route',
+            },
+            {
+                description: 'Rank memory growth by controller over the last hour',
+                command: 'proteum perf memory --since 1h --group-by controller',
+            },
+        ],
+        notes: [
+            'Perf data is derived from the same dev-only request trace buffer used by `proteum trace` and the profiler.',
+            'Window values accept `1h`, `6h`, `24h`, `today`, `yesterday`, or an ISO timestamp.',
+            'Older traces captured before the perf runtime metrics were added may not include CPU or memory deltas.',
         ],
         status: 'experimental',
     },

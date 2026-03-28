@@ -8,6 +8,7 @@ This file is the source of truth for codex coding style instructions in Proteum-
 - Write clean, consistent, readable code with a tab size of 4.
 - Keep functions and methods short.
 - Every time possible, create reusable functions and components instead of repeating.
+- Before finishing a feature or change, review touched files against this document and run the smallest relevant project lint or check command when available; coding-style regressions are defects, not optional cleanup.
 
 ## Formatting
 
