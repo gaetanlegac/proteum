@@ -33,7 +33,7 @@ import { app, App } from '../app';
 ----------------------------------*/
 
 // Watch rules shared by the dev compiler and hot reload gate.
-const ignoredWatchPathPatterns = /(node_modules\/(?!proteum\/))|(\.generated\/)|(\.cache\/)|(\.proteum\/)|(\/var\/traces\/)/;
+const ignoredWatchPathPatterns = /(\.generated\/)|(\.cache\/)|(\.proteum\/)|(\/var\/traces\/)/;
 const hotReloadableServerPathPatterns = [
     /^client\/pages\//,
     /^client\/components\//,
@@ -102,14 +102,26 @@ const waitForChildExit = async (child: ChildProcess, timeoutMs: number) =>
         child.once('close', onClose);
     });
 
-const escapeForRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const createIgnoredWatchPattern = (outputPaths: string[]) =>
-    new RegExp(
-        [
-            ignoredWatchPathPatterns.source,
-            ...outputPaths.map((outputPath) => `(?:^${escapeForRegExp(outputPath)}(?:/|$))`),
-        ].join('|'),
-    );
+const shouldIgnoreNodeModulesWatchPath = (watchPath: string) => {
+    if (!watchPath.includes('/node_modules/')) return false;
+    if (watchPath.includes('/node_modules/proteum/') && !watchPath.includes('/node_modules/proteum/node_modules/')) {
+        return false;
+    }
+
+    return !app.isTranspileModuleFile(watchPath);
+};
+
+const createIgnoredWatchMatcher = (outputPaths: string[]) => (watchPath: string) => {
+    const normalizedWatchPath = normalizeWatchPath(watchPath);
+
+    if (outputPaths.some((outputPath) => normalizedWatchPath === outputPath || normalizedWatchPath.startsWith(outputPath + '/'))) {
+        return true;
+    }
+
+    if (shouldIgnoreNodeModulesWatchPath(normalizedWatchPath)) return true;
+
+    return ignoredWatchPathPatterns.test(normalizedWatchPath);
+};
 const getDevAppName = (app: App) =>
     app.identity.web?.fullTitle || app.identity.web?.title || app.identity.name || app.packageJson.name || app.paths.root;
 
@@ -173,6 +185,7 @@ async function startApp(app: App) {
                     console.info(
                         await renderServerReadyBanner({
                             appName: getDevAppName(app),
+                            connectedProjectsCount: Object.keys(app.env.connectedProjects).length,
                             publicUrl: message.publicUrl,
                             routerPort: app.env.router.port,
                         }),
@@ -342,6 +355,7 @@ export const run = async () => {
         await renderDevSession({
             appName: getDevAppName(app),
             appRoot: app.paths.root === process.cwd() ? '.' : app.paths.root,
+            connectedProjects: Object.values(app.env.connectedProjects),
             routerPort: app.env.router.port,
             devEventPort: devEventServer.port,
             proteumVersion: String(cli.packageJson.version || ''),
@@ -365,7 +379,7 @@ export const run = async () => {
 
     const multiCompiler = await compiler.create();
     const ignoredOutputPaths = [app.paths.bin, app.paths.dev].map(normalizeWatchPath);
-    const ignoredWatchPattern = createIgnoredWatchPattern(ignoredOutputPaths);
+    const ignoredWatchMatcher = createIgnoredWatchMatcher(ignoredOutputPaths);
 
     const watching = multiCompiler.watch(
         {
@@ -378,7 +392,7 @@ export const run = async () => {
             // - Node modules except 5HTP core (framework dev mode)
             // - Generated files during runtime (cause infinite loop. Ex: models.d.ts)
             // - Webpack output folders (`./dev`, legacy `./bin`)
-            ignored: ignoredWatchPattern,
+            ignored: ignoredWatchMatcher,
 
             //aggregateTimeout: 1000,
         },

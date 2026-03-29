@@ -12,7 +12,9 @@ const buildGeneratedArtifactList = (manifest: TProteumManifest) => {
     const clientRouteModulesRoot = path.join(appRoot, '.proteum', 'client', 'route-modules');
     const serverRouteModulesRoot = path.join(appRoot, '.proteum', 'server', 'route-modules');
     const generated = new Set<string>([
+        path.join(appRoot, 'proteum.connected.json'),
         path.join(appRoot, '.proteum', 'manifest.json'),
+        path.join(appRoot, '.proteum', 'proteum.connected.d.ts'),
         path.join(appRoot, '.proteum', 'client', 'context.ts'),
         path.join(appRoot, '.proteum', 'client', 'controllers.ts'),
         path.join(appRoot, '.proteum', 'client', 'layouts.ts'),
@@ -75,13 +77,17 @@ export const buildContractsDoctorResponse = (manifest: TProteumManifest, strict 
     const diagnostics: TProteumManifestDiagnostic[] = [];
     const sourceFilepaths = new Set<string>([
         manifest.app.identityFilepath,
+        manifest.app.setupFilepath,
         ...manifest.controllers.map((controller) => controller.filepath),
+        ...manifest.connectedProjects.flatMap((connectedProject) =>
+            connectedProject.cachedContractFilepath ? [connectedProject.cachedContractFilepath] : [],
+        ),
         ...manifest.commands.map((command) => command.filepath),
         ...manifest.routes.client.map((route) => route.filepath),
         ...manifest.routes.server.map((route) => route.filepath),
         ...manifest.layouts.map((layout) => layout.filepath),
-        ...manifest.services.app.flatMap((service) => [service.metasFilepath, service.sourceDir].filter(Boolean) as string[]),
-        ...manifest.services.routerPlugins.flatMap((service) => [service.metasFilepath, service.sourceDir].filter(Boolean) as string[]),
+        ...manifest.services.app.flatMap((service) => (service.sourceFilepath ? [service.sourceFilepath] : [])),
+        ...manifest.services.routerPlugins.flatMap((service) => (service.sourceFilepath ? [service.sourceFilepath] : [])),
     ]);
 
     for (const filepath of sourceFilepaths) {

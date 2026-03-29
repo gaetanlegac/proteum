@@ -5,40 +5,6 @@ import ts from 'typescript';
 import app from '../../app';
 import { normalizePath } from './shared';
 
-const ignoredServiceDirectories = new Set(['node_modules', 'proteum']);
-
-export const findServiceDirectories = (dir: string): string[] => {
-    if (!fs.existsSync(dir)) return [];
-
-    const directories: string[] = [];
-
-    for (const dirent of fs.readdirSync(dir, { withFileTypes: true })) {
-        const filePath = path.resolve(dir, dirent.name);
-
-        if (ignoredServiceDirectories.has(dirent.name)) continue;
-
-        let shouldTraverse = false;
-
-        if (dirent.isSymbolicLink()) {
-            const realPath = path.resolve(dir, fs.readlinkSync(filePath));
-            shouldTraverse = fs.lstatSync(realPath).isDirectory();
-        } else if (dirent.isDirectory()) {
-            shouldTraverse = true;
-        }
-
-        if (shouldTraverse) {
-            directories.push(...findServiceDirectories(filePath));
-            continue;
-        }
-
-        if (dirent.name === 'service.json') {
-            directories.push(path.dirname(filePath));
-        }
-    }
-
-    return directories;
-};
-
 const hasRegisteredRouteDefinitions = (filepath: string, content: string) => {
     const sourceFile = ts.createSourceFile(
         filepath,

@@ -79,6 +79,8 @@ export type TTraceCall = {
     method: string;
     path: string;
     fetcherId?: string;
+    connectedProjectNamespace?: string;
+    connectedControllerAccessor?: string;
     startedAt: string;
     finishedAt?: string;
     durationMs?: number;

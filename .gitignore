@@ -5,10 +5,12 @@ env.*
 # Temp files
 .temp
 .cache
-.proteum
-bin
-bin-dev
-public
+/.proteum
+/bin
+/dev
+/bin-dev
+/public
+/proteum.connected.json
 
 # Configs
 .vscode

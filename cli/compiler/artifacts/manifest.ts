@@ -1,14 +1,14 @@
+import fs from 'fs';
 import path from 'path';
 
 import app from '../../app';
 import cli from '../..';
-import {
-    inspectProteumEnv,
-} from '../../../common/env/proteumEnv';
+import { inspectProteumEnv } from '../../../common/env/proteumEnv';
 import { reservedRouteSetupKeys, routeSetupOptionKeys } from '../../../common/router/pageSetup';
 import {
     TProteumManifest,
     TProteumManifestCommand,
+    TProteumManifestConnectedProject,
     TProteumManifestController,
     TProteumManifestDiagnostic,
     TProteumManifestLayout,
@@ -16,6 +16,18 @@ import {
 } from '../common/proteumManifest';
 import { writeProteumManifest } from '../common/proteumManifest';
 import { normalizeAbsolutePath, normalizePath } from './shared';
+import type { TResolvedConnectedProjectContract } from './connectedProjects';
+
+const requiredGitignoreEntries = [
+    '/.proteum',
+    '/bin',
+    '/dev',
+    '/.cache',
+    '/var',
+    '/proteum.connected.json',
+] as const;
+
+const normalizeGitignoreEntry = (value: string) => value.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
 
 const collectManifestDiagnostics = ({
     commands,
@@ -206,6 +218,37 @@ const collectManifestDiagnostics = ({
         });
     }
 
+    const gitignoreFilepath = path.join(app.paths.root, '.gitignore');
+
+    if (!fs.existsSync(gitignoreFilepath)) {
+        pushDiagnostic({
+            level: 'warning',
+            code: 'app.gitignore-missing',
+            message: `Missing .gitignore. Proteum generated output should ignore ${requiredGitignoreEntries.join(', ')}.`,
+            filepath: gitignoreFilepath,
+        });
+    } else {
+        const entries = new Set(
+            fs.readFileSync(gitignoreFilepath, 'utf8')
+                .split(/\r?\n/)
+                .map((line) => line.replace(/#.*/, '').trim())
+                .filter(Boolean)
+                .map(normalizeGitignoreEntry),
+        );
+
+        for (const requiredEntry of requiredGitignoreEntries) {
+            const normalizedRequiredEntry = normalizeGitignoreEntry(requiredEntry);
+            if (entries.has(normalizedRequiredEntry)) continue;
+
+            pushDiagnostic({
+                level: 'warning',
+                code: 'app.gitignore-generated-entry-missing',
+                message: `Add "${requiredEntry}" to .gitignore so Proteum generated output stays untracked.`,
+                filepath: gitignoreFilepath,
+            });
+        }
+    }
+
     return diagnostics.sort((a, b) => {
         if (a.level !== b.level) return a.level === 'error' ? -1 : 1;
         if (a.filepath !== b.filepath) return a.filepath.localeCompare(b.filepath);
@@ -218,25 +261,49 @@ const collectManifestDiagnostics = ({
 
 export const writeCurrentProteumManifest = ({
     services,
+    connectedProjects: resolvedConnectedProjects,
     controllers,
     commands,
     routes,
     layouts,
 }: {
     services: TProteumManifest['services'];
+    connectedProjects: TResolvedConnectedProjectContract[];
     controllers: TProteumManifestController[];
     commands: TProteumManifestCommand[];
     routes: TProteumManifest['routes'];
     layouts: TProteumManifestLayout[];
 }) => {
-    const envInspection = inspectProteumEnv(app.paths.root);
+    const envInspection = inspectProteumEnv(app.paths.root, app.connectedProjects);
+    const connectedProjects: TProteumManifestConnectedProject[] = Object.entries(app.connectedProjects)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([namespace, config]) => {
+            const connectedControllers = controllers.filter((controller) => controller.connectedProjectNamespace === namespace);
+            const connectedEnv = app.env.connectedProjects[namespace];
+            const resolvedConnectedProject = resolvedConnectedProjects.find((connectedProject) => connectedProject.namespace === namespace);
+            const contract = resolvedConnectedProject?.contract;
+
+            return {
+                namespace,
+                packageName: contract?.packageName,
+                identityIdentifier: contract?.identity.identifier || connectedControllers[0]?.connectedProjectIdentifier,
+                identityName: contract?.identity.name,
+                sourceKind: resolvedConnectedProject?.sourceKind,
+                sourceValue: resolvedConnectedProject?.sourceValue || config.source,
+                cachedContractFilepath: resolvedConnectedProject?.cachedContractFilepath,
+                typingMode: resolvedConnectedProject?.typingMode,
+                urlInternal: connectedEnv?.urlInternal || config.urlInternal,
+                controllerCount: connectedControllers.length,
+            };
+        });
 
     const manifest: TProteumManifest = {
-        version: 2,
+        version: 9,
         app: {
             root: normalizeAbsolutePath(app.paths.root),
             coreRoot: normalizeAbsolutePath(cli.paths.core.root),
-            identityFilepath: normalizeAbsolutePath(path.join(app.paths.root, 'identity.yaml')),
+            identityFilepath: normalizeAbsolutePath(path.join(app.paths.root, 'identity.config.ts')),
+            setupFilepath: normalizeAbsolutePath(path.join(app.paths.root, 'proteum.config.ts')),
             identity: {
                 name: app.identity.name,
                 identifier: app.identity.identifier,
@@ -248,6 +315,21 @@ export const writeCurrentProteumManifest = ({
                 fullTitle: app.identity.web?.fullTitle,
                 webDescription: app.identity.web?.description,
                 version: app.identity.web?.version,
+            },
+            setup: {
+                transpile: app.transpile.length > 0 ? [...app.transpile] : undefined,
+                connect:
+                    Object.keys(app.connectedProjects).length > 0
+                        ? Object.fromEntries(
+                              Object.entries(app.connectedProjects).map(([namespace, config]) => [
+                                  namespace,
+                                  {
+                                      ...(config.source ? { source: config.source } : {}),
+                                      ...(config.urlInternal ? { urlInternal: config.urlInternal } : {}),
+                                  },
+                              ]),
+                          )
+                        : undefined,
             },
         },
         conventions: {
@@ -267,8 +349,10 @@ export const writeCurrentProteumManifest = ({
                 profile: app.env.profile,
                 routerPort: app.env.router.port,
                 routerCurrentDomain: app.env.router.currentDomain,
+                routerInternalUrl: app.env.router.internalUrl,
             },
         },
+        connectedProjects,
         services,
         controllers,
         commands,

@@ -30,8 +30,9 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 
 ## Core Changes
 
-- Validate framework changes against both reference apps:
+- Validate framework changes against the reference apps:
   - `/Users/gaetan/Desktop/Projets/crosspath/platform`
+  - `/Users/gaetan/Desktop/Projets/unique.domains/product`
   - `/Users/gaetan/Desktop/Projets/unique.domains/website`
 - Inspect how both apps currently use the touched feature, runtime, API, compiler behavior, or generated output before proposing or implementing changes.
 - Keep the developer-facing contract synchronized when framework work changes CLI commands, profiler capabilities, or the `proteum dev` banner. Update the live surfaces together in the same pass: CLI command/help definitions, profiler panels and dev-only endpoints, banner text/examples, and the most relevant agent docs that describe them, especially `AGENTS.md`, `agents/project/AGENTS.md`, `agents/project/diagnostics.md`, and any narrower `agents/project/**/AGENTS.md` file that mentions the changed workflow.
@@ -58,7 +59,7 @@ Do not stop at static analysis for routing, controllers, generated code, SSR, cl
 - When the issue is latency, CPU, SQL cost, render cost, or memory drift, inspect `proteum perf top`, `proteum perf request`, `proteum perf compare`, or `proteum perf memory` against the running dev server before adding custom instrumentation.
 - For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` to mint a dev auth cookie instead of automating the login UI. Use the login UI only when login itself is the feature under test.
 - For request-time behavior, arm traces with `proteum trace arm --capture deep`, reproduce once, then inspect `proteum trace latest` or `proteum trace show <requestId>`.
-- When the framework-facing workflow itself changed, verify the CLI surface too with `proteum verify framework-change --crosspath-port <port> --unique-domains-port <port>`.
+- When the framework-facing workflow itself changed, verify the CLI surface too with `proteum verify framework-change --crosspath-port <port> --product-port <port> --website-port <port>`.
 - Open the real pages with Playwright.
 - Inspect browser console errors and warnings.
 - Inspect server startup and runtime errors.

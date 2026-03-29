@@ -27,15 +27,26 @@ type TEnsureServerResult =
     | { baseUrl: string; startup: 'reused' }
     | { baseUrl: string; close: () => void; startup: 'spawned' };
 
+type TVerifyAppConfig = {
+    appRoot: string;
+    envOverrides?: Record<string, string>;
+    name: string;
+    port: number;
+    route: string;
+};
+
 const defaultApps = {
     crosspath: '/Users/gaetan/Desktop/Projets/crosspath/platform',
-    uniqueDomains: '/Users/gaetan/Desktop/Projets/unique.domains/website',
+    product: '/Users/gaetan/Desktop/Projets/unique.domains/product',
+    website: '/Users/gaetan/Desktop/Projets/unique.domains/website',
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const dedupe = <TValue>(values: TValue[]) => [...new Set(values)];
-const getBaseUrlCandidates = (port: number) => dedupe([`http://localhost:${port}`, `http://127.0.0.1:${port}`, `http://[::1]:${port}`]);
+const createLocalBaseUrl = (port: number) => `http://localhost:${port}`;
+const getBaseUrlCandidates = (port: number) =>
+    dedupe([createLocalBaseUrl(port), `http://127.0.0.1:${port}`, `http://[::1]:${port}`]);
 
 const fetchJson = async <TResponse>(baseUrl: string, pathname: string) => {
     const response = await got(`${normalizeBaseUrl(baseUrl)}${pathname}`, {
@@ -72,9 +83,11 @@ const waitForServer = async (baseUrls: string[], timeoutMs = 120000) => {
 
 const ensureServer = async ({
     appRoot,
+    envOverrides,
     port,
 }: {
     appRoot: string;
+    envOverrides?: Record<string, string>;
     port: number;
 }): Promise<TEnsureServerResult> => {
     const baseUrls = getBaseUrlCandidates(port);
@@ -86,10 +99,17 @@ const ensureServer = async ({
         } catch (_error) {}
     }
 
+    const desiredBaseUrl = createLocalBaseUrl(port);
     const cliBin = path.join(cli.paths.core.root, 'cli', 'bin.js');
     const child = spawn(process.execPath, [cliBin, 'dev', '--no-cache', '--port', String(port)], {
         cwd: appRoot,
-        env: { ...process.env },
+        env: {
+            ...process.env,
+            PORT: String(port),
+            URL: desiredBaseUrl,
+            URL_INTERNAL: desiredBaseUrl,
+            ...(envOverrides || {}),
+        },
         stdio: ['ignore', 'ignore', 'ignore'],
     });
 
@@ -104,6 +124,50 @@ const ensureServer = async ({
         close();
         throw error;
     }
+};
+
+const collectAppResult = async ({
+    appRoot,
+    baseUrl,
+    name,
+    route,
+    startup,
+}: {
+    appRoot: string;
+    baseUrl: string;
+    name: string;
+    route: string;
+    startup: 'reused' | 'spawned';
+}): Promise<TVerifyAppResult> => {
+    const explain = await fetchJson<{
+        controllers?: unknown[];
+        routes?: { client?: unknown[]; server?: unknown[] };
+        commands?: unknown[];
+    }>(baseUrl, '/__proteum/explain');
+    const doctor = await fetchJson<{ summary: { errors: number; warnings: number } }>(baseUrl, '/__proteum/doctor');
+    const contracts = await fetchJson<{ summary: { errors: number; warnings: number } }>(baseUrl, '/__proteum/doctor/contracts');
+    const pageResponse = await got(`${baseUrl}${route}`, {
+        followRedirect: false,
+        retry: { limit: 0 },
+        throwHttpErrors: false,
+    });
+
+    return {
+        appRoot,
+        baseUrl,
+        contracts: contracts.summary,
+        doctor: doctor.summary,
+        explain: {
+            commands: Array.isArray(explain.commands) ? explain.commands.length : 0,
+            controllers: Array.isArray(explain.controllers) ? explain.controllers.length : 0,
+            routes:
+                (Array.isArray(explain.routes?.client) ? explain.routes.client.length : 0) +
+                (Array.isArray(explain.routes?.server) ? explain.routes.server.length : 0),
+        },
+        name,
+        page: { statusCode: pageResponse.statusCode, url: `${baseUrl}${route}` },
+        startup,
+    };
 };
 
 const renderHuman = (result: TVerifyResult) =>
@@ -126,66 +190,82 @@ export const run = async () => {
     const action = typeof cli.args.action === 'string' && cli.args.action ? cli.args.action : 'framework-change';
     if (action !== 'framework-change') throw new UsageError(`Unsupported verify action "${action}".`);
 
-    const route = typeof cli.args.route === 'string' && cli.args.route ? cli.args.route : '/';
-    const apps = [
-        {
+    const websiteRoute = typeof cli.args.route === 'string' && cli.args.route ? cli.args.route : '/';
+    const apps = {
+        crosspath: {
             appRoot: (typeof cli.args.crosspath === 'string' && cli.args.crosspath) || defaultApps.crosspath,
             name: 'CrossPath',
             port: Number((typeof cli.args.crosspathPort === 'string' && cli.args.crosspathPort) || 3011),
-        },
-        {
-            appRoot: (typeof cli.args.uniqueDomains === 'string' && cli.args.uniqueDomains) || defaultApps.uniqueDomains,
-            name: 'Unique Domains',
-            port: Number((typeof cli.args.uniqueDomainsPort === 'string' && cli.args.uniqueDomainsPort) || 3021),
-        },
-    ];
+            route: '/',
+        } satisfies TVerifyAppConfig,
+        product: {
+            appRoot: (typeof cli.args.product === 'string' && cli.args.product) || defaultApps.product,
+            name: 'Unique Domains Product',
+            port: Number((typeof cli.args.productPort === 'string' && cli.args.productPort) || 3021),
+            route: '/',
+        } satisfies TVerifyAppConfig,
+        website: {
+            appRoot: (typeof cli.args.website === 'string' && cli.args.website) || defaultApps.website,
+            name: 'Unique Domains Website',
+            port: Number((typeof cli.args.websitePort === 'string' && cli.args.websitePort) || 3031),
+            route: websiteRoute,
+        } satisfies TVerifyAppConfig,
+    };
+
+    for (const app of Object.values(apps)) {
+        if (!fs.existsSync(app.appRoot)) {
+            throw new UsageError(`Reference app "${app.name}" was not found at ${app.appRoot}.`);
+        }
+    }
 
     const startedServers: Array<() => void> = [];
 
     try {
         const results: TVerifyAppResult[] = [];
 
-        for (const app of apps) {
-            if (!fs.existsSync(app.appRoot)) {
-                throw new UsageError(`Reference app "${app.name}" was not found at ${app.appRoot}.`);
-            }
+        const productServer = await ensureServer({
+            appRoot: apps.product.appRoot,
+            port: apps.product.port,
+        });
+        if (productServer.startup === 'spawned') startedServers.push(productServer.close);
 
-            const server = await ensureServer({ appRoot: app.appRoot, port: app.port });
-            if (server.startup === 'spawned') startedServers.push(server.close);
+        const websiteServer = await ensureServer({
+            appRoot: apps.website.appRoot,
+            envOverrides: {
+                PRODUCT_CONNECTED_SOURCE: `file:${apps.product.appRoot}`,
+                PRODUCT_URL_INTERNAL: productServer.baseUrl,
+            },
+            port: apps.website.port,
+        });
+        if (websiteServer.startup === 'spawned') startedServers.push(websiteServer.close);
 
-            const explain = await fetchJson<{
-                controllers?: unknown[];
-                routes?: { client?: unknown[]; server?: unknown[] };
-                commands?: unknown[];
-            }>(server.baseUrl, '/__proteum/explain');
-            const doctor = await fetchJson<{ summary: { errors: number; warnings: number } }>(server.baseUrl, '/__proteum/doctor');
-            const contracts = await fetchJson<{ summary: { errors: number; warnings: number } }>(
-                server.baseUrl,
-                '/__proteum/doctor/contracts',
-            );
-            const pageResponse = await got(`${server.baseUrl}${route}`, {
-                followRedirect: false,
-                retry: { limit: 0 },
-                throwHttpErrors: false,
-            });
+        const crosspathServer = await ensureServer({
+            appRoot: apps.crosspath.appRoot,
+            port: apps.crosspath.port,
+        });
+        if (crosspathServer.startup === 'spawned') startedServers.push(crosspathServer.close);
 
-            results.push({
-                appRoot: app.appRoot,
-                baseUrl: server.baseUrl,
-                contracts: contracts.summary,
-                doctor: doctor.summary,
-                explain: {
-                    commands: Array.isArray(explain.commands) ? explain.commands.length : 0,
-                    controllers: Array.isArray(explain.controllers) ? explain.controllers.length : 0,
-                    routes:
-                        (Array.isArray(explain.routes?.client) ? explain.routes.client.length : 0) +
-                        (Array.isArray(explain.routes?.server) ? explain.routes.server.length : 0),
-                },
-                name: app.name,
-                page: { statusCode: pageResponse.statusCode, url: `${server.baseUrl}${route}` },
-                startup: server.startup,
-            });
-        }
+        results.push(
+            await collectAppResult({
+                ...apps.crosspath,
+                baseUrl: crosspathServer.baseUrl,
+                startup: crosspathServer.startup,
+            }),
+        );
+        results.push(
+            await collectAppResult({
+                ...apps.product,
+                baseUrl: productServer.baseUrl,
+                startup: productServer.startup,
+            }),
+        );
+        results.push(
+            await collectAppResult({
+                ...apps.website,
+                baseUrl: websiteServer.baseUrl,
+                startup: websiteServer.startup,
+            }),
+        );
 
         const result = { action, apps: results } satisfies TVerifyResult;
 

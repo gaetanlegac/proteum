@@ -18,12 +18,14 @@ export const renderDevSession = async ({
     appRoot,
     routerPort,
     devEventPort,
+    connectedProjects,
     proteumVersion,
 }: {
     appName: string;
     appRoot: string;
     routerPort: number;
     devEventPort: number;
+    connectedProjects?: Array<{ namespace: string; urlInternal: string }>;
     proteumVersion: string;
 }) =>
     [
@@ -49,6 +51,12 @@ export const renderDevSession = async ({
                 { label: 'root', value: appRoot },
                 { label: 'router', value: `http://localhost:${routerPort}` },
                 { label: 'hmr', value: `http://localhost:${devEventPort}/__proteum_hmr` },
+                ...(connectedProjects && connectedProjects.length > 0
+                    ? connectedProjects.map((connectedProject) => ({
+                          label: `connect ${connectedProject.namespace}`,
+                          value: connectedProject.urlInternal,
+                      }))
+                    : []),
                 { label: 'diagnose', value: `proteum diagnose / --port ${routerPort}` },
                 { label: 'perf', value: `proteum perf top --port ${routerPort}` },
                 { label: 'trace', value: `proteum trace latest --port ${routerPort}` },
@@ -63,10 +71,12 @@ export const renderServerReadyBanner = async ({
     appName,
     publicUrl,
     routerPort,
+    connectedProjectsCount,
 }: {
     appName: string;
     publicUrl: string;
     routerPort: number;
+    connectedProjectsCount?: number;
 }) =>
     renderInk(({ Box, Text }) => {
         const createElement = React.createElement;
@@ -78,6 +88,13 @@ export const renderServerReadyBanner = async ({
             createElement(Text, { bold: true, color: 'green' }, appName),
             createElement(Text, { bold: true }, publicUrl),
             createElement(Text, { dimColor: true }, 'SSR server is listening for requests and hot reloads.'),
+            connectedProjectsCount
+                ? createElement(
+                      Text,
+                      { dimColor: true },
+                      `Connected projects: ${connectedProjectsCount}`,
+                  )
+                : null,
             createElement(Text, { dimColor: true }, `Diagnose /: proteum diagnose / --port ${routerPort}`),
             createElement(Text, { dimColor: true }, `Perf top: proteum perf top --port ${routerPort}`),
             createElement(Text, { dimColor: true }, `Trace latest: proteum trace latest --port ${routerPort}`),

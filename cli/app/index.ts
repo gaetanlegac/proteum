@@ -11,6 +11,8 @@ import fs from 'fs-extra';
 import cli from '..';
 
 // Specific
+import { normalizeTranspileConfig } from '../../common/applicationConfig';
+import { normalizeConnectedProjectsConfig } from '../../common/connectedProjects';
 import ConfigParser from './config';
 import type { TEnvConfig } from '../../server/app/container/config';
 
@@ -32,6 +34,30 @@ const parseRouterPortOverride = (rawPort: string | boolean | string[] | undefine
     return port;
 };
 
+const normalizeModulePath = (value: string) => value.replace(/\\/g, '/').replace(/\/$/, '');
+
+const resolveTranspileModuleDirectories = ({
+    moduleNames,
+    searchRoots,
+}: {
+    moduleNames: string[];
+    searchRoots: string[];
+}) => {
+    const directories = new Set<string>();
+
+    for (const moduleName of moduleNames) {
+        for (const searchRoot of searchRoots) {
+            const candidate = normalizeModulePath(path.join(searchRoot, 'node_modules', moduleName));
+            if (!fs.existsSync(candidate)) continue;
+
+            directories.add(candidate);
+            directories.add(normalizeModulePath(fs.realpathSync(candidate)));
+        }
+    }
+
+    return [...directories];
+};
+
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
@@ -40,6 +66,7 @@ export class App {
     // WARNING: High level config files (env and services) shouldn't be loaded from the CLI
     //  The CLI will be run on CircleCI, and no env file should be sent to this service
     public identity: Config.Identity;
+    public setup: Config.Setup;
 
     public env: TEnvConfig;
 
@@ -77,6 +104,7 @@ export class App {
         //'Services',
         'Environment',
         'Identity',
+        'Setup',
         /*'Application',
         'Path',
         'Event'*/
@@ -88,12 +116,42 @@ export class App {
 
         const configParser = new ConfigParser(cli.paths.appRoot, undefined, this.routerPortOverride);
         this.identity = configParser.identity();
+        this.setup = configParser.setup();
         this.env = configParser.env();
         this.packageJson = this.loadPkg();
     }
 
     public outputPath(target: 'dev' | 'bin') {
         return target === 'dev' ? this.paths.dev : this.paths.bin;
+    }
+
+    public get transpile() {
+        return normalizeTranspileConfig(this.setup.transpile);
+    }
+
+    public get connectedProjects() {
+        return normalizeConnectedProjectsConfig(this.setup.connect);
+    }
+
+    public get transpileModuleDirectories() {
+        return resolveTranspileModuleDirectories({
+            moduleNames: this.transpile,
+            searchRoots: [this.paths.root, cli.paths.core.root],
+        });
+    }
+
+    public isTranspileModuleFile(filepath: string) {
+        const normalizedFilepath = normalizeModulePath(path.resolve(filepath));
+
+        return this.transpileModuleDirectories.some(
+            (directory) => normalizedFilepath === directory || normalizedFilepath.startsWith(directory + '/'),
+        );
+    }
+
+    public isTranspileModuleRequest(request: string) {
+        if (path.isAbsolute(request)) return this.isTranspileModuleFile(request);
+
+        return this.transpile.some((moduleName) => request === moduleName || request.startsWith(moduleName + '/'));
     }
 
     /*----------------------------------

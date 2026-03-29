@@ -2,6 +2,7 @@
 - DEPENDANCES
 ----------------------------------*/
 
+import type { TConnectedFetcherTarget } from '@common/connectedProjects';
 import type { HttpMethod } from '@server/services/router';
 
 /*----------------------------------
@@ -37,6 +38,7 @@ export type TApiFetchOptions = {
     onProgress?: (percent: number) => void;
     // Default: json
     encoding?: 'json' | 'multipart';
+    connected?: TConnectedFetcherTarget;
 };
 
 export type TPostData = TPostDataWithFile;

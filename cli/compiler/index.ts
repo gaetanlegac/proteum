@@ -141,12 +141,13 @@ export default class Compiler {
         if (!this.refreshingGeneratedArtifacts) {
             this.refreshingGeneratedArtifacts = (async () => {
                 const services = generateServiceArtifacts();
-                const controllers = generateControllerArtifacts();
+                const { connectedProjects, controllers } = await generateControllerArtifacts();
                 const commands = generateCommandArtifacts();
                 const { clientRoutes, serverRoutes, layouts } = generateRoutingArtifacts();
 
                 writeCurrentProteumManifest({
                     services,
+                    connectedProjects,
                     controllers,
                     commands,
                     routes: { client: clientRoutes, server: serverRoutes },

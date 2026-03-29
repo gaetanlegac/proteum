@@ -1,7 +1,0 @@
-{
-    "id": "Core/Fetch",
-    "name": "Fetch",
-    "parent": "app",
-    "dependences": [],
-    "priority": 0
-}

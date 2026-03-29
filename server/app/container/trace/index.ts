@@ -328,6 +328,8 @@ export default class Trace {
             method?: string;
             path?: string;
             fetcherId?: string;
+            connectedProjectNamespace?: string;
+            connectedControllerAccessor?: string;
             parentId?: string;
             requestDataKeys?: string[];
             requestData?: TTraceInspectable;
@@ -344,6 +346,8 @@ export default class Trace {
             method: input.method || '',
             path: input.path || '',
             fetcherId: input.fetcherId,
+            connectedProjectNamespace: input.connectedProjectNamespace,
+            connectedControllerAccessor: input.connectedControllerAccessor,
             startedAt: nowIso(),
             requestDataKeys: input.requestDataKeys || [],
             requestData: input.requestData !== undefined ? summarizeCaptureValue(input.requestData, trace.capture, 'requestData') : undefined,

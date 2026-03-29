@@ -197,21 +197,21 @@ const createCommandEntry = (command: TProteumManifestCommand): TManifestEntry =>
 
 const createServiceEntry = (service: TProteumManifestService): TManifestEntry => {
     const terms = new Set<string>();
-    const sourceFilepath = service.metasFilepath || service.sourceDir || '';
+    const sourceFilepath = service.sourceFilepath || '';
 
     pushTerm(terms, service.registeredName);
-    pushTerm(terms, service.id);
-    pushTerm(terms, service.metaName);
+    pushTerm(terms, service.className);
     pushTerm(terms, service.parent);
     pushTerm(terms, service.refTo);
+    pushTerm(terms, service.importPath);
     pushTerm(terms, sourceFilepath);
 
     return {
         details: [
             service.kind,
             `registered=${service.registeredName}`,
-            ...(service.id ? [`id=${service.id}`] : []),
-            ...(service.metaName ? [`meta=${service.metaName}`] : []),
+            ...(service.className ? [`class=${service.className}`] : []),
+            ...(service.importPath ? [`import=${service.importPath}`] : []),
             ...(service.refTo ? [`ref=${service.refTo}`] : []),
         ],
         kind: 'service',

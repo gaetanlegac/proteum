@@ -35,7 +35,8 @@ Proteum combines:
 
 ```text
 my-app/
-  identity.yaml
+  identity.config.ts
+  proteum.config.ts
   .env               # optional file for required local env vars
   package.json
   commands/
@@ -63,8 +64,9 @@ my-app/
 
 Important files:
 
-- `identity.yaml`: app identity, naming, locale, and SEO-facing metadata defaults
-- `process.env` / optional `.env`: `PORT`, `ENV_*`, `URL`, and `TRACE_*` environment variables loaded by the app
+- `identity.config.ts`: typed app identity, naming, locale, and SEO-facing metadata defaults via `Application.identity({ ... })`
+- `proteum.config.ts`: typed Proteum compiler and connection settings such as `transpile` and `connect` via `Application.setup({ ... })`
+- `process.env` / optional `.env`: `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, any app-chosen variables referenced by `proteum.config.ts`, and `TRACE_*` environment variables loaded by the app
 - `server/config/*.ts`: plain typed config exports consumed by the explicit app bootstrap
 - `server/index.ts`: default-exported `Application` subclass that instantiates root services and router plugins
 - `client/pages/**`: SSR page entrypoints registered through `Router.page(...)`
@@ -79,6 +81,12 @@ Required Proteum env vars:
 - `ENV_PROFILE`: `dev`, `testing`, or `prod`
 - `PORT`: default router port
 - `URL`: canonical absolute base URL for `Router.url(..., true)`
+- `URL_INTERNAL`: internal absolute base URL used by SSR and connected-project server calls
+
+If `proteum.config.ts` declares `connect`, Proteum also requires:
+
+- one explicit `connect.<Namespace>.source` value in `proteum.config.ts`
+- one explicit `connect.<Namespace>.urlInternal` value in `proteum.config.ts`
 
 Proteum does not provide defaults for required env vars. They must be defined explicitly in `process.env` or `.env`.
 
@@ -91,6 +99,37 @@ Optional trace env vars:
 - `TRACE_EVENTS_LIMIT`
 - `TRACE_CAPTURE`
 - `TRACE_PERSIST_ON_ERROR`
+
+Optional `proteum.config.ts` fields:
+
+- `transpile`: array of package names that Proteum should compile from `node_modules/` instead of treating as prebuilt vendor code
+- `connect`: connected project namespaces that should be merged into generated controller helpers
+
+Example:
+
+```ts
+import { Application } from 'proteum/config';
+
+const PRODUCT_CONNECTED_SOURCE = process.env.PRODUCT_CONNECTED_SOURCE;
+const PRODUCT_URL_INTERNAL = process.env.PRODUCT_URL_INTERNAL;
+
+export default Application.setup({
+  transpile: ['@acme/components'],
+  connect: {
+    Product: {
+      source: PRODUCT_CONNECTED_SOURCE,
+      urlInternal: PRODUCT_URL_INTERNAL,
+    },
+  },
+});
+```
+
+Connected contract sources are provided explicitly through `proteum.config.ts` instead of being inferred from the namespace:
+
+- local typed source value: `file:../product`
+- remote runtime-only source value: `github:owner/repo?ref=<sha-or-branch>&path=proteum.connected.json`
+
+Use this for linked or workspace-local TypeScript packages that ship source files and must flow through Proteum's alias and SSR compilation pipeline.
 
 ## Example: Server Bootstrap
 
@@ -142,7 +181,7 @@ export default class MyApp extends Application {
 }
 ```
 
-Proteum reads `server/index.ts` plus `server/services/**/service.json` to derive the installed service graph and generated type contracts.
+Proteum reads `server/index.ts` as the source of truth for installed root services and router plugins, and reads `server/config/*.ts` `Services.config(...)` exports for typed config such as service priority overrides.
 
 ## Example: Page
 
@@ -285,8 +324,9 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum lint` | Run ESLint for the current app |
 | `proteum check` | Refresh, typecheck, and lint in one command |
 | `proteum build --prod` | Produce the production server and client bundles into `bin/` |
+| `proteum connect` | Inspect connected-project sources, env, cached contracts, and imported controllers |
 | `proteum doctor` | Inspect manifest diagnostics |
-| `proteum explain` | Explain routes, controllers, services, layouts, conventions, and env |
+| `proteum explain` | Explain routes, controllers, services, layouts, conventions, env, and connected projects |
 | `proteum diagnose` | Combine owner lookup, diagnostics, trace data, and server logs for one concrete route or request target |
 | `proteum perf` | Aggregate request-trace performance into hot paths, one-request waterfalls, regressions, and memory drift views |
 | `proteum trace` | Inspect live dev-only request traces from the running SSR server |
@@ -311,9 +351,13 @@ Useful inspection commands:
 proteum doctor
 proteum doctor --contracts
 proteum doctor --json
+proteum connect
+proteum connect --controllers
+proteum connect --strict
 proteum explain
 proteum explain owner /api/Auth/CurrentUser
 proteum explain --routes --controllers --commands
+proteum explain --connected --controllers
 proteum explain --all --json
 proteum diagnose /
 proteum diagnose /dashboard --port 3101
@@ -340,7 +384,7 @@ proteum create controller Founder/projects --method list
 proteum create service Conversion/Plans
 ```
 
-`proteum explain`, `proteum doctor`, and `proteum diagnose` share the same dev diagnostics contract as the profiler `Explain`, `Doctor`, and `Diagnose` tabs. `proteum perf` uses the same dev request-trace store as the profiler `Perf` tab. For the full diagnostics and tracing model, see [docs/diagnostics.md](docs/diagnostics.md) and [docs/request-tracing.md](docs/request-tracing.md).
+`proteum connect`, `proteum explain`, `proteum doctor`, and `proteum diagnose` share the same generated manifest and contract state. `proteum perf` uses the same dev request-trace store as the profiler `Perf` tab. For the full diagnostics and tracing model, see [docs/diagnostics.md](docs/diagnostics.md) and [docs/request-tracing.md](docs/request-tracing.md).
 
 ## Dev Commands
 
@@ -441,8 +485,9 @@ Proteum is built so an agent can answer these questions quickly and reliably:
 
 Proteum answers those questions with explicit artifacts:
 
-- `identity.yaml` for app identity
-- `PORT`, `ENV_*`, `URL`, and `TRACE_*` env vars for the environment surface
+- `identity.config.ts` for app identity
+- `proteum.config.ts` for compiler and connected-project setup
+- `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, app-chosen connected-project config values, and `TRACE_*` env vars for the environment surface
 - `server/index.ts` for the explicit root service graph
 - `.proteum/manifest.json` for machine-readable app structure
 - `proteum explain --json` for structured framework introspection
@@ -457,8 +502,8 @@ Proteum answers those questions with explicit artifacts:
 
 If you are an LLM or automation agent, start here:
 
-1. Read `identity.yaml`.
-2. Read `PORT`, the relevant `ENV_*`, `URL`, and `TRACE_*` env vars, or run `proteum explain env`.
+1. Read `identity.config.ts` and `proteum.config.ts`.
+2. Read `PORT`, the relevant `ENV_*`, `URL`, `URL_INTERNAL`, any env values referenced by `proteum.config.ts`, and `TRACE_*` env vars, or run `proteum explain env`.
 3. Inspect `server/index.ts` and `server/config/*.ts` for the explicit app bootstrap.
 4. Read `.proteum/manifest.json` or run `proteum explain --json`.
 5. Inspect `server/controllers/**` for request entrypoints.

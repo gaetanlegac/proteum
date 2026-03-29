@@ -78,6 +78,7 @@ export default function createCompiler(
     const outputPath = app.outputPath(outputTarget);
     const installedCoreRoot = path.join(app.paths.root, 'node_modules', 'proteum');
     const frameworkRoots = [cli.paths.core.root, installedCoreRoot];
+    const transpileModuleDirectories = app.transpileModuleDirectories;
 
     const commonConfig = createCommonConfig(app, 'client', mode, outputTarget);
 
@@ -164,6 +165,7 @@ export default function createCompiler(
                         ...frameworkRoots.map((rootPath) => rootPath + '/client'),
                         ...frameworkRoots.map((rootPath) => rootPath + '/common'),
                         ...frameworkRoots.map((rootPath) => rootPath + '/server'),
+                        ...transpileModuleDirectories,
                     ],
                     loader: path.join(
                         cli.paths.core.root,
@@ -190,6 +192,7 @@ export default function createCompiler(
                         ...frameworkRoots.map((rootPath) => rootPath + '/client'),
                         ...frameworkRoots.map((rootPath) => rootPath + '/common'),
                         ...frameworkRoots.map((rootPath) => rootPath + '/server'),
+                        ...transpileModuleDirectories,
                     ],
                     rules: require('../common/scripts')({ app, side: 'client', dev }),
                 },

@@ -116,6 +116,7 @@ export type Config<
     disk?: string; // Disk driver ID
 
     currentDomain: string;
+    defaultRouteOptions?: Partial<TRouteOptions>;
 
     http: HttpServiceConfig;
 
@@ -365,6 +366,14 @@ export default class ServerRouter<
     public url = (path: string, params: {} = {}, absolute: boolean = true) =>
         buildUrl(path, params, this.config.currentDomain, absolute);
 
+    private buildRouteOptions(options: Partial<TRouteOptions> = {}): TRouteOptions {
+        return {
+            ...defaultOptions,
+            ...(this.config.defaultRouteOptions || {}),
+            ...options,
+        };
+    }
+
     /*----------------------------------
     - REGISTER
     ----------------------------------*/
@@ -380,12 +389,11 @@ export default class ServerRouter<
             regex,
             keys,
             controller: (context: TRouterContext<this>) => new Page(route, renderer, context, layout),
-            options: {
-                ...defaultOptions,
+            options: this.buildRouteOptions({
                 accept: 'html', // Les pages retournent forcémment du html
                 setup,
                 ...options,
-            },
+            }),
         };
 
         this.routes.push(route);
@@ -398,7 +406,7 @@ export default class ServerRouter<
         options: Partial<TRouteOptions>,
         renderer: TFrontRenderer<{}, { message: string }>,
     ) {
-        const finalOptions = { ...defaultOptions, ...options };
+        const finalOptions = this.buildRouteOptions(options);
 
         // Automatic layout form the nearest _layout folder
         const layout = getLayout('Error ' + code, finalOptions);
@@ -456,7 +464,7 @@ export default class ServerRouter<
             path: path,
             regex,
             keys: keys,
-            options: { ...defaultOptions, ...options },
+            options: this.buildRouteOptions(options),
             controller,
         };
 
@@ -936,55 +944,7 @@ export default class ServerRouter<
     };
 
     private async resolveApiBatch(fetchers: TFetcherList, request: ServerRequest<this>) {
-        // TODO: use api.fetchSync instead
-
-        const responseData: TObjetDonnees = {};
-        for (const id in fetchers) {
-            const fetcher = fetchers[id];
-            if (!fetcher || !('method' in fetcher)) continue;
-
-            const { method, path, data } = fetcher;
-            const callId = this.app.container.Trace.startCall(request.id, {
-                origin: 'api-batch-fetcher',
-                label: id,
-                method,
-                path,
-                fetcherId: id,
-                requestDataKeys: data && typeof data === 'object' ? Object.keys(data) : [],
-                requestData: data,
-            });
-            const childRequest = request.children(method, path, data);
-            if (callId)
-                childRequest.traceCall = {
-                    fetcherId: id,
-                    id: callId,
-                    label: id,
-                    origin: 'api-batch-fetcher',
-                };
-
-            try {
-                const response = await this.resolve(childRequest);
-                responseData[id] = response.data;
-                this.app.container.Trace.finishCall(request.id, callId, {
-                    statusCode: response.statusCode,
-                    resultKeys:
-                        response.data && typeof response.data === 'object' && !Array.isArray(response.data)
-                            ? Object.keys(response.data as Record<string, unknown>)
-                            : [],
-                    result: response.data as object | string | number | boolean | bigint | symbol | null | undefined,
-                });
-            } catch (error) {
-                const typedError = error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown error');
-                const statusCode = 'http' in typedError ? Number((typedError as Error & { http?: number }).http) : undefined;
-                this.app.container.Trace.finishCall(request.id, callId, {
-                    statusCode: Number.isFinite(statusCode) ? statusCode : undefined,
-                    errorMessage: typedError.message,
-                });
-                throw error;
-            }
-
-            // TODO: merge response.headers ?
-        }
+        const responseData = await request.api.fetchSync(fetchers, {});
 
         // Status
         request.res.status(200);

@@ -1,6 +1,0 @@
-{
-    "id": "Core/Disks/Local",
-    "name": "LocalDiskDriver",
-    "parent": "disks",
-    "dependences": []
-}

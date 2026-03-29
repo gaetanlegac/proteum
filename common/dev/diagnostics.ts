@@ -1,6 +1,7 @@
 import type {
     TProteumManifest,
     TProteumManifestCommand,
+    TProteumManifestConnectedProject,
     TProteumManifestController,
     TProteumManifestDiagnostic,
     TProteumManifestLayout,
@@ -8,7 +9,7 @@ import type {
     TProteumManifestService,
 } from './proteumManifest';
 
-export const explainSectionNames = ['app', 'conventions', 'env', 'services', 'controllers', 'commands', 'routes', 'layouts', 'diagnostics'] as const;
+export const explainSectionNames = ['app', 'conventions', 'env', 'connected', 'services', 'controllers', 'commands', 'routes', 'layouts', 'diagnostics'] as const;
 
 export type TExplainSectionName = (typeof explainSectionNames)[number];
 export type THumanTextBlock = {
@@ -51,12 +52,15 @@ const formatServiceItem = (manifest: TProteumManifest, service: TProteumManifest
         return `${service.registeredName} -> ref ${service.refTo} [${service.parent}]`;
     }
 
-    const source = service.metasFilepath ? formatManifestFilepath(manifest, service.metasFilepath) : 'unknown';
-    return `${service.registeredName} -> ${service.id} (${service.metaName}) [${service.scope}] priority=${service.priority} source=${source}`;
+    const source = service.sourceFilepath ? formatManifestFilepath(manifest, service.sourceFilepath) : 'unknown';
+    return `${service.registeredName} -> ${service.className || 'unknown'} [${service.scope}] priority=${service.priority} parent=${service.parent} source=${source}`;
 };
 
+const formatConnectedProjectItem = (_manifest: TProteumManifest, connectedProject: TProteumManifestConnectedProject) =>
+    `${connectedProject.namespace} -> ${connectedProject.identityIdentifier || connectedProject.packageName || 'unknown'} controllers=${connectedProject.controllerCount} internal=${connectedProject.urlInternal || 'missing'}${connectedProject.sourceKind ? ` source=${connectedProject.sourceKind}` : ''}${connectedProject.sourceValue ? ` sourceValue=${connectedProject.sourceValue}` : ' source=missing'}${connectedProject.typingMode ? ` typing=${connectedProject.typingMode}` : ''}${connectedProject.cachedContractFilepath ? ` contract=${formatManifestFilepath(_manifest, connectedProject.cachedContractFilepath)}` : ''}`;
+
 const formatControllerItem = (manifest: TProteumManifest, controller: TProteumManifestController) =>
-    `${controller.clientAccessor} -> POST ${controller.httpPath} [${controller.scope}] input=${controller.hasInput ? 'yes' : 'no'} source=${formatManifestFilepath(manifest, controller.filepath)}${formatManifestLocation(controller.sourceLocation.line, controller.sourceLocation.column)}#${controller.methodName}`;
+    `${controller.clientAccessor} -> POST ${controller.httpPath} [${controller.scope}] input=${controller.hasInput ? 'yes' : 'no'}${controller.connectedProjectNamespace ? ` connected=${controller.connectedProjectNamespace}` : ''} source=${formatManifestFilepath(manifest, controller.filepath)}${formatManifestLocation(controller.sourceLocation.line, controller.sourceLocation.column)}#${controller.methodName}`;
 
 const formatCommandItem = (manifest: TProteumManifest, command: TProteumManifestCommand) =>
     `${command.path} -> ${command.className}.${command.methodName} [${command.scope}] source=${formatManifestFilepath(manifest, command.filepath)}${formatManifestLocation(command.sourceLocation.line, command.sourceLocation.column)}`;
@@ -93,7 +97,12 @@ export const pickExplainManifestSections = (manifest: TProteumManifest, sectionN
     const selected: Record<string, unknown> = {};
 
     for (const sectionName of sectionNames) {
-        selected[sectionName] = manifest[sectionName];
+        if (sectionName === 'connected') {
+            selected.connectedProjects = manifest.connectedProjects;
+            continue;
+        }
+
+        selected[sectionName] = manifest[sectionName as keyof TProteumManifest];
     }
 
     return selected as Partial<TProteumManifest>;
@@ -108,6 +117,7 @@ export const buildExplainSummaryItems = (manifest: TProteumManifest) => {
         `Proteum manifest: ${formatManifestFilepath(manifest, `${normalizePath(manifest.app.root)}/.proteum/manifest.json`)}`,
         `App: ${manifest.app.identity.name} (${manifest.app.identity.identifier})`,
         `Env vars: ${providedRequiredEnvVariables}/${manifest.env.requiredVariables.length} required provided`,
+        `Connected projects: ${manifest.connectedProjects.length}`,
         `Services: ${manifest.services.app.length} app, ${manifest.services.routerPlugins.length} router plugins`,
         `Controllers: ${manifest.controllers.length}`,
         `Commands: ${manifest.commands.length}`,
@@ -129,9 +139,12 @@ export const buildExplainBlocks = (manifest: TProteumManifest, sectionNames: TEx
                     `root=${formatManifestFilepath(manifest, manifest.app.root)}`,
                     `coreRoot=${formatManifestFilepath(manifest, manifest.app.coreRoot)}`,
                     `identity=${formatManifestFilepath(manifest, manifest.app.identityFilepath)}`,
+                    `setup=${formatManifestFilepath(manifest, manifest.app.setupFilepath)}`,
                     `name=${manifest.app.identity.name}`,
                     `identifier=${manifest.app.identity.identifier}`,
                     `title=${manifest.app.identity.fullTitle || manifest.app.identity.title || manifest.app.identity.name}`,
+                    `transpile=${manifest.app.setup.transpile?.join(', ') || 'none'}`,
+                    `connect=${Object.keys(manifest.app.setup.connect || {}).join(', ') || 'none'}`,
                 ],
             });
             continue;
@@ -162,7 +175,16 @@ export const buildExplainBlocks = (manifest: TProteumManifest, sectionNames: TEx
                     `resolved.profile=${manifest.env.resolved.profile}`,
                     `resolved.routerPort=${manifest.env.resolved.routerPort}`,
                     `resolved.routerCurrentDomain=${manifest.env.resolved.routerCurrentDomain}`,
+                    `resolved.routerInternalUrl=${manifest.env.resolved.routerInternalUrl}`,
                 ],
+            });
+            continue;
+        }
+
+        if (sectionName === 'connected') {
+            blocks.push({
+                title: 'Connected Projects',
+                items: manifest.connectedProjects.map((connectedProject) => formatConnectedProjectItem(manifest, connectedProject)),
             });
             continue;
         }

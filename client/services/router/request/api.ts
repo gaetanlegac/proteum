@@ -4,6 +4,7 @@
 
 // Core
 import type ClientApplication from '@client/app';
+import { buildConnectedProjectProxyPath } from '@common/connectedProjects';
 import { fromJson as errorFromJson, NetworkError } from '@common/errors';
 import ApiClientService, {
     TPostData,
@@ -270,7 +271,11 @@ export default class ApiClient implements ApiClientService {
     }
 
     public configure = (...[method, path, data, options = {}]: TFetcherArgs) => {
-        let url = this.router.url(path, {}, false);
+        const requestPath =
+            options.connected !== undefined
+                ? buildConnectedProjectProxyPath(options.connected.namespace, path)
+                : path;
+        let url = this.router.url(requestPath, {}, false);
 
         debug && console.log(`[api] Sending request`, method, url, data);
 

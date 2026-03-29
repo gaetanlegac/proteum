@@ -82,6 +82,7 @@ export default function createCompiler(
     const outputPath = app.outputPath(outputTarget);
     const installedCoreRoot = app.paths.root + '/node_modules/proteum';
     const frameworkRoots = [cli.paths.core.root, installedCoreRoot];
+    const transpileModuleDirectories = app.transpileModuleDirectories;
 
     const commonConfig = createCommonConfig(app, 'server', mode, outputTarget);
     const { aliases } = app.aliases.server.forWebpack({ modulesPath: app.paths.root + '/node_modules' });
@@ -140,6 +141,7 @@ export default function createCompiler(
                         // Aliased modules
                         app.aliases.server.containsAlias(request) ||
                         // TODO: proteum.conf: compile: include
+                        app.isTranspileModuleRequest(request) ||
                         // Compile proteum modules
                         request.startsWith('proteum') ||
                         // React-based UI packages must pass through the alias layer on the server,
@@ -193,6 +195,7 @@ export default function createCompiler(
                         ...frameworkRoots.map((rootPath) => rootPath + '/client'),
                         ...frameworkRoots.map((rootPath) => rootPath + '/common'),
                         ...frameworkRoots.map((rootPath) => rootPath + '/server'),
+                        ...transpileModuleDirectories,
 
                         // Complle 5HTP modules so they can refer to the framework instance and aliases
                         // Temp disabled because compile issue on vercel

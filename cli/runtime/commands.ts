@@ -10,7 +10,7 @@ class InitCommand extends ProteumCommand {
     public static usage = buildUsage('init');
 
     public name = Option.String('--name', { description: 'Human-readable app name.' });
-    public description = Option.String('--description', { description: 'App description used in identity.yaml and package.json.' });
+    public description = Option.String('--description', { description: 'App description used in identity.config.ts and package.json.' });
     public identifier = Option.String('--identifier', { description: 'Application class and identity identifier.' });
     public port = Option.String('--port', { description: 'Default local router port used in .env.' });
     public url = Option.String('--url', { description: 'Default absolute URL used in .env.' });
@@ -179,6 +179,27 @@ class CheckCommand extends ProteumCommand {
     }
 }
 
+class ConnectCommand extends ProteumCommand {
+    public static paths = [['connect']];
+
+    public static usage = buildUsage('connect');
+
+    public controllers = Option.Boolean('--controllers', false, {
+        description: 'Include imported connected controllers in the output.',
+    });
+    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public strict = Option.Boolean('--strict', false, { description: 'Exit with failure if any connect diagnostics exist.' });
+    public legacyArgs = Option.Rest();
+
+    public async execute() {
+        const args = { controllers: this.controllers, json: this.json, strict: this.strict } satisfies TArgsObject;
+
+        applyLegacyBooleanArgs('connect', this.legacyArgs, ['controllers', 'json', 'strict'], args);
+        this.setCliArgs(args);
+        await runCommandModule(() => import('../commands/connect'));
+    }
+}
+
 class DoctorCommand extends ProteumCommand {
     public static paths = [['doctor']];
 
@@ -210,6 +231,7 @@ class ExplainCommand extends ProteumCommand {
     public app = Option.Boolean('--app', false, { description: 'Include the app section.' });
     public conventions = Option.Boolean('--conventions', false, { description: 'Include the conventions section.' });
     public env = Option.Boolean('--env', false, { description: 'Include the env section.' });
+    public connected = Option.Boolean('--connected', false, { description: 'Include the connected-projects section.' });
     public services = Option.Boolean('--services', false, { description: 'Include the services section.' });
     public controllers = Option.Boolean('--controllers', false, { description: 'Include the controllers section.' });
     public commands = Option.Boolean('--commands', false, { description: 'Include the commands section.' });
@@ -236,6 +258,7 @@ class ExplainCommand extends ProteumCommand {
             all: this.all,
             app: this.app,
             conventions: this.conventions,
+            connected: this.connected,
             env: this.env,
             services: this.services,
             controllers: this.controllers,
@@ -248,7 +271,7 @@ class ExplainCommand extends ProteumCommand {
         applyLegacyBooleanArgs(
             'explain',
             this.args,
-            ['json', 'all', 'app', 'conventions', 'env', 'services', 'controllers', 'commands', 'routes', 'layouts', 'diagnostics'],
+            ['json', 'all', 'app', 'conventions', 'env', 'connected', 'services', 'controllers', 'commands', 'routes', 'layouts', 'diagnostics'],
             args,
         );
         this.setCliArgs(args);
@@ -419,10 +442,14 @@ class VerifyCommand extends ProteumCommand {
 
     public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
     public crosspath = Option.String('--crosspath', { description: 'Override the CrossPath reference app path.' });
-    public uniqueDomains = Option.String('--unique-domains', { description: 'Override the Unique Domains reference app path.' });
+    public product = Option.String('--product', { description: 'Override the Unique Domains Product reference app path.' });
+    public website = Option.String('--website', { description: 'Override the Unique Domains Website reference app path.' });
     public crosspathPort = Option.String('--crosspath-port', { description: 'Port used for the CrossPath validation server.' });
-    public uniqueDomainsPort = Option.String('--unique-domains-port', {
-        description: 'Port used for the Unique Domains validation server.',
+    public productPort = Option.String('--product-port', {
+        description: 'Port used for the Unique Domains Product validation server.',
+    });
+    public websitePort = Option.String('--website-port', {
+        description: 'Port used for the Unique Domains Website validation server.',
     });
     public route = Option.String('--route', { description: 'Route loaded in both apps during validation.' });
     public args = Option.Rest();
@@ -435,9 +462,11 @@ class VerifyCommand extends ProteumCommand {
             crosspath: this.crosspath ?? '',
             crosspathPort: this.crosspathPort ?? '',
             json: this.json,
+            product: this.product ?? '',
+            productPort: this.productPort ?? '',
             route: this.route ?? '',
-            uniqueDomains: this.uniqueDomains ?? '',
-            uniqueDomainsPort: this.uniqueDomainsPort ?? '',
+            website: this.website ?? '',
+            websitePort: this.websitePort ?? '',
         });
 
         await runCommandModule(() => import('../commands/verify'));
@@ -453,6 +482,7 @@ export const registeredCommands = {
     typecheck: TypecheckCommand,
     lint: LintCommand,
     check: CheckCommand,
+    connect: ConnectCommand,
     doctor: DoctorCommand,
     explain: ExplainCommand,
     diagnose: DiagnoseCommand,
@@ -481,6 +511,7 @@ export const createCli = (version: string) => {
     clipanion.register(TypecheckCommand);
     clipanion.register(LintCommand);
     clipanion.register(CheckCommand);
+    clipanion.register(ConnectCommand);
     clipanion.register(DoctorCommand);
     clipanion.register(ExplainCommand);
     clipanion.register(DiagnoseCommand);

@@ -12,6 +12,7 @@ export const proteumCommandNames = [
     'typecheck',
     'lint',
     'check',
+    'connect',
     'doctor',
     'explain',
     'diagnose',
@@ -52,7 +53,7 @@ export const proteumRecommendedFlow: TRow[] = [
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
-    { title: 'Manifest and contracts', names: ['doctor', 'explain', 'diagnose', 'perf', 'trace', 'command', 'session', 'verify'] },
+    { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'diagnose', 'perf', 'trace', 'command', 'session', 'verify'] },
     { title: 'Project scaffolding', names: ['init', 'create'] },
 ];
 
@@ -100,7 +101,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         ],
         notes: [
             'Page scaffolds write `client/pages/**/index.tsx` and default the route path from the logical target path unless `--route` is provided.',
-            'Service scaffolds create `server/services/**/index.ts`, `service.json`, a config export under `server/config/*.ts`, and then try to register the new root service in `server/index.ts`.',
+            'Service scaffolds create `server/services/**/index.ts`, a typed config export under `server/config/*.ts`, and then try to register the new root service in `server/index.ts`.',
             'Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.',
         ],
         status: 'experimental',
@@ -193,6 +194,26 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         notes: ['This command executes refresh, typecheck, then lint in that order.'],
         status: 'stable',
     },
+    connect: {
+        name: 'connect',
+        category: 'Manifest and contracts',
+        summary: 'Inspect connected-project config, cached contracts, and imported controllers.',
+        usage: 'proteum connect [--controllers] [--json] [--strict]',
+        bestFor:
+            'Auditing the current app connect setup without manually stitching together refresh, explain, env inspection, and contract checks.',
+        examples: [
+            { description: 'Print a human-readable connected-project summary', command: 'proteum connect' },
+            { description: 'Include imported connected controllers', command: 'proteum connect --controllers' },
+            { description: 'Emit machine-readable connect output', command: 'proteum connect --json' },
+            { description: 'Fail when connect diagnostics exist', command: 'proteum connect --strict' },
+        ],
+        notes: [
+            'Proteum refreshes generated typings before reading the connect manifest state.',
+            'This command inspects explicit `proteum.config.ts` connected sources and URLs, cached `.proteum/connected/*.json` files, and imported connected controllers.',
+            '`--strict` is intended for CI or framework validation when connected contracts must be present and usable.',
+        ],
+        status: 'stable',
+    },
     doctor: {
         name: 'doctor',
         category: 'Manifest and contracts',
@@ -213,7 +234,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'explain',
         category: 'Manifest and contracts',
         summary: 'Explain the generated Proteum manifest.',
-        usage: 'proteum explain [owner <query>] [--all|--app|--conventions|--env|--services|--controllers|--commands|--routes|--layouts|--diagnostics] [--json]',
+        usage: 'proteum explain [owner <query>] [--all|--app|--conventions|--env|--connected|--services|--controllers|--commands|--routes|--layouts|--diagnostics] [--json]',
         bestFor:
             'Inspecting how source files became generated routes, controllers, commands, layouts, services, and diagnostics without reading compiler internals.',
         examples: [
@@ -222,10 +243,18 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
                 description: 'Inspect generated routes, controllers, and commands together',
                 command: 'proteum explain --routes --controllers --commands',
             },
+            {
+                description: 'Inspect configured connected projects and imported controllers',
+                command: 'proteum explain --connected --controllers',
+            },
             { description: 'Resolve the most likely manifest owner for a path or file', command: 'proteum explain owner /api/Auth/CurrentUser' },
             { description: 'Emit the selected manifest sections as JSON', command: 'proteum explain --routes --json' },
         ],
-        notes: ['Legacy positional section selection remains supported, for example `proteum explain routes services`.', '`proteum explain owner <query>` ranks matching routes, controllers, services, commands, layouts, and diagnostics from the manifest.'],
+        notes: [
+            'Legacy positional section selection remains supported, for example `proteum explain routes services`.',
+            '`proteum explain owner <query>` ranks matching routes, controllers, services, commands, layouts, and diagnostics from the manifest.',
+            'Connected projects are emitted from explicit `proteum.config.ts` `connect.<Namespace>.*` values plus the resolved connected contract.',
+        ],
         status: 'stable',
     },
     diagnose: {
@@ -352,16 +381,23 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
     verify: {
         name: 'verify',
         category: 'Manifest and contracts',
-        summary: 'Validate framework changes against both reference apps with one command.',
-        usage: 'proteum verify [framework-change] [--crosspath <path>] [--unique-domains <path>] [--crosspath-port <port>] [--unique-domains-port <port>] [--route <path>] [--json]',
+        summary: 'Validate framework changes against CrossPath, Unique Domains Product, and Unique Domains Website.',
+        usage: 'proteum verify [framework-change] [--crosspath <path>] [--product <path>] [--website <path>] [--crosspath-port <port>] [--product-port <port>] [--website-port <port>] [--route <path>] [--json]',
         bestFor:
-            'Framework-repo smoke validation when Proteum changes must be exercised against CrossPath and Unique Domains before review.',
+            'Framework-repo smoke validation when Proteum changes must be exercised against CrossPath and the website -> product connected-project flow before review.',
         examples: [
-            { description: 'Run the default framework smoke verification against both reference apps', command: 'proteum verify framework-change' },
-            { description: 'Load a specific route in both apps during validation', command: 'proteum verify framework-change --route /' },
+            {
+                description: 'Run the default framework smoke verification against the reference apps',
+                command: 'proteum verify framework-change',
+            },
+            {
+                description: 'Load a specific route in the website validation pass',
+                command: 'proteum verify framework-change --route /domains',
+            },
         ],
         notes: [
             'When a reference app is already running on the requested port, Proteum reuses it instead of spawning a new `proteum dev` process.',
+            'When Proteum spawns the website reference app, it sets the env values consumed by the website `proteum.config.ts` for the product internal and public URLs.',
             'This command is intended for the framework repo and will be most useful where the reference app paths exist locally.',
         ],
         status: 'experimental',
@@ -370,7 +406,8 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
 
 export const isLikelyProteumAppRoot = (workdir: string) =>
     fs.existsSync(path.join(workdir, 'package.json')) &&
-    fs.existsSync(path.join(workdir, 'identity.yaml')) &&
+    fs.existsSync(path.join(workdir, 'identity.config.ts')) &&
+    fs.existsSync(path.join(workdir, 'proteum.config.ts')) &&
     fs.existsSync(path.join(workdir, 'client')) &&
     fs.existsSync(path.join(workdir, 'server'));
 

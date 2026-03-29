@@ -5,7 +5,6 @@
 // Specific
 import type { Application } from '../index';
 import type { Command } from '../commands';
-import type { TServiceMetas } from './container';
 import type { TRouterContext, TAnyRouter } from '../../services/router';
 
 export { schema } from '../../services/router/request/validation/zod';
@@ -95,7 +94,6 @@ export default abstract class Service<
     public status: 'stopped' | 'starting' | 'running' | 'paused' = 'starting';
 
     public commands?: Command[];
-    public metas!: TServiceMetas;
     public bindings: string[] = [];
 
     public parent: TParent;

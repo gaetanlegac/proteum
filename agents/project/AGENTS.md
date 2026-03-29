@@ -57,11 +57,11 @@ This is a TypeScript, Node.js, Preact, Proteum monolith:
 Proteum reads:
 
 - `package.json`
-- `identity.yaml`
-- `process.env` via `PORT`, `ENV_*`, `URL`, and `TRACE_*`
+- `identity.config.ts` for app identity via `Application.identity({ ... })`
+- `proteum.config.ts` for compiler setup via `Application.setup({ transpile, connect })`
+- `process.env` via `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, any app-chosen connected-project values referenced by `proteum.config.ts`, and `TRACE_*`
 - `server/config/*.ts`
 - `server/index.ts`
-- `server/services/**/service.json`
 - `commands/**/*.ts`
 - `server/controllers/**/*.ts`
 - `server/routes/**/*.ts`
@@ -85,7 +85,10 @@ Project code should consume:
 
 Prefer structured CLI surfaces over re-deriving framework facts from source:
 
+- `npx proteum connect --json`
+- `npx proteum connect --controllers --strict`
 - `npx proteum explain --json`
+- `npx proteum explain --connected --controllers`
 - `npx proteum explain owner <query>`
 - `npx proteum doctor --json`
 - `npx proteum doctor --contracts --json`
@@ -112,13 +115,20 @@ Prefer scaffold commands before hand-writing boilerplate:
 - Typed root-service config lives in `server/config/*.ts` via `Services.config(ServiceClass, { ... })`.
 - Router plugins are instantiated explicitly inside the `Router` config `plugins` object.
 - Root business services live in `server/services/<Feature>/index.ts`.
-- Root-service metadata lives in `server/services/**/service.json`.
 - Root-service config lives in `server/config/*.ts` when the service needs config.
 - Business logic lives in classes that extend `Service` and use `this.services`, `this.models`, and `this.app`.
 - Keep auth, input parsing, locale, cookies, and request-derived values in controllers, then pass explicit typed arguments into services.
 - Split growing features into explicit subservices.
 - Companion client-callable entrypoints live in `server/controllers/**`.
-- `proteum create service ...` scaffolds the service file, its `service.json`, a typed config export under `server/config/*.ts`, and the root registration in `server/index.ts`; review and adapt the generated names before committing.
+- `proteum create service ...` scaffolds the service file, a typed config export under `server/config/*.ts`, and the root registration in `server/index.ts`; review and adapt the generated names before committing.
+
+### Connected Projects
+
+- Declare connected namespaces in `proteum.config.ts` with explicit values such as `connect: { Product: { source: PRODUCT_CONNECTED_SOURCE, urlInternal: PRODUCT_URL_INTERNAL } }`.
+- Proteum does not infer connected env key names from the namespace. The source and internal URL must be provided explicitly in `proteum.config.ts`.
+- Use `npx proteum connect` to inspect configured connect values, cached contract state, and imported controllers for the current app.
+- `file:` connected sources point at another Proteum app root and keep strong connected typings.
+- Non-local connected sources provide runtime helper generation but are intentionally typed loosely.
 
 ### Controllers
 

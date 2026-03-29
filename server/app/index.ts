@@ -10,12 +10,13 @@ import ApplicationService, { AnyService } from './service';
 import CommandsManager from './commandsManager';
 import DevCommandsRegistry from './devCommands';
 import DevDiagnosticsRegistry from './devDiagnostics';
-import ServicesContainer, { ServicesContainer as ServicesContainerClass, TServiceMetas } from './service/container';
+import ServicesContainer, { ServicesContainer as ServicesContainerClass } from './service/container';
 
 // Built-in
 import type { TServerRouter, Request as ServerRequest } from '@server/services/router';
 import { Anomaly } from '@common/errors';
 import { TBasicUser } from '@server/services/auth';
+import { Application as ConfigApplication } from '@common/applicationConfig';
 
 export { default as Services } from './service/container';
 export type { ServiceConfig } from './service/container';
@@ -62,6 +63,9 @@ export abstract class Application<
     TServicesContainer extends ServicesContainerClass = ServicesContainerClass,
     TUser extends TBasicUser = TBasicUser,
 > extends ApplicationService<Config, Hooks, Application, Application> {
+    public static identity = ConfigApplication.identity;
+    public static setup = ConfigApplication.setup;
+
     public app!: this;
     public servicesContainer!: TServicesContainer;
     public userType!: TUser;
@@ -71,18 +75,13 @@ export abstract class Application<
     ----------------------------------*/
 
     public side = 'server' as 'server';
-    public metas: TServiceMetas = {
-        id: 'application',
-        name: 'Application',
-        parent: 'root',
-        dependences: [],
-        class: () => ({ default: Application }),
-    };
 
     // Shortcuts to ApplicationContainer
     public container = AppContainer;
     public env = AppContainer.Environment;
     public identity = AppContainer.Identity;
+    public setup = AppContainer.Setup;
+    public connectedProjects = AppContainer.Environment.connectedProjects;
 
     // Status
     public debug: boolean = false;
@@ -193,6 +192,17 @@ export abstract class Application<
         if (!serviceName) return undefined;
 
         return rootServices[serviceName];
+    }
+
+    public getConnectedProject(namespace: string) {
+        return this.connectedProjects[namespace];
+    }
+
+    public requireConnectedProject(namespace: string) {
+        const connectedProject = this.getConnectedProject(namespace);
+        if (connectedProject) return connectedProject;
+
+        throw new Error(`Connected project "${namespace}" is not configured on ${this.identity.identifier}.`);
     }
 
     public register(service: AnyService) {

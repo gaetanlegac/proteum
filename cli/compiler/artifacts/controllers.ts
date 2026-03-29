@@ -2,70 +2,212 @@ import path from 'path';
 
 import app from '../../app';
 import cli from '../..';
-import { generateControllerClientTree, indexControllers, printControllerTree } from '../common/controllers';
+import { indexControllers, printControllerTree, type TControllerFileMeta } from '../common/controllers';
 import { TProteumManifestController } from '../common/proteumManifest';
 import writeIfChanged from '../writeIfChanged';
+import { resolveConnectedProjectContracts, writeConnectedProjectContract } from './connectedProjects';
 import { normalizeAbsolutePath } from './shared';
+
+const reservedConnectedContextKeys = new Set(['app', 'context', 'request', 'response', 'route', 'api', 'Router']);
 
 const getManifestScopeFromImportPath = (importPath: string) =>
     importPath.startsWith('@server/controllers/') ? 'framework' : 'app';
 
-export const generateControllerArtifacts = () => {
-    const controllers = indexControllers([
+const insertTreeLeaf = (tree: Record<string, any>, accessor: string, value: string) => {
+    const segments = accessor.split('.').filter(Boolean);
+    let cursor = tree;
+
+    for (let index = 0; index < segments.length; index += 1) {
+        const segment = segments[index];
+        const isLeaf = index === segments.length - 1;
+
+        if (isLeaf) {
+            cursor[segment] = value;
+            return;
+        }
+
+        cursor[segment] = cursor[segment] || {};
+        cursor = cursor[segment];
+    }
+};
+
+const buildLocalControllers = (): TControllerFileMeta[] =>
+    indexControllers([
         { importPrefix: '@server/controllers/', root: path.join(cli.paths.core.root, 'server', 'controllers') },
         { importPrefix: '@/server/controllers/', root: path.join(app.paths.root, 'server', 'controllers') },
     ]);
-    const manifestControllers = controllers.flatMap<TProteumManifestController>((controller) =>
-        controller.methods.map((method) => ({
-            className: controller.className,
-            importPath: controller.importPath,
-            filepath: normalizeAbsolutePath(controller.filepath),
-            sourceLocation: method.sourceLocation,
-            routeBasePath: controller.routeBasePath,
-            methodName: method.name,
-            inputCallsCount: method.inputCallsCount,
-            hasInput: method.inputCallsCount > 0,
-            routePath: method.routePath,
-            httpPath: '/api/' + method.routePath,
-            clientAccessor: method.routePath.split('/').join('.'),
-            scope: getManifestScopeFromImportPath(controller.importPath),
-        })),
-    );
-    const clientTree = generateControllerClientTree(controllers);
 
-    const getControllerLeafMeta = (leaf: string) => {
-        const meta = JSON.parse(leaf) as {
-            routePath: string;
-            importPath: string;
-            className: string;
-            methodName: string;
-            hasInput: boolean;
-        };
-        const controllerIndex = controllers.findIndex((controller) => controller.importPath === meta.importPath);
+const assertConnectedProjectNamespaces = (localControllers: TControllerFileMeta[]) => {
+    const localTopLevelKeys = new Set<string>();
 
-        if (controllerIndex === -1) {
-            throw new Error(`Unable to find controller import ${meta.importPath} while generating controller types.`);
+    for (const controller of localControllers) {
+        for (const method of controller.methods) {
+            const topLevelKey = method.routePath.split('/')[0];
+            if (topLevelKey) localTopLevelKeys.add(topLevelKey);
+        }
+    }
+
+    for (const namespace of Object.keys(app.connectedProjects)) {
+        if (reservedConnectedContextKeys.has(namespace)) {
+            throw new Error(`Connected project namespace "${namespace}" collides with a reserved route context key.`);
         }
 
-        return { ...meta, controllerIndex };
-    };
+        if (localTopLevelKeys.has(namespace)) {
+            throw new Error(`Connected project namespace "${namespace}" collides with an existing local controller root.`);
+        }
+    }
+};
+
+export const generateControllerArtifacts = async () => {
+    const localControllers = buildLocalControllers();
+    assertConnectedProjectNamespaces(localControllers);
+    writeConnectedProjectContract(localControllers);
+
+    const connectedProjectContracts = await resolveConnectedProjectContracts(app.connectedProjects);
+    const manifestControllers: TProteumManifestController[] = [];
+    const runtimeTree: Record<string, any> = {};
+    const typeTree: Record<string, any> = {};
+    const typeImports: string[] = [];
+
+    localControllers.forEach((controller, index) => {
+        typeImports.push(`import type Controller${index} from ${JSON.stringify(controller.importPath)};`);
+
+        controller.methods.forEach((method) => {
+            const resultType = `TControllerResult<Controller${index}, ${JSON.stringify(method.name)}>`;
+            const clientAccessor = method.routePath.split('/').join('.');
+
+            manifestControllers.push({
+                className: controller.className,
+                importPath: controller.importPath,
+                filepath: normalizeAbsolutePath(controller.filepath),
+                sourceLocation: method.sourceLocation,
+                routeBasePath: controller.routeBasePath,
+                methodName: method.name,
+                inputCallsCount: method.inputCallsCount,
+                hasInput: method.inputCallsCount > 0,
+                routePath: method.routePath,
+                httpPath: '/api/' + method.routePath,
+                clientAccessor,
+                scope: getManifestScopeFromImportPath(controller.importPath),
+            });
+
+            insertTreeLeaf(
+                runtimeTree,
+                clientAccessor,
+                JSON.stringify({
+                    connected: undefined,
+                    hasInput: method.inputCallsCount > 0,
+                    httpPath: '/api/' + method.routePath,
+                    methodName: method.name,
+                    resultType,
+                    typeName: `Controller${index}`,
+                }),
+            );
+
+            insertTreeLeaf(
+                typeTree,
+                clientAccessor,
+                JSON.stringify({
+                    hasInput: method.inputCallsCount > 0,
+                    methodName: method.name,
+                    typeName: `Controller${index}`,
+                }),
+            );
+        });
+    });
+
+    const connectedControllerTypeImports: string[] = [];
+    const connectedManifestControllers: TProteumManifestController[] = [];
+
+    connectedProjectContracts.forEach(({ namespace, cachedContractFilepath, contract, sourceKind, sourceValue, typeImportModuleSpecifier, typingMode }) => {
+        if (typingMode === 'local-typed' && typeImportModuleSpecifier) {
+            const typeName = `ConnectedControllers_${namespace.replace(/[^A-Za-z0-9_$]+/g, '_')}`;
+            connectedControllerTypeImports.push(
+                `import type { TConnectedControllers as ${typeName} } from ${JSON.stringify(typeImportModuleSpecifier)};`,
+            );
+            typeTree[namespace] = JSON.stringify({ rawType: typeName });
+        } else {
+            typeTree[namespace] = JSON.stringify({ runtimeOnly: true });
+        }
+
+        contract.controllers.forEach((controller) => {
+            const clientAccessor = `${namespace}.${controller.clientAccessor}`;
+            connectedManifestControllers.push({
+                className: controller.className,
+                importPath: `connected:${namespace}/${controller.importPath}`,
+                filepath:
+                    sourceKind === 'file'
+                        ? normalizeAbsolutePath(path.join(sourceValue, controller.relativeFilepath))
+                        : cachedContractFilepath,
+                sourceLocation: controller.sourceLocation,
+                routeBasePath: controller.routeBasePath,
+                methodName: controller.methodName,
+                inputCallsCount: controller.inputCallsCount,
+                hasInput: controller.hasInput,
+                routePath: controller.routePath,
+                httpPath: controller.httpPath,
+                clientAccessor,
+                scope: 'connected',
+                connectedProjectNamespace: namespace,
+                connectedProjectIdentifier: contract.identity.identifier,
+            });
+
+            insertTreeLeaf(
+                runtimeTree,
+                clientAccessor,
+                JSON.stringify({
+                    connected: {
+                        controllerAccessor: controller.clientAccessor,
+                        httpPath: controller.httpPath,
+                        namespace,
+                    },
+                    hasInput: controller.hasInput,
+                    httpPath: controller.httpPath,
+                    methodName: controller.methodName,
+                    resultType: 'unknown',
+                }),
+            );
+        });
+    });
 
     const runtimeLeaf = (leaf: string) => {
-        const meta = getControllerLeafMeta(leaf);
-        const resultType = `TControllerResult<Controller${meta.controllerIndex}, ${JSON.stringify(meta.methodName)}>`;
+        const meta = JSON.parse(leaf) as {
+            connected?: {
+                controllerAccessor: string;
+                httpPath: string;
+                namespace: string;
+            };
+            hasInput: boolean;
+            httpPath: string;
+            resultType: string;
+        };
+
+        const connectedOptions = meta.connected
+            ? `, { connected: ${JSON.stringify(meta.connected)} }`
+            : '';
 
         return meta.hasInput
-            ? `(data) => api.createFetcher<${resultType}>('POST', ${JSON.stringify(meta.routePath)}, data)`
-            : `() => api.createFetcher<${resultType}>('POST', ${JSON.stringify(meta.routePath)})`;
+            ? `(data) => api.createFetcher<${meta.resultType}>('POST', ${JSON.stringify(meta.httpPath)}, data${connectedOptions})`
+            : `() => api.createFetcher<${meta.resultType}>('POST', ${JSON.stringify(meta.httpPath)}, undefined${connectedOptions})`;
     };
 
-    const typeImports = controllers
-        .map((controller, index) => `import type Controller${index} from ${JSON.stringify(controller.importPath)};`)
-        .join('\n');
-
     const typeLeaf = (leaf: string) => {
-        const meta = getControllerLeafMeta(leaf);
-        const fetcherType = `TControllerFetcher<Controller${meta.controllerIndex}, ${JSON.stringify(meta.methodName)}>`;
+        const meta = JSON.parse(leaf) as
+            | {
+                  rawType: string;
+              }
+            | {
+                  runtimeOnly: true;
+              }
+            | {
+                  hasInput: boolean;
+                  methodName: string;
+                  typeName: string;
+              };
+
+        if ('rawType' in meta) return meta.rawType;
+        if ('runtimeOnly' in meta) return 'any';
+        const fetcherType = `TControllerFetcher<${meta.typeName}, ${JSON.stringify(meta.methodName)}>`;
 
         return meta.hasInput ? `(data: any) => ${fetcherType}` : `() => ${fetcherType}`;
     };
@@ -79,19 +221,19 @@ export const generateControllerArtifacts = () => {
 
 import type ApiClient from '@common/router/request/api';
 import type { TFetcher } from '@common/router/request/api';
-${typeImports ? '\n' + typeImports : ''}
+${[...typeImports, ...connectedControllerTypeImports].join('\n') ? '\n' + [...typeImports, ...connectedControllerTypeImports].join('\n') : ''}
 
 type TControllerResult<TController, TMethod extends keyof TController> =
     TController[TMethod] extends (...args: any[]) => infer TResult ? Awaited<TResult> : never;
 
 type TControllerFetcher<TController, TMethod extends keyof TController> = TFetcher<TControllerResult<TController, TMethod>>;
 
-export type TControllers = ${printControllerTree(clientTree, typeLeaf)};
+export type TControllers = ${printControllerTree(typeTree, typeLeaf)};
 
 export const createControllers = (
     api: Pick<ApiClient, 'createFetcher'>
 ): TControllers => (
-${printControllerTree(clientTree, runtimeLeaf)}
+${printControllerTree(runtimeTree, runtimeLeaf)}
 );
 
 export default createControllers;
@@ -106,11 +248,11 @@ export type { TControllers } from '@generated/common/controllers';
 `,
     );
 
-    const controllerImports = controllers
+    const controllerImports = localControllers
         .map((controller, index) => `import Controller${index} from ${JSON.stringify(controller.importPath)};`)
         .join('\n');
 
-    const controllerEntries = controllers.flatMap((controller, controllerIndex) =>
+    const controllerEntries = localControllers.flatMap((controller, controllerIndex) =>
         controller.methods.map(
             (method) => `    {
         path: ${JSON.stringify('/api/' + method.routePath)},
@@ -150,5 +292,8 @@ export default controllers;
 `,
     );
 
-    return manifestControllers;
+    return {
+        connectedProjects: connectedProjectContracts,
+        controllers: [...manifestControllers, ...connectedManifestControllers],
+    };
 };

@@ -9,15 +9,6 @@ import type { AnyService, AnyServiceClass, StartedServicesIndex } from '.';
 - TYPES
 ----------------------------------*/
 
-// From service/service.json
-export type TServiceMetas<TServiceClass extends AnyService = AnyService> = {
-    id: string;
-    name: string;
-    parent: string;
-    dependences: string[];
-    class: () => { default: ClassType<TServiceClass> };
-};
-
 export type ServiceConfig<TServiceClass extends AnyServiceClass> = NonNullable<ConstructorParameters<TServiceClass>[1]>;
 
 type ExactConfig<TValue, TShape> = TValue extends TShape
@@ -40,9 +31,6 @@ type ExactConfig<TValue, TShape> = TValue extends TShape
 - CLASS
 ----------------------------------*/
 export class ServicesContainer<TServicesIndex extends StartedServicesIndex = StartedServicesIndex> {
-    // All service instances by service id
-    public allServices: TServicesIndex = {} as TServicesIndex;
-
     public config<TServiceClass extends AnyServiceClass, const TConfig extends ServiceConfig<TServiceClass>>(
         _serviceClass: TServiceClass,
         config: TConfig & ExactConfig<TConfig, ServiceConfig<TServiceClass>>,

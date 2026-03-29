@@ -316,6 +316,10 @@ const buildStage = (input: { id: TPerfStageId; label: string; startOffsetMs?: nu
 const readStageOffset = (event: TTraceEvent | undefined) => event?.elapsedMs;
 
 const formatCallLabel = (call: TTraceCall) => {
+    if (call.connectedProjectNamespace && call.connectedControllerAccessor) {
+        return `${call.connectedProjectNamespace}.${call.connectedControllerAccessor}`;
+    }
+
     const reference = `${call.method} ${call.path}`.trim();
     if (call.label && reference) return `${call.label} (${reference})`;
     return call.label || reference || call.origin;

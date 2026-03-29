@@ -2,11 +2,16 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 
+import {
+    normalizeConnectedProjectsConfig,
+    type TConnectedProjectsConfig,
+} from '../connectedProjects';
+
 export type TProteumEnvName = 'local' | 'server';
 export type TProteumEnvProfile = 'dev' | 'testing' | 'prod';
 export type TProteumTraceCapture = 'summary' | 'resolve' | 'deep';
 export type TProteumRequiredEnvVariable = {
-    key: TProteumRequiredEnvVariableKey;
+    key: string;
     possibleValues: string[];
     provided: boolean;
 };
@@ -15,13 +20,20 @@ export type TProteumEnvInspection = {
     requiredVariables: TProteumRequiredEnvVariable[];
 };
 
+export type TProteumConnectedProjectEnvConfig = {
+    namespace: string;
+    urlInternal: string;
+};
+
 export type TProteumEnvConfig = {
     name: TProteumEnvName;
     profile: TProteumEnvProfile;
     router: {
         port: number;
         currentDomain: string;
+        internalUrl: string;
     };
+    connectedProjects: Record<string, TProteumConnectedProjectEnvConfig>;
     trace: {
         enable: boolean;
         requestsLimit: number;
@@ -34,32 +46,40 @@ export type TProteumEnvConfig = {
 export type TProteumLoadedEnvConfig = TProteumEnvConfig & { version: string };
 
 const dotenvFileNames = ['.env'];
-const requiredProteumEnvVariableKeys = ['ENV_NAME', 'ENV_PROFILE', 'PORT', 'URL'] as const;
+const baseRequiredProteumEnvVariableDefinitions = [
+    { key: 'ENV_NAME', possibleValues: ['local', 'server'] },
+    { key: 'ENV_PROFILE', possibleValues: ['dev', 'testing', 'prod'] },
+    { key: 'PORT', possibleValues: ['integer between 1 and 65535'] },
+    { key: 'URL', possibleValues: ['absolute URL'] },
+    { key: 'URL_INTERNAL', possibleValues: ['absolute URL'] },
+] as const;
 const optionalProteumEnvVariablePrefixes = ['TRACE_'] as const;
 
-export type TProteumRequiredEnvVariableKey = (typeof requiredProteumEnvVariableKeys)[number];
-
-const requiredProteumEnvVariablePossibleValues: Record<TProteumRequiredEnvVariableKey, string[]> = {
-    ENV_NAME: ['local', 'server'],
-    ENV_PROFILE: ['dev', 'testing', 'prod'],
-    PORT: ['integer between 1 and 65535'],
-    URL: ['absolute URL'],
+type TEnvContext = {
+    appDir: string;
+    connectedProjects: TConnectedProjectsConfig;
 };
 
 const envDefinitionHint = (appDir: string) => `Define it in process.env or ${appDir}/.env.`;
 const isProvidedEnvValue = (value: string | undefined) => typeof value === 'string' && value.trim() !== '';
+
+const buildRequiredEnvVariableDefinitions = (_connectedProjects: TConnectedProjectsConfig) => [...baseRequiredProteumEnvVariableDefinitions];
+
+const buildOptionalEnvKeys = (_connectedProjects: TConnectedProjectsConfig) => [] as string[];
 
 const formatRequiredEnvVariableStatus = (variable: TProteumRequiredEnvVariable) =>
     `- ${variable.key} possibleValues=${variable.possibleValues.join(' | ')} provided=${variable.provided ? 'yes' : 'no'}`;
 
 const createProteumEnvError = ({
     appDir,
+    connectedProjects,
     message,
 }: {
     appDir: string;
+    connectedProjects: TConnectedProjectsConfig;
     message: string;
 }) => {
-    const inspection = inspectProteumEnv(appDir);
+    const inspection = inspectProteumEnv(appDir, connectedProjects);
 
     return new Error(
         [message, envDefinitionHint(appDir), '', 'Required env variables:', ...inspection.requiredVariables.map(formatRequiredEnvVariableStatus)].join(
@@ -71,11 +91,11 @@ const createProteumEnvError = ({
 const parseBooleanEnvValue = ({
     key,
     value,
-    appDir,
+    context,
 }: {
     key: string;
     value: string | undefined;
-    appDir: string;
+    context: TEnvContext;
 }) => {
     if (value === undefined || value === '') return undefined;
 
@@ -84,7 +104,7 @@ const parseBooleanEnvValue = ({
     if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
 
     throw createProteumEnvError({
-        appDir,
+        ...context,
         message: `Invalid boolean value for ${key}: "${value}". Expected one of: 1, 0, true, false, yes, no, on, off.`,
     });
 };
@@ -92,18 +112,18 @@ const parseBooleanEnvValue = ({
 const parseIntegerEnvValue = ({
     key,
     value,
-    appDir,
+    context,
     min = 1,
 }: {
     key: string;
     value: string;
-    appDir: string;
+    context: TEnvContext;
     min?: number;
 }) => {
     const parsed = Number.parseInt(value, 10);
     if (Number.isNaN(parsed) || parsed < min) {
         throw createProteumEnvError({
-            appDir,
+            ...context,
             message: `Invalid integer value for ${key}: "${value}". Expected an integer greater than or equal to ${min}.`,
         });
     }
@@ -111,44 +131,78 @@ const parseIntegerEnvValue = ({
     return parsed;
 };
 
-const getRequiredEnvValue = ({ key, appDir }: { key: TProteumRequiredEnvVariableKey; appDir: string }) => {
+const getRequiredEnvValue = ({
+    key,
+    context,
+}: {
+    key: string;
+    context: TEnvContext;
+}) => {
     const value = process.env[key]?.trim();
     if (value) return value;
 
     throw createProteumEnvError({
-        appDir,
+        ...context,
         message: `Missing required Proteum env variable "${key}".`,
     });
 };
 
-const parseEnvName = (value: string, appDir: string): TProteumEnvName => {
+const createConnectedProjectConfigError = ({
+    appDir,
+    message,
+}: {
+    appDir: string;
+    message: string;
+}) => new Error(`${message} Define it explicitly in ${path.join(appDir, 'proteum.config.ts')}.`);
+
+const getRequiredConnectedConfigValue = ({
+    appDir,
+    namespace,
+    field,
+    value,
+}: {
+    appDir: string;
+    namespace: string;
+    field: 'source' | 'urlInternal';
+    value: string | undefined;
+}) => {
+    const normalized = value?.trim();
+    if (normalized) return normalized;
+
+    throw createConnectedProjectConfigError({
+        appDir,
+        message: `Connected project "${namespace}" requires connect.${namespace}.${field}.`,
+    });
+};
+
+const parseEnvName = (value: string, context: TEnvContext): TProteumEnvName => {
     if (value === 'local' || value === 'server') return value;
     throw createProteumEnvError({
-        appDir,
+        ...context,
         message: `Invalid ENV_NAME "${value}". Expected "local" or "server".`,
     });
 };
 
-const parseEnvProfile = (value: string, appDir: string): TProteumEnvProfile => {
+const parseEnvProfile = (value: string, context: TEnvContext): TProteumEnvProfile => {
     if (value === 'dev' || value === 'testing' || value === 'prod') return value;
     throw createProteumEnvError({
-        appDir,
+        ...context,
         message: `Invalid ENV_PROFILE "${value}". Expected "dev", "testing", or "prod".`,
     });
 };
 
 const parseTraceCapture = ({
     value,
-    appDir,
+    context,
 }: {
     value: string | undefined;
-    appDir: string;
+    context: TEnvContext;
 }): TProteumTraceCapture | undefined => {
     if (value === undefined || value === '') return undefined;
     if (value === 'summary' || value === 'resolve' || value === 'deep') return value;
 
     throw createProteumEnvError({
-        appDir,
+        ...context,
         message: `Invalid TRACE_CAPTURE "${value}". Expected "summary", "resolve", or "deep".`,
     });
 };
@@ -156,11 +210,11 @@ const parseTraceCapture = ({
 const parseAbsoluteUrl = ({
     key,
     value,
-    appDir,
+    context,
 }: {
     key: string;
     value: string;
-    appDir: string;
+    context: TEnvContext;
 }) => {
     let url: URL;
 
@@ -168,19 +222,42 @@ const parseAbsoluteUrl = ({
         url = new URL(value);
     } catch {
         throw createProteumEnvError({
-            appDir,
+            ...context,
             message: `Invalid absolute URL for ${key}: "${value}". Expected an absolute http:// or https:// URL.`,
         });
     }
 
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
         throw createProteumEnvError({
-            appDir,
+            ...context,
             message: `Invalid absolute URL for ${key}: "${value}". Expected an absolute http:// or https:// URL.`,
         });
     }
 
     return value;
+};
+
+const parseConnectedProjectAbsoluteUrl = ({
+    appDir,
+    namespace,
+    field,
+    value,
+}: {
+    appDir: string;
+    namespace: string;
+    field: 'urlInternal';
+    value: string;
+}) => {
+    try {
+        const url = new URL(value);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error();
+        return value;
+    } catch {
+        throw createConnectedProjectConfigError({
+            appDir,
+            message: `Invalid connect.${namespace}.${field} "${value}". Expected an absolute http:// or https:// URL.`,
+        });
+    }
 };
 
 export const loadOptionalProteumDotenv = (appDir: string) => {
@@ -191,66 +268,113 @@ export const loadOptionalProteumDotenv = (appDir: string) => {
     }
 };
 
-export const getLoadedProteumEnvVariableKeys = () =>
-    Object.keys(process.env)
+export const getLoadedProteumEnvVariableKeys = (connectedProjects: TConnectedProjectsConfig = {}) => {
+    const requiredKeys = new Set(buildRequiredEnvVariableDefinitions(connectedProjects).map((definition) => definition.key));
+    const optionalKeys = new Set(buildOptionalEnvKeys(connectedProjects));
+
+    return Object.keys(process.env)
         .filter(
             (key) =>
-                requiredProteumEnvVariableKeys.includes(key as TProteumRequiredEnvVariableKey) ||
+                requiredKeys.has(key) ||
+                optionalKeys.has(key) ||
                 optionalProteumEnvVariablePrefixes.some((prefix) => key.startsWith(prefix)),
         )
-        .sort((a, b) => a.localeCompare(b));
+        .sort((left, right) => left.localeCompare(right));
+};
 
-export const inspectProteumEnv = (appDir: string): TProteumEnvInspection => {
+export const inspectProteumEnv = (
+    appDir: string,
+    rawConnectedProjects: TConnectedProjectsConfig = {},
+): TProteumEnvInspection => {
     loadOptionalProteumDotenv(appDir);
 
+    const connectedProjects = normalizeConnectedProjectsConfig(rawConnectedProjects);
+    const requiredVariables = buildRequiredEnvVariableDefinitions(connectedProjects);
+
     return {
-        loadedVariableKeys: getLoadedProteumEnvVariableKeys(),
-        requiredVariables: requiredProteumEnvVariableKeys.map((key) => ({
-            key,
-            possibleValues: [...requiredProteumEnvVariablePossibleValues[key]],
-            provided: isProvidedEnvValue(process.env[key]),
+        loadedVariableKeys: getLoadedProteumEnvVariableKeys(connectedProjects),
+        requiredVariables: requiredVariables.map((definition) => ({
+            key: definition.key,
+            possibleValues: [...definition.possibleValues],
+            provided: isProvidedEnvValue(process.env[definition.key]),
         })),
     };
 };
 
 export const parseProteumEnvConfig = ({
     appDir,
+    connectedProjects: rawConnectedProjects = {},
     routerPortOverride,
 }: {
     appDir: string;
+    connectedProjects?: TConnectedProjectsConfig;
     routerPortOverride?: number;
 }): TProteumEnvConfig => {
     loadOptionalProteumDotenv(appDir);
 
-    const name = parseEnvName(getRequiredEnvValue({ key: 'ENV_NAME', appDir }), appDir);
-    const profile = parseEnvProfile(getRequiredEnvValue({ key: 'ENV_PROFILE', appDir }), appDir);
+    const connectedProjects = normalizeConnectedProjectsConfig(rawConnectedProjects);
+    const context = { appDir, connectedProjects } satisfies TEnvContext;
+
+    const name = parseEnvName(getRequiredEnvValue({ key: 'ENV_NAME', context }), context);
+    const profile = parseEnvProfile(getRequiredEnvValue({ key: 'ENV_PROFILE', context }), context);
     const configuredRouterPort = parseIntegerEnvValue({
         key: 'PORT',
-        value: getRequiredEnvValue({ key: 'PORT', appDir }),
-        appDir,
+        value: getRequiredEnvValue({ key: 'PORT', context }),
+        context,
     });
     const currentDomain = parseAbsoluteUrl({
         key: 'URL',
-        value: getRequiredEnvValue({ key: 'URL', appDir }),
-        appDir,
+        value: getRequiredEnvValue({ key: 'URL', context }),
+        context,
+    });
+    const internalUrl = parseAbsoluteUrl({
+        key: 'URL_INTERNAL',
+        value: getRequiredEnvValue({ key: 'URL_INTERNAL', context }),
+        context,
     });
 
     const traceEnable = parseBooleanEnvValue({
         key: 'TRACE_ENABLE',
         value: process.env.TRACE_ENABLE,
-        appDir,
+        context,
     });
     const tracePersistOnError = parseBooleanEnvValue({
         key: 'TRACE_PERSIST_ON_ERROR',
         value: process.env.TRACE_PERSIST_ON_ERROR,
-        appDir,
+        context,
     });
     const traceRequestsLimit = process.env.TRACE_REQUESTS_LIMIT?.trim();
     const traceEventsLimit = process.env.TRACE_EVENTS_LIMIT?.trim();
     const traceCapture = parseTraceCapture({
         value: process.env.TRACE_CAPTURE?.trim(),
-        appDir,
+        context,
     });
+
+    const resolvedConnectedProjects = Object.fromEntries(
+        Object.entries(connectedProjects)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([namespace, config]) => {
+                const urlInternal = parseConnectedProjectAbsoluteUrl({
+                    appDir,
+                    namespace,
+                    field: 'urlInternal',
+                    value: getRequiredConnectedConfigValue({
+                        appDir,
+                        namespace,
+                        field: 'urlInternal',
+                        value: config.urlInternal,
+                    }),
+                });
+
+                return [
+                    namespace,
+                    {
+                        namespace,
+                        urlInternal,
+                    } satisfies TProteumConnectedProjectEnvConfig,
+                ];
+            }),
+    );
 
     return {
         name,
@@ -258,7 +382,9 @@ export const parseProteumEnvConfig = ({
         router: {
             port: routerPortOverride === undefined ? configuredRouterPort : routerPortOverride,
             currentDomain,
+            internalUrl,
         },
+        connectedProjects: resolvedConnectedProjects,
         trace: {
             enable: traceEnable ?? profile === 'dev',
             requestsLimit:
@@ -267,7 +393,7 @@ export const parseProteumEnvConfig = ({
                     : parseIntegerEnvValue({
                           key: 'TRACE_REQUESTS_LIMIT',
                           value: traceRequestsLimit,
-                          appDir,
+                          context,
                       }),
             eventsLimit:
                 traceEventsLimit === undefined || traceEventsLimit === ''
@@ -275,7 +401,7 @@ export const parseProteumEnvConfig = ({
                     : parseIntegerEnvValue({
                           key: 'TRACE_EVENTS_LIMIT',
                           value: traceEventsLimit,
-                          appDir,
+                          context,
                       }),
             capture: traceCapture ?? 'resolve',
             persistOnError: tracePersistOnError ?? profile === 'dev',

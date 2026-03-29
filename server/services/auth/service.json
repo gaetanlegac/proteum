@@ -1,6 +1,0 @@
-{
-    "id": "Core/Users",
-    "name": "Users",
-    "parent": "app",
-    "dependences": []
-}

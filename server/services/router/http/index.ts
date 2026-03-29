@@ -29,6 +29,12 @@ import type { TPerfGroupBy } from '@common/dev/performance';
 import type { TDevSessionStartResponse, TDevSessionUserSummary } from '@common/dev/session';
 import { serverHotReloadMessageType } from '@common/dev/serverHotReload';
 import { explainSectionNames } from '@common/dev/diagnostics';
+import {
+    connectedProjectHealthPath,
+    connectedProjectProxyPathPrefix,
+    parseConnectedProjectProxyPath,
+} from '@common/connectedProjects';
+import { profilerTraceRequestIdHeader } from '@common/dev/profiler';
 
 // Middlewaees (core)
 import { isMutipart, MiddlewareFormData } from './multipart';
@@ -140,6 +146,127 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         };
     }
 
+    private async verifyConnectedProjectsBeforeStart() {
+        for (const connectedProject of Object.values(this.app.connectedProjects || {})) {
+            const healthUrl = new URL(connectedProjectHealthPath, connectedProject.urlInternal).toString();
+
+            let response: Response;
+            try {
+                response = await fetch(healthUrl, {
+                    headers: { Accept: 'application/json' },
+                });
+            } catch (error) {
+                throw new Error(
+                    `Connected project "${connectedProject.namespace}" is unreachable at ${connectedProject.urlInternal}. ${error instanceof Error ? error.message : String(error)}`,
+                );
+            }
+
+            if (!response.ok) {
+                throw new Error(
+                    `Connected project "${connectedProject.namespace}" health check failed at ${healthUrl} with status ${response.status}.`,
+                );
+            }
+        }
+    }
+
+    private registerConnectedProjectRoutes(routes: express.Express) {
+        routes.get(connectedProjectHealthPath, (_req, res) => {
+            res.json({
+                connectedProjects: Object.keys(this.app.connectedProjects || {}),
+                identifier: this.app.identity.identifier,
+                ok: true,
+            });
+        });
+
+        routes.all(`${connectedProjectHealthPath}/*`, (_req, res) => {
+            res.status(404).json({ error: 'Unknown Proteum connected-project route.' });
+        });
+
+        routes.all(`${connectedProjectProxyPathPrefix}/:namespace/*`, async (req, res, next) => {
+            const parsed = parseConnectedProjectProxyPath(req.path);
+            if (!parsed) {
+                next();
+                return;
+            }
+
+            const connectedProject = this.app.connectedProjects?.[parsed.namespace];
+            if (!connectedProject) {
+                res.status(404).json({ error: `Unknown connected project "${parsed.namespace}".` });
+                return;
+            }
+
+            const search = new URL(req.originalUrl, 'http://proteum.local').search;
+            const targetUrl = new URL(`${parsed.httpPath}${search}`, connectedProject.urlInternal).toString();
+            const headers = new Headers();
+
+            for (const [key, value] of Object.entries(req.headers)) {
+                if (!value) continue;
+                if (key === 'content-length' || key === 'host') continue;
+                headers.set(key, Array.isArray(value) ? value.join(', ') : String(value));
+            }
+
+            if (!headers.has('accept')) headers.set('accept', 'application/json');
+
+            const init: RequestInit = {
+                method: req.method,
+                headers,
+            };
+
+            if (req.method !== 'GET' && req.method !== 'HEAD') {
+                if (req.files && Object.keys(req.files).length > 0) {
+                    res.status(501).json({
+                        error: `Connected project proxy does not support multipart payloads for ${parsed.namespace} yet.`,
+                    });
+                    return;
+                }
+
+                const contentType = String(req.headers['content-type'] || '').toLowerCase();
+
+                if (contentType.includes('application/json')) {
+                    headers.set('content-type', 'application/json');
+                    init.body = JSON.stringify(req.body || {});
+                } else if (contentType.includes('application/x-www-form-urlencoded')) {
+                    headers.set('content-type', 'application/x-www-form-urlencoded');
+                    init.body = new URLSearchParams(req.body as Record<string, string>).toString();
+                } else {
+                    headers.delete('content-type');
+                    init.body = undefined;
+                }
+            }
+
+            let response: Response;
+            try {
+                response = await fetch(targetUrl, init);
+            } catch (error) {
+                res.status(502).json({
+                    error: `Failed to proxy connected request to ${connectedProject.namespace}. ${error instanceof Error ? error.message : String(error)}`,
+                });
+                return;
+            }
+
+            const traceRequestId = response.headers.get(profilerTraceRequestIdHeader);
+            if (traceRequestId) res.setHeader(profilerTraceRequestIdHeader, traceRequestId);
+
+            const setCookie = typeof (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie === 'function'
+                ? (response.headers as Headers & { getSetCookie: () => string[] }).getSetCookie()
+                : [];
+            if (setCookie.length > 0) {
+                res.setHeader('set-cookie', setCookie);
+            }
+
+            const contentType = response.headers.get('content-type') || '';
+            res.status(response.status);
+            if (contentType) res.setHeader('content-type', contentType);
+
+            if (contentType.includes('application/json')) {
+                res.json(await response.json());
+                return;
+            }
+
+            res.send(await response.text());
+        });
+    }
+
     /*----------------------------------
     - HOOKS
     ----------------------------------*/
@@ -182,6 +309,7 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         );
         routes.use(apiMultipartOnly(MiddlewareFormData));
         if (this.config.cors !== undefined) routes.use(apiOnly(cors(this.config.cors)));
+        this.registerConnectedProjectRoutes(routes);
         routes.use(apiOnly(routeRequest));
 
         // Diverses protections (dont le disable x-powered-by)
@@ -270,6 +398,8 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         /*----------------------------------
         - BOOT SERVICES
         ----------------------------------*/
+        await this.verifyConnectedProjectsBeforeStart();
+
         this.http.listen(this.config.port, () => {
             if (__DEV__ && typeof process.send === 'function') {
                 process.send({

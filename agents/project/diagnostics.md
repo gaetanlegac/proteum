@@ -4,7 +4,8 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 
 ## Initial Triage
 
-- Start with machine-readable app state before reading large parts of the codebase: `./.proteum/manifest.json`, `npx proteum explain --json`, `npx proteum doctor --json`, and `npx proteum doctor --contracts --json` when generated artifacts or manifest-owned files may be stale.
+- Start with machine-readable app state before reading large parts of the codebase: `./.proteum/manifest.json`, `npx proteum connect --json`, `npx proteum explain --json`, `npx proteum doctor --json`, and `npx proteum doctor --contracts --json` when generated artifacts or manifest-owned files may be stale.
+- When one app depends on another app's generated controllers, inspect `npx proteum connect --controllers`, `npx proteum explain --connected --controllers`, the producer `proteum.connected.json`, the consumer `proteum.config.ts` connected `source` value, and the producer `./.proteum/proteum.connected.d.ts` before assuming the contract is local.
 - Use `rg -n` first to narrow the exact code path, then read only the relevant files.
 - Inspect `./server/index.ts`, `./server/config/*.ts`, and the touched files under `./commands`, `./server/controllers`, `./server/services`, `./server/routes`, `./client/pages`, and `./tests`.
 - Distinguish real app failures from wrapper, transport, tooling, or environment failures as early as possible.
@@ -12,6 +13,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 ## Runtime Diagnostics
 
 - For request-time issues in dev, start with `npx proteum diagnose <path> --port <port>` when you have a concrete failing route, page, controller path, or request target. It combines owner lookup, manifest diagnostics, contract diagnostics, matching trace data, and buffered server logs in one pass.
+- For connected-project failures, confirm the consumer app resolves the expected `connect.<Namespace>.source` and `connect.<Namespace>.urlInternal` values, the producer app exposes `GET /api/__proteum/connected/ping`, and the imported controller entries show `scope=connected` in `proteum explain`.
 - Use `npx proteum explain owner <query>` when you need a fast ownership graph for a route, controller path, source file, or generated artifact before reading code.
 - For performance issues or regressions in dev, use `npx proteum perf top --since <window>` to rank hot paths, `npx proteum perf request <requestId|path>` for one request waterfall, `npx proteum perf compare --baseline <window> --target <window>` for regressions, and `npx proteum perf memory --since <window>` for heap or RSS drift.
 - For request-time issues in dev, inspect traces before adding logs when the diagnose surface is still too coarse.

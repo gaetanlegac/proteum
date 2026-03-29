@@ -6,25 +6,28 @@ import app from '../../app';
 import cli from '../..';
 import { TProteumManifestScope, TProteumManifestService } from '../common/proteumManifest';
 import writeIfChanged from '../writeIfChanged';
-import { findServiceDirectories } from './discovery';
 import { normalizeAbsolutePath } from './shared';
 
-type TServiceMetas = {
-    id: string;
-    name: string;
-    parent: string;
-    dependences: string[];
-    importationPath: string;
-    priority: number;
-    sourceDir: string;
-    metasFilepath: string;
-    scope: TProteumManifestScope;
-};
+type TImportedBinding =
+    | {
+          kind: 'default' | 'named';
+          importPath: string;
+          localName: string;
+          exportedName: string;
+      }
+    | {
+          kind: 'namespace';
+          importPath: string;
+          localName: string;
+      };
 
 type TParsedService = {
-    registeredName: string;
+    className: string;
+    importPath: string;
     priority: number;
-    meta: TServiceMetas;
+    registeredName: string;
+    scope: TProteumManifestScope;
+    sourceFilepath?: string;
 };
 
 type TParsedAppBootstrap = {
@@ -32,51 +35,28 @@ type TParsedAppBootstrap = {
     routerPlugins: TParsedService[];
 };
 
-type TServicesAvailable = Record<string, TServiceMetas>;
 type TCommandServiceStubSource = {
     aliasImportPath: string;
     filepath: string;
 };
+
 type TGeneratedCommandServiceStubs = {
     declarations: string;
     typeNamesByAliasImportPath: Map<string, string>;
 };
 
-const buildServicesAvailable = (): TServicesAvailable => {
-    const searchDirs = [
-        { path: '@server/services/', priority: -1, root: path.join(cli.paths.core.root, 'server', 'services') },
-        { path: '@/server/services/', priority: 0, root: path.join(app.paths.root, 'server', 'services') },
-    ];
-
-    const servicesAvailable: TServicesAvailable = {};
-
-    for (const searchDir of searchDirs) {
-        const services = findServiceDirectories(searchDir.root);
-
-        for (const serviceDir of services) {
-            const metasFile = path.join(serviceDir, 'service.json');
-            const importationPath = searchDir.path + serviceDir.substring(searchDir.root.length + 1);
-            const serviceMetas = fs.readJsonSync(metasFile) as {
-                id: string;
-                name: string;
-                parent: string;
-                dependences: string[];
-                priority?: number;
-            };
-
-            servicesAvailable[serviceMetas.id] = {
-                importationPath,
-                priority: searchDir.priority,
-                sourceDir: normalizeAbsolutePath(serviceDir),
-                metasFilepath: normalizeAbsolutePath(metasFile),
-                scope: searchDir.path.startsWith('@server/services/') ? 'framework' : 'app',
-                ...serviceMetas,
-            };
-        }
-    }
-
-    return servicesAvailable;
+type TResolvedImportSource = {
+    scope?: TProteumManifestScope;
+    sourceFilepath?: string;
 };
+
+const coreServicesRoot = normalizeAbsolutePath(path.join(cli.paths.core.root, 'server', 'services'));
+const appServicesRoot = normalizeAbsolutePath(path.join(app.paths.root, 'server', 'services'));
+const coreServerRoot = normalizeAbsolutePath(path.join(cli.paths.core.root, 'server'));
+const appServerRoot = normalizeAbsolutePath(path.join(app.paths.root, 'server'));
+
+const moduleSourceCache = new Map<string, ts.SourceFile>();
+const exportExpressionCache = new Map<string, ts.Expression | undefined>();
 
 const getAppServerEntryFilepath = () => {
     const filepath = app.paths.server.entry;
@@ -88,14 +68,22 @@ const getAppServerEntryFilepath = () => {
     return filepath;
 };
 
-const createSourceFile = (filepath: string) =>
-    ts.createSourceFile(
-        filepath,
-        fs.readFileSync(filepath, 'utf8'),
+const createSourceFile = (filepath: string) => {
+    const normalizedFilepath = normalizeAbsolutePath(filepath);
+    const existing = moduleSourceCache.get(normalizedFilepath);
+    if (existing) return existing;
+
+    const sourceFile = ts.createSourceFile(
+        normalizedFilepath,
+        fs.readFileSync(normalizedFilepath, 'utf8'),
         ts.ScriptTarget.Latest,
         true,
-        filepath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+        normalizedFilepath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
     );
+
+    moduleSourceCache.set(normalizedFilepath, sourceFile);
+    return sourceFile;
+};
 
 const hasModifier = (node: ts.Node, kind: ts.SyntaxKind) => {
     const modifiers = (node as ts.Node & { modifiers?: ts.NodeArray<ts.Modifier> }).modifiers;
@@ -141,7 +129,7 @@ const getDefaultExportClassDeclaration = (sourceFile: ts.SourceFile) => {
 };
 
 const buildImportIndex = (sourceFile: ts.SourceFile) => {
-    const imports = new Map<string, string>();
+    const imports = new Map<string, TImportedBinding>();
 
     for (const statement of sourceFile.statements) {
         if (!ts.isImportDeclaration(statement)) continue;
@@ -152,14 +140,35 @@ const buildImportIndex = (sourceFile: ts.SourceFile) => {
         const { importClause } = statement;
 
         if (importClause.name) {
-            imports.set(importClause.name.text, importPath);
+            imports.set(importClause.name.text, {
+                kind: 'default',
+                importPath,
+                localName: importClause.name.text,
+                exportedName: 'default',
+            });
         }
 
         const namedBindings = importClause.namedBindings;
-        if (!namedBindings || !ts.isNamedImports(namedBindings)) continue;
+        if (!namedBindings) continue;
+
+        if (ts.isNamespaceImport(namedBindings)) {
+            imports.set(namedBindings.name.text, {
+                kind: 'namespace',
+                importPath,
+                localName: namedBindings.name.text,
+            });
+            continue;
+        }
+
+        if (!ts.isNamedImports(namedBindings)) continue;
 
         for (const element of namedBindings.elements) {
-            imports.set(element.name.text, importPath);
+            imports.set(element.name.text, {
+                kind: 'named',
+                importPath,
+                localName: element.name.text,
+                exportedName: element.propertyName?.text || element.name.text,
+            });
         }
     }
 
@@ -183,64 +192,56 @@ const getPropertyNameText = (propertyName: ts.PropertyName | undefined): string 
     return undefined;
 };
 
-const extractPriorityFromConfig = (configExpression?: ts.Expression) => {
-    if (!configExpression) return 0;
+const resolveExistingModuleFilepath = (importPath: string) => {
+    const candidates = [
+        importPath,
+        `${importPath}.ts`,
+        `${importPath}.tsx`,
+        path.join(importPath, 'index.ts'),
+        path.join(importPath, 'index.tsx'),
+    ];
 
-    const expression = unwrapExpression(configExpression);
-    if (!ts.isObjectLiteralExpression(expression)) return 0;
+    for (const candidate of candidates) {
+        if (!fs.existsSync(candidate)) continue;
+        if (!fs.statSync(candidate).isFile()) continue;
 
-    const priorityProperty = expression.properties.find((property) => {
-        if (!ts.isPropertyAssignment(property)) return false;
-
-        return getPropertyNameText(property.name) === 'priority';
-    });
-
-    if (!priorityProperty || !ts.isPropertyAssignment(priorityProperty)) return 0;
-
-    const priorityExpression = unwrapExpression(priorityProperty.initializer);
-    if (ts.isNumericLiteral(priorityExpression)) return Number(priorityExpression.text);
-
-    if (ts.isPrefixUnaryExpression(priorityExpression) && priorityExpression.operator === ts.SyntaxKind.MinusToken) {
-        const operand = unwrapExpression(priorityExpression.operand);
-        if (ts.isNumericLiteral(operand)) return -Number(operand.text);
+        return normalizeAbsolutePath(candidate);
     }
 
-    return 0;
+    return undefined;
 };
 
-const resolveImportedService = (
-    expression: ts.LeftHandSideExpression,
-    imports: Map<string, string>,
-    servicesAvailable: TServicesAvailable,
-) => {
-    if (!ts.isIdentifier(expression)) return undefined;
+const resolveImportSource = (importPath: string, fromFilepath: string): TResolvedImportSource => {
+    if (importPath.startsWith('@server/')) {
+        return {
+            scope: 'framework',
+            sourceFilepath: resolveExistingModuleFilepath(path.join(cli.paths.core.root, importPath.slice(1))),
+        };
+    }
 
-    const importPath = imports.get(expression.text);
-    if (!importPath) return undefined;
+    if (importPath.startsWith('@/')) {
+        return {
+            scope: 'app',
+            sourceFilepath: resolveExistingModuleFilepath(path.join(app.paths.root, importPath.slice(2))),
+        };
+    }
 
-    return Object.values(servicesAvailable).find((serviceMeta) => serviceMeta.importationPath === importPath);
-};
+    if (importPath.startsWith('./') || importPath.startsWith('../')) {
+        const sourceFilepath = resolveExistingModuleFilepath(path.resolve(path.dirname(fromFilepath), importPath));
+        if (!sourceFilepath) return {};
 
-const parseServiceInstantiation = (
-    registeredName: string,
-    expression: ts.Expression,
-    imports: Map<string, string>,
-    servicesAvailable: TServicesAvailable,
-    configArgIndex: number,
-): TParsedService | undefined => {
-    const unwrappedExpression = unwrapExpression(expression);
-    if (!ts.isNewExpression(unwrappedExpression)) return undefined;
+        if (sourceFilepath === appServerRoot || sourceFilepath.startsWith(`${appServerRoot}/`)) {
+            return { scope: 'app', sourceFilepath };
+        }
 
-    const meta = resolveImportedService(unwrappedExpression.expression, imports, servicesAvailable);
-    if (!meta) return undefined;
+        if (sourceFilepath === coreServerRoot || sourceFilepath.startsWith(`${coreServerRoot}/`)) {
+            return { scope: 'framework', sourceFilepath };
+        }
 
-    const configExpression = unwrappedExpression.arguments?.[configArgIndex];
+        return { sourceFilepath };
+    }
 
-    return {
-        registeredName,
-        priority: extractPriorityFromConfig(configExpression),
-        meta,
-    };
+    return {};
 };
 
 const getObjectLiteralProperty = (expression: ts.ObjectLiteralExpression, propertyName: string) =>
@@ -250,10 +251,173 @@ const getObjectLiteralProperty = (expression: ts.ObjectLiteralExpression, proper
         return getPropertyNameText(property.name) === propertyName;
     });
 
+const readNumericLiteral = (expression: ts.Expression) => {
+    const unwrappedExpression = unwrapExpression(expression);
+
+    if (ts.isNumericLiteral(unwrappedExpression)) return Number(unwrappedExpression.text);
+
+    if (
+        ts.isPrefixUnaryExpression(unwrappedExpression) &&
+        unwrappedExpression.operator === ts.SyntaxKind.MinusToken &&
+        ts.isNumericLiteral(unwrapExpression(unwrappedExpression.operand))
+    ) {
+        return -Number((unwrapExpression(unwrappedExpression.operand) as ts.NumericLiteral).text);
+    }
+
+    return undefined;
+};
+
+const getExportedExpression = (moduleFilepath: string, exportName: string): ts.Expression | undefined => {
+    const cacheKey = `${normalizeAbsolutePath(moduleFilepath)}::${exportName}`;
+    if (exportExpressionCache.has(cacheKey)) return exportExpressionCache.get(cacheKey);
+
+    const sourceFile = createSourceFile(moduleFilepath);
+    const namedExports = new Map<string, string>();
+
+    for (const statement of sourceFile.statements) {
+        if (!ts.isExportDeclaration(statement) || !statement.exportClause || !ts.isNamedExports(statement.exportClause)) continue;
+
+        for (const element of statement.exportClause.elements) {
+            const exportedName = element.name.text;
+            const localName = element.propertyName?.text || element.name.text;
+            namedExports.set(exportedName, localName);
+        }
+    }
+
+    const localName = namedExports.get(exportName) || exportName;
+
+    for (const statement of sourceFile.statements) {
+        if (!ts.isVariableStatement(statement) || !hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
+
+        for (const declaration of statement.declarationList.declarations) {
+            if (!ts.isIdentifier(declaration.name) || declaration.name.text !== localName || !declaration.initializer) continue;
+
+            exportExpressionCache.set(cacheKey, declaration.initializer);
+            return declaration.initializer;
+        }
+    }
+
+    exportExpressionCache.set(cacheKey, undefined);
+    return undefined;
+};
+
+const extractPriorityFromConfigExpression = (
+    configExpression: ts.Expression | undefined,
+    imports: Map<string, TImportedBinding>,
+    sourceFilepath: string,
+    seen = new Set<string>(),
+): number => {
+    if (!configExpression) return 0;
+
+    const expression = unwrapExpression(configExpression);
+
+    if (ts.isObjectLiteralExpression(expression)) {
+        const priorityProperty = getObjectLiteralProperty(expression, 'priority');
+        if (!priorityProperty || !ts.isPropertyAssignment(priorityProperty)) return 0;
+        return readNumericLiteral(priorityProperty.initializer) || 0;
+    }
+
+    if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression)) {
+        const callee = expression.expression;
+
+        if (
+            ts.isIdentifier(callee.expression) &&
+            callee.expression.text === 'Services' &&
+            callee.name.text === 'config'
+        ) {
+            return extractPriorityFromConfigExpression(expression.arguments[1], imports, sourceFilepath, seen);
+        }
+    }
+
+    if (ts.isIdentifier(expression)) {
+        const imported = imports.get(expression.text);
+        if (!imported || imported.kind === 'namespace') return 0;
+
+        const resolved = resolveImportSource(imported.importPath, sourceFilepath);
+        if (!resolved.sourceFilepath) return 0;
+
+        const cacheKey = `${resolved.sourceFilepath}::${imported.exportedName}`;
+        if (seen.has(cacheKey)) return 0;
+
+        seen.add(cacheKey);
+        return extractPriorityFromConfigExpression(
+            getExportedExpression(resolved.sourceFilepath, imported.exportedName),
+            buildImportIndex(createSourceFile(resolved.sourceFilepath)),
+            resolved.sourceFilepath,
+            seen,
+        );
+    }
+
+    if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.expression)) {
+        const imported = imports.get(expression.expression.text);
+        if (!imported || imported.kind !== 'namespace') return 0;
+
+        const resolved = resolveImportSource(imported.importPath, sourceFilepath);
+        if (!resolved.sourceFilepath) return 0;
+
+        const exportName = expression.name.text;
+        const cacheKey = `${resolved.sourceFilepath}::${exportName}`;
+        if (seen.has(cacheKey)) return 0;
+
+        seen.add(cacheKey);
+        return extractPriorityFromConfigExpression(
+            getExportedExpression(resolved.sourceFilepath, exportName),
+            buildImportIndex(createSourceFile(resolved.sourceFilepath)),
+            resolved.sourceFilepath,
+            seen,
+        );
+    }
+
+    return 0;
+};
+
+const resolveImportedService = (
+    expression: ts.LeftHandSideExpression,
+    imports: Map<string, TImportedBinding>,
+    sourceFilepath: string,
+) => {
+    if (!ts.isIdentifier(expression)) return undefined;
+
+    const imported = imports.get(expression.text);
+    if (!imported || imported.kind === 'namespace') return undefined;
+
+    const resolved = resolveImportSource(imported.importPath, sourceFilepath);
+    if (!resolved.scope) return undefined;
+
+    return {
+        className: expression.text,
+        importPath: imported.importPath,
+        scope: resolved.scope,
+        sourceFilepath: resolved.sourceFilepath,
+    };
+};
+
+const parseServiceInstantiation = (
+    registeredName: string,
+    expression: ts.Expression,
+    imports: Map<string, TImportedBinding>,
+    sourceFilepath: string,
+    configArgIndex: number,
+): TParsedService | undefined => {
+    const unwrappedExpression = unwrapExpression(expression);
+    if (!ts.isNewExpression(unwrappedExpression)) return undefined;
+
+    const resolvedService = resolveImportedService(unwrappedExpression.expression, imports, sourceFilepath);
+    if (!resolvedService) return undefined;
+
+    const configExpression = unwrappedExpression.arguments?.[configArgIndex];
+
+    return {
+        ...resolvedService,
+        registeredName,
+        priority: extractPriorityFromConfigExpression(configExpression, imports, sourceFilepath),
+    };
+};
+
 const extractRouterPlugins = (
     routerConfigExpression: ts.Expression | undefined,
-    imports: Map<string, string>,
-    servicesAvailable: TServicesAvailable,
+    imports: Map<string, TImportedBinding>,
+    sourceFilepath: string,
 ) => {
     if (!routerConfigExpression) return [];
 
@@ -274,7 +438,7 @@ const extractRouterPlugins = (
         const registeredName = getPropertyNameText(property.name);
         if (!registeredName) continue;
 
-        const routerPlugin = parseServiceInstantiation(registeredName, property.initializer, imports, servicesAvailable, 0);
+        const routerPlugin = parseServiceInstantiation(registeredName, property.initializer, imports, sourceFilepath, 0);
         if (!routerPlugin) continue;
 
         routerPlugins.push(routerPlugin);
@@ -283,7 +447,7 @@ const extractRouterPlugins = (
     return routerPlugins;
 };
 
-const parseAppBootstrap = (servicesAvailable: TServicesAvailable): TParsedAppBootstrap => {
+const parseAppBootstrap = (): TParsedAppBootstrap => {
     const sourceFile = createSourceFile(getAppServerEntryFilepath());
     const imports = buildImportIndex(sourceFile);
     const appClass = getDefaultExportClassDeclaration(sourceFile);
@@ -297,16 +461,16 @@ const parseAppBootstrap = (servicesAvailable: TServicesAvailable): TParsedAppBoo
         const registeredName = getPropertyNameText(member.name);
         if (!registeredName) continue;
 
-        const rootService = parseServiceInstantiation(registeredName, member.initializer, imports, servicesAvailable, 1);
+        const rootService = parseServiceInstantiation(registeredName, member.initializer, imports, sourceFile.fileName, 1);
         if (!rootService) continue;
 
         rootServices.push(rootService);
 
-        if (rootService.meta.id === 'Core/Router') {
+        if (rootService.importPath === '@server/services/router') {
             const initializer = unwrapExpression(member.initializer);
             if (!ts.isNewExpression(initializer)) continue;
 
-            routerPlugins = extractRouterPlugins(initializer.arguments?.[1], imports, servicesAvailable);
+            routerPlugins = extractRouterPlugins(initializer.arguments?.[1], imports, sourceFile.fileName);
         }
     }
 
@@ -318,22 +482,9 @@ const parseAppBootstrap = (servicesAvailable: TServicesAvailable): TParsedAppBoo
 };
 
 const commandServiceSearchRoots = [
-    { root: normalizeAbsolutePath(path.join(cli.paths.core.root, 'server', 'services')), prefix: '@server/services/' },
-    { root: normalizeAbsolutePath(path.join(app.paths.root, 'server', 'services')), prefix: '@/server/services/' },
+    { root: coreServicesRoot, prefix: '@server/services/' },
+    { root: appServicesRoot, prefix: '@/server/services/' },
 ];
-
-const resolveExistingModuleFilepath = (importPath: string) => {
-    const candidates = [importPath, `${importPath}.ts`, `${importPath}.tsx`, path.join(importPath, 'index.ts'), path.join(importPath, 'index.tsx')];
-
-    for (const candidate of candidates) {
-        if (!fs.existsSync(candidate)) continue;
-        if (!fs.statSync(candidate).isFile()) continue;
-
-        return normalizeAbsolutePath(candidate);
-    }
-
-    return undefined;
-};
 
 const getCommandServiceAliasFromFilepath = (filepath: string) => {
     const normalizedFilepath = normalizeAbsolutePath(filepath);
@@ -389,23 +540,21 @@ const isPrivateOrProtectedInstanceMember = (member: ts.ClassElement) =>
 
 const getPropertyDeclarationType = (
     property: ts.PropertyDeclaration,
-    imports: Map<string, string>,
+    imports: Map<string, TImportedBinding>,
     sourceFilepath: string,
     getStubTypeName: (source: TCommandServiceStubSource) => string,
     enqueueStub: (source: TCommandServiceStubSource) => void,
 ) => {
     const initializer = property.initializer ? unwrapExpression(property.initializer) : undefined;
 
-    if (initializer && ts.isNewExpression(initializer)) {
-        if (ts.isIdentifier(initializer.expression)) {
-            const nestedImportPath = imports.get(initializer.expression.text);
-            if (nestedImportPath) {
-                const nestedSource = resolveCommandServiceStubSource(nestedImportPath, sourceFilepath);
+    if (initializer && ts.isNewExpression(initializer) && ts.isIdentifier(initializer.expression)) {
+        const nestedImport = imports.get(initializer.expression.text);
+        if (nestedImport && nestedImport.kind !== 'namespace') {
+            const nestedSource = resolveCommandServiceStubSource(nestedImport.importPath, sourceFilepath);
 
-                if (nestedSource) {
-                    enqueueStub(nestedSource);
-                    return getStubTypeName(nestedSource);
-                }
+            if (nestedSource) {
+                enqueueStub(nestedSource);
+                return getStubTypeName(nestedSource);
             }
         }
     }
@@ -483,7 +632,7 @@ const createCommandServiceStubDeclarations = (rootServices: TParsedService[]): T
     };
 
     for (const rootService of rootServices) {
-        const source = resolveCommandServiceStubSource(rootService.meta.importationPath);
+        const source = resolveCommandServiceStubSource(rootService.importPath, rootService.sourceFilepath);
         if (source) enqueueStub(source);
     }
 
@@ -564,20 +713,17 @@ ${classMembers.join('\n')}
 
 const resolveManifestService = (service: TParsedService, parent: string): TProteumManifestService => ({
     kind: 'service',
-    id: service.meta.id,
     registeredName: service.registeredName,
-    metaName: service.meta.name,
+    className: service.className,
     parent,
-    priority: service.priority || service.meta.priority || 0,
-    importPath: service.meta.importationPath,
-    sourceDir: service.meta.sourceDir,
-    metasFilepath: service.meta.metasFilepath,
-    scope: service.meta.scope,
+    priority: service.priority,
+    importPath: service.importPath,
+    sourceFilepath: service.sourceFilepath,
+    scope: service.scope,
 });
 
 export const generateServiceArtifacts = () => {
-    const servicesAvailable = buildServicesAvailable();
-    const { rootServices, routerPlugins } = parseAppBootstrap(servicesAvailable);
+    const { rootServices, routerPlugins } = parseAppBootstrap();
     const appClassIdentifier = app.identity.identifier;
     const containerServices = app.containerServices.map((serviceName) => "'" + serviceName + "'").join('|');
     const appServices = rootServices.map((service) => resolveManifestService(service, 'app'));
@@ -699,7 +845,8 @@ declare class ${appClassIdentifier} implements import("@server/app/commands").TC
     Models?: import("@server/app/commands").TCommandApplication["Models"];
 ${rootServices
     .map((service) => {
-        const typeName = commandServiceStubs.typeNamesByAliasImportPath.get(service.meta.importationPath) || 'any';
+        const source = resolveCommandServiceStubSource(service.importPath, service.sourceFilepath);
+        const typeName = source ? commandServiceStubs.typeNamesByAliasImportPath.get(source.aliasImportPath) || 'any' : 'any';
 
         return `    ${service.registeredName}: ${typeName};`;
     })

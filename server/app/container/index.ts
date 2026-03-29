@@ -29,6 +29,7 @@ export class ApplicationContainer<TServicesIndex extends StartedServicesIndex = 
     public Services = Services as ServicesContainer<TServicesIndex>;
     public Environment: TEnvConfig;
     public Identity: Config.Identity;
+    public Setup: Config.Setup;
     public Console: Console;
     public Trace: Trace;
 
@@ -53,6 +54,7 @@ export class ApplicationContainer<TServicesIndex extends StartedServicesIndex = 
         const configParser = new ConfigParser(this.path.root);
         this.Environment = configParser.env();
         this.Identity = configParser.identity();
+        this.Setup = configParser.setup();
         this.Console = new Console(this, { ...defaultConsoleConfig, enable: this.Environment.profile === 'dev' });
         this.Trace = new Trace(this, this.Environment.trace);
     }

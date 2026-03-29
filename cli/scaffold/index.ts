@@ -1,10 +1,10 @@
 import fs from 'fs-extra';
 import path from 'path';
 import slugify from 'slugify';
-import yaml from 'yaml';
 import { UsageError } from 'clipanion';
 
 import cli from '..';
+import { loadApplicationIdentityConfig } from '../../common/applicationConfigLoader';
 import { ensureProjectAgentSymlinks } from '../utils/agents';
 import { runProcess } from '../utils/runProcess';
 import {
@@ -18,6 +18,7 @@ import {
     createInitSummary,
     createPackageJsonTemplate,
     createPageTemplate,
+    createProteumConfigTemplate,
     createRouteTemplate,
     createRouterConfigTemplate,
     createServerIndexTemplate,
@@ -133,16 +134,16 @@ const defaultRouteFromSegments = (segments: string[]) => {
 const resolveRootServiceLeaf = (segments: string[]) => segments[segments.length - 1];
 
 const readIdentityConfig = (appRoot: string): TIdentityConfig => {
-    const identityFilepath = path.join(appRoot, 'identity.yaml');
+    const identityFilepath = path.join(appRoot, 'identity.config.ts');
     if (!fs.existsSync(identityFilepath)) {
-        throw new UsageError(`Missing identity.yaml in ${appRoot}. Run \`proteum init\` first or target a Proteum app root.`);
+        throw new UsageError(`Missing identity.config.ts in ${appRoot}. Run \`proteum init\` first or target a Proteum app root.`);
     }
 
-    const parsed = yaml.parse(fs.readFileSync(identityFilepath, 'utf8')) as Partial<TIdentityConfig> | null;
-    const identifier = typeof parsed?.identifier === 'string' ? parsed.identifier.trim() : '';
-    const name = typeof parsed?.name === 'string' ? parsed.name.trim() : '';
+    const parsed = loadApplicationIdentityConfig(appRoot);
+    const identifier = typeof parsed.identifier === 'string' ? parsed.identifier.trim() : '';
+    const name = typeof parsed.name === 'string' ? parsed.name.trim() : '';
 
-    if (!identifier) throw new UsageError(`identity.yaml in ${appRoot} is missing a valid "identifier" field.`);
+    if (!identifier) throw new UsageError(`identity.config.ts in ${appRoot} is missing a valid "identifier" field.`);
 
     return {
         identifier,
@@ -151,7 +152,7 @@ const readIdentityConfig = (appRoot: string): TIdentityConfig => {
 };
 
 const assertProteumAppRoot = (appRoot: string) => {
-    const expectedEntries = ['package.json', 'identity.yaml', 'client', 'server'];
+    const expectedEntries = ['package.json', 'identity.config.ts', 'proteum.config.ts', 'client', 'server'];
     const missing = expectedEntries.filter((entry) => !fs.existsSync(path.join(appRoot, entry)));
     if (missing.length > 0) {
         throw new UsageError(
@@ -459,20 +460,8 @@ const createServicePlan = ({
     const configExportName = `${configFileBase}Config`;
     const relativeServiceDir = path.join('server', 'services', ...segments);
     const relativeServiceFilepath = path.join(relativeServiceDir, 'index.ts');
-    const relativeServiceConfigFilepath = path.join(relativeServiceDir, 'service.json');
     const relativeConfigFilepath = path.join('server', 'config', `${configFileBase}.ts`);
     const propertyName = serviceImportName;
-
-    const serviceJson = JSON.stringify(
-        {
-            id: `${appIdentifier}/${serviceImportName}`,
-            name: `${appIdentifier}${serviceImportName}`,
-            parent: 'app',
-            dependences: [],
-        },
-        null,
-        4,
-    ) + '\n';
 
     return {
         files: [
@@ -482,10 +471,6 @@ const createServicePlan = ({
                     appIdentifier,
                     className,
                 }),
-            },
-            {
-                relativePath: relativeServiceConfigFilepath,
-                content: serviceJson,
             },
             {
                 relativePath: relativeConfigFilepath,
@@ -628,12 +613,16 @@ const createInitFilePlans = (config: TScaffoldInitConfig): TScaffoldFilePlan[] =
         }),
     },
     {
-        relativePath: 'identity.yaml',
+        relativePath: 'identity.config.ts',
         content: createIdentityTemplate({
             appName: config.name,
             appIdentifier: config.identifier,
             appDescription: config.description,
         }),
+    },
+    {
+        relativePath: 'proteum.config.ts',
+        content: createProteumConfigTemplate(),
     },
     {
         relativePath: '.env',

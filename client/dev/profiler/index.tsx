@@ -1122,6 +1122,11 @@ const formatProfilerRequestReference = ({
     return rawReference || fallbackLabel || 'request';
 };
 
+const formatConnectedTraceCallReference = (call: TTraceCall) =>
+    call.connectedProjectNamespace && call.connectedControllerAccessor
+        ? `${call.connectedProjectNamespace}.${call.connectedControllerAccessor}`
+        : undefined;
+
 const getTraceRequestData = (trace: TRequestTrace | undefined) =>
     trace?.events.find((event) => event.type === 'request.start')?.details.data;
 
@@ -1241,6 +1246,9 @@ const JsonCodeBlock = ({ value }: { value: string }) => (
 const PlainCodeBlock = ({ value }: { value: string }) => <pre className="proteum-profiler__mono proteum-profiler__pre">{value}</pre>;
 
 const formatTraceCallDisplay = (call: TTraceCall) => {
+    const connectedReference = formatConnectedTraceCallReference(call);
+    if (connectedReference) return connectedReference;
+
     if (call.path.startsWith('/api/')) {
         return formatProfilerRequestReference({
             fallbackLabel: call.label,
@@ -1584,6 +1592,8 @@ const ApiPanel = ({ session }: { session: TProfilerNavigationSession }) => {
             statusCode: call.statusCode,
             tags: [
                 call.origin,
+                ...(call.connectedProjectNamespace ? [`connected:${call.connectedProjectNamespace}`] : []),
+                ...(call.connectedControllerAccessor ? [`target:${call.connectedControllerAccessor}`] : []),
                 ...(call.fetcherId ? [`fetcher:${call.fetcherId}`] : []),
                 ...call.requestDataKeys.map((key) => `arg:${key}`),
                 ...call.resultKeys.map((key) => `res:${key}`),
@@ -1951,6 +1961,12 @@ const TraceRows = ({
                         </div>
                         <div className="proteum-profiler__tags">
                             <span className="proteum-profiler__tag">{call.origin}</span>
+                            {call.connectedProjectNamespace ? (
+                                <span className="proteum-profiler__tag">connected:{call.connectedProjectNamespace}</span>
+                            ) : null}
+                            {call.connectedControllerAccessor ? (
+                                <span className="proteum-profiler__tag">target:{call.connectedControllerAccessor}</span>
+                            ) : null}
                             {call.fetcherId ? <span className="proteum-profiler__tag">fetcher:{call.fetcherId}</span> : null}
                             {call.requestDataKeys.map((key) => (
                                 <span className="proteum-profiler__tag" key={`${call.id}:req:${key}`}>

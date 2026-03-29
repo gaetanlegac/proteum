@@ -227,6 +227,8 @@ export const createServerTsconfigTemplate = () => `{
     },
     "include": [
         ".",
+        "../identity.config.ts",
+        "../proteum.config.ts",
         "../var/typings",
         "../node_modules/proteum/types/global",
         "../.proteum/server/services.d.ts",
@@ -236,11 +238,12 @@ export const createServerTsconfigTemplate = () => `{
 `;
 
 export const createGitignoreTemplate = () => `node_modules
-.proteum
-.cache
-bin
-dev
-var
+/.proteum
+/.cache
+/bin
+/dev
+/var
+/proteum.connected.json
 .env
 `;
 
@@ -248,6 +251,7 @@ export const createEnvTemplate = ({ port, url }: { port: number; url: string }) 
 ENV_PROFILE=dev
 PORT=${port}
 URL=${url}
+URL_INTERNAL=${url}
 
 # Optional trace settings
 # TRACE_ENABLE=true
@@ -306,28 +310,38 @@ export const createIdentityTemplate = ({
     appName: string;
     appIdentifier: string;
     appDescription: string;
-}) => `name: ${appName}
-identifier: ${appIdentifier}
-description: ${JSON.stringify(appDescription)}
+}) => `import { Application } from 'proteum/config';
 
-author:
-    name: ${appName}
-    url: localhost
-    email: team@example.com
+export default Application.identity({
+    name: ${JSON.stringify(appName)},
+    identifier: ${JSON.stringify(appIdentifier)},
+    description: ${JSON.stringify(appDescription)},
+    author: {
+        name: ${JSON.stringify(appName)},
+        url: 'localhost',
+        email: 'team@example.com',
+    },
+    social: {},
+    language: 'en',
+    locale: 'en-US',
+    maincolor: 'white',
+    iconsPack: 'light',
+    web: {
+        title: ${JSON.stringify(appName)},
+        titleSuffix: ${JSON.stringify(appName)},
+        fullTitle: ${JSON.stringify(appName)},
+        description: ${JSON.stringify(appDescription)},
+        version: '0.0.1',
+    },
+});
+`;
 
-social:
+export const createProteumConfigTemplate = () => `import { Application } from 'proteum/config';
 
-language: en
-locale: en-US
-maincolor: white
-iconsPack: light
-
-web:
-    title: ${JSON.stringify(appName)}
-    titleSuffix: ${JSON.stringify(appName)}
-    fullTitle: ${JSON.stringify(appName)}
-    description: ${JSON.stringify(appDescription)}
-    version: 0.0.1
+export default Application.setup({
+    transpile: [],
+    connect: {},
+});
 `;
 
 export const createInitSummary = (result: TScaffoldResult, config: TScaffoldInitConfig) => ({

@@ -1,4 +1,9 @@
-export type TProteumManifestScope = 'app' | 'framework';
+import type {
+    TConnectedProjectSourceKind,
+    TConnectedProjectTypingMode,
+} from '../connectedProjects';
+
+export type TProteumManifestScope = 'app' | 'framework' | 'connected';
 export type TProteumManifestSourceLocation = { line: number; column: number };
 export type TProteumManifestRouteTargetResolution = 'literal' | 'static-expression' | 'dynamic-expression';
 export type TProteumManifestDiagnosticLevel = 'warning' | 'error';
@@ -14,14 +19,12 @@ export type TProteumManifestDiagnostic = {
 
 export type TProteumManifestService = {
     kind: 'service' | 'ref';
-    id?: string;
     registeredName: string;
-    metaName?: string;
+    className?: string;
     parent: string;
     priority: number;
     importPath?: string;
-    sourceDir?: string;
-    metasFilepath?: string;
+    sourceFilepath?: string;
     refTo?: string;
     scope: TProteumManifestScope;
 };
@@ -39,6 +42,21 @@ export type TProteumManifestController = {
     httpPath: string;
     clientAccessor: string;
     scope: TProteumManifestScope;
+    connectedProjectNamespace?: string;
+    connectedProjectIdentifier?: string;
+};
+
+export type TProteumManifestConnectedProject = {
+    namespace: string;
+    packageName?: string;
+    identityIdentifier?: string;
+    identityName?: string;
+    sourceKind?: TConnectedProjectSourceKind;
+    sourceValue?: string;
+    cachedContractFilepath?: string;
+    typingMode?: TConnectedProjectTypingMode;
+    urlInternal?: string;
+    controllerCount: number;
 };
 
 export type TProteumManifestCommand = {
@@ -83,11 +101,12 @@ export type TProteumManifestLayout = {
 };
 
 export type TProteumManifest = {
-    version: 2;
+    version: 9;
     app: {
         root: string;
         coreRoot: string;
         identityFilepath: string;
+        setupFilepath: string;
         identity: {
             name: string;
             identifier: string;
@@ -99,6 +118,10 @@ export type TProteumManifest = {
             fullTitle?: string;
             webDescription?: string;
             version?: string;
+        };
+        setup: {
+            transpile?: string[];
+            connect?: Record<string, { source?: string; urlInternal?: string }>;
         };
     };
     conventions: {
@@ -118,8 +141,10 @@ export type TProteumManifest = {
             profile: string;
             routerPort: number;
             routerCurrentDomain: string;
+            routerInternalUrl: string;
         };
     };
+    connectedProjects: TProteumManifestConnectedProject[];
     services: {
         app: TProteumManifestService[];
         routerPlugins: TProteumManifestService[];

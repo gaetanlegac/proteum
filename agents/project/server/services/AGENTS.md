@@ -11,7 +11,6 @@ Diagnostics source of truth: project-root `diagnostics.md`.
 ## Placement
 
 - Root business services live in `/server/services/<Feature>/index.ts`.
-- Root-service metadata lives in `/server/services/<Feature>/service.json`.
 - Root-service config lives in `/server/config/*.ts` when the service needs config.
 - Companion client-callable entrypoints live in `/server/controllers/**`.
 

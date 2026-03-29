@@ -2,12 +2,8 @@
 - DEPENDANCES
 ----------------------------------*/
 
-// Npm
-import fs from 'fs-extra';
-import yaml from 'yaml';
-
-// Types
 import { parseProteumEnvConfig, type TProteumLoadedEnvConfig } from '../../common/env/proteumEnv';
+import { loadApplicationIdentityConfig, loadApplicationSetupConfig } from '../../common/applicationConfigLoader';
 import { logVerbose } from '../runtime/verbose';
 
 /*----------------------------------
@@ -20,25 +16,28 @@ export default class ConfigParser {
         public routerPortOverride?: number,
     ) {}
 
-    private loadYaml(filepath: string) {
-        logVerbose(`Loading config ${filepath}`);
-        const rawConfig = fs.readFileSync(filepath, 'utf-8');
-        return yaml.parse(rawConfig);
-    }
-
     public env(): TProteumLoadedEnvConfig {
         logVerbose('[app] Loading Proteum env vars from process.env');
+        const setup = this.setup();
         return {
             ...parseProteumEnvConfig({
                 appDir: this.appDir,
+                connectedProjects: setup.connect,
                 routerPortOverride: this.routerPortOverride,
             }),
             version: 'CLI',
         };
     }
 
-    public identity() {
-        const identityFile = this.appDir + '/identity.yaml';
-        return this.loadYaml(identityFile);
+    public identity(): Config.Identity {
+        const identityFile = this.appDir + '/identity.config.ts';
+        logVerbose(`Loading config ${identityFile}`);
+        return loadApplicationIdentityConfig(this.appDir);
+    }
+
+    public setup(): Config.Setup {
+        const setupFile = this.appDir + '/proteum.config.ts';
+        logVerbose(`Loading config ${setupFile}`);
+        return loadApplicationSetupConfig(this.appDir);
     }
 }
