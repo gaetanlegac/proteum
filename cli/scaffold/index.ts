@@ -5,7 +5,7 @@ import { UsageError } from 'clipanion';
 
 import cli from '..';
 import { loadApplicationIdentityConfig } from '../../common/applicationConfigLoader';
-import { ensureProjectAgentSymlinks } from '../utils/agents';
+import { ensureProjectAgentSymlinks, renderProjectInstructionGitignoreBlock } from '../utils/agents';
 import { runProcess } from '../utils/runProcess';
 import {
     createClientTsconfigTemplate,
@@ -633,7 +633,9 @@ const createInitFilePlans = (config: TScaffoldInitConfig): TScaffoldFilePlan[] =
     },
     {
         relativePath: '.gitignore',
-        content: createGitignoreTemplate(),
+        content: createGitignoreTemplate({
+            projectInstructionGitignoreBlock: renderProjectInstructionGitignoreBlock({ coreRoot: cli.paths.core.root }),
+        }),
     },
     {
         relativePath: 'eslint.config.mjs',

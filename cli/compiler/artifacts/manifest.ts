@@ -5,6 +5,7 @@ import app from '../../app';
 import cli from '../..';
 import { inspectProteumEnv } from '../../../common/env/proteumEnv';
 import { reservedRouteSetupKeys, routeSetupOptionKeys } from '../../../common/router/pageSetup';
+import { getProjectInstructionGitignoreEntries } from '../../utils/agents';
 import {
     TProteumManifest,
     TProteumManifestCommand,
@@ -39,6 +40,10 @@ const collectManifestDiagnostics = ({
     routes: TProteumManifest['routes'];
 }) => {
     const diagnostics: TProteumManifestDiagnostic[] = [];
+    const expectedGitignoreEntries = [
+        ...requiredGitignoreEntries,
+        ...getProjectInstructionGitignoreEntries({ coreRoot: cli.paths.core.root }),
+    ];
 
     const pushDiagnostic = (diagnostic: TProteumManifestDiagnostic) => {
         diagnostics.push(diagnostic);
@@ -224,7 +229,7 @@ const collectManifestDiagnostics = ({
         pushDiagnostic({
             level: 'warning',
             code: 'app.gitignore-missing',
-            message: `Missing .gitignore. Proteum generated output should ignore ${requiredGitignoreEntries.join(', ')}.`,
+            message: `Missing .gitignore. Proteum-managed paths should ignore ${expectedGitignoreEntries.join(', ')}.`,
             filepath: gitignoreFilepath,
         });
     } else {
@@ -236,14 +241,14 @@ const collectManifestDiagnostics = ({
                 .map(normalizeGitignoreEntry),
         );
 
-        for (const requiredEntry of requiredGitignoreEntries) {
+        for (const requiredEntry of expectedGitignoreEntries) {
             const normalizedRequiredEntry = normalizeGitignoreEntry(requiredEntry);
             if (entries.has(normalizedRequiredEntry)) continue;
 
             pushDiagnostic({
                 level: 'warning',
                 code: 'app.gitignore-generated-entry-missing',
-                message: `Add "${requiredEntry}" to .gitignore so Proteum generated output stays untracked.`,
+                message: `Add "${requiredEntry}" to .gitignore so Proteum-managed paths stay untracked.`,
                 filepath: gitignoreFilepath,
             });
         }
