@@ -110,18 +110,36 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'dev',
         category: 'Daily workflow',
         summary: 'Start the local compiler, SSR server, and hot reload loop.',
-        usage: 'proteum dev [--port <port>] [--cache|--no-cache]',
+        usage: 'proteum dev [list|stop] [--port <port>] [--session-file <path>] [--replace-existing] [--all] [--stale] [--json] [--cache|--no-cache]',
         bestFor:
             'Day-to-day app work. This is the main entrypoint used by the current reference apps during local development.',
         examples: [
             { description: 'Start the app on its configured router port', command: 'proteum dev' },
-            { description: 'Run a second Proteum app on another port', command: 'proteum dev --port 3101' },
+            { description: 'Replace the tracked dev session on another port', command: 'proteum dev --port 3101 --replace-existing' },
+            {
+                description: 'Start a tracked dev session with an explicit session file for an agent task',
+                command: 'proteum dev --port 3101 --session-file var/run/proteum/dev/agents/task.json --replace-existing',
+            },
+            {
+                description: 'List tracked Proteum dev sessions as JSON',
+                command: 'proteum dev list --json',
+            },
+            {
+                description: 'Stop every stale tracked dev session for the current app',
+                command: 'proteum dev stop --all --stale',
+            },
             {
                 description: 'Disable the filesystem cache while debugging compiler state',
                 command: 'proteum dev --no-cache',
             },
         ],
-        notes: ['Legacy single-dash long options remain supported, for example `proteum dev -port 3001`.'],
+        notes: [
+            'Proteum writes a machine-readable dev session file under `var/run/proteum/dev/<port>.json` by default; override it with `--session-file` when an agent needs a stable path.',
+            'Use `--replace-existing` when retries should stop the previously tracked matching session before starting a new one.',
+            '`proteum dev list` inspects tracked sessions for the current app root. Add `--stale` to show only orphaned or dead sessions.',
+            '`proteum dev stop` targets the current session file by default. Add `--all` to stop every tracked session for the current app root.',
+            'Legacy single-dash long options remain supported, for example `proteum dev -port 3001`.',
+        ],
         status: 'stable',
     },
     refresh: {

@@ -23,6 +23,18 @@ import Compiler from '../compiler';
 import { createDevEventServer } from './devEvents';
 import { ensureProjectAgentSymlinks } from '../utils/agents';
 import { renderDevSession, renderServerReadyBanner, renderDevShutdownBanner } from '../presentation/devSession';
+import {
+    createDevSessionRecord,
+    inspectDevSessionFile,
+    listDevSessionInspections,
+    removeDevSessionRecord,
+    removeDevSessionRecordSync,
+    resolveDevSessionFilePath,
+    stopDevSessionFile,
+    updateDevSessionRecord,
+    type TDevSessionInspection,
+    type TStopDevSessionResult,
+} from '../runtime/devSessions';
 import { logVerbose } from '../runtime/verbose';
 
 // Core
@@ -51,6 +63,8 @@ const hotReloadableRoots = [() => app.paths.root, () => cli.paths.core.root];
 let cp: ChildProcess | undefined = undefined;
 let devSessionStopping = false;
 let appProcessOperation: Promise<void> = Promise.resolve();
+let currentDevSessionFilePath: string | undefined = undefined;
+let devSessionExitCleanupRegistered = false;
 type TDevWatching = ReturnType<Awaited<ReturnType<Compiler['create']>>['watch']>;
 type TIndexedSourceWatching = { close: () => Promise<void> };
 
@@ -122,6 +136,7 @@ const createIgnoredWatchMatcher = (outputPaths: string[]) => (watchPath: string)
 
     return ignoredWatchPathPatterns.test(normalizedWatchPath);
 };
+
 const getDevAppName = (app: App) =>
     app.identity.web?.fullTitle || app.identity.web?.title || app.identity.name || app.packageJson.name || app.paths.root;
 
@@ -159,6 +174,190 @@ const signalAppProcess = (child: ChildProcess, signal: NodeJS.Signals) => {
     }
 };
 
+const getRequestedSessionFilePath = () =>
+    typeof cli.args.sessionFile === 'string' && cli.args.sessionFile.trim() ? cli.args.sessionFile : undefined;
+
+const getResolvedDevSessionFilePath = () =>
+    resolveDevSessionFilePath({
+        appRoot: app.paths.root,
+        port: app.env.router.port,
+        sessionFilePath: getRequestedSessionFilePath(),
+    });
+
+const registerDevSessionExitCleanup = () => {
+    if (devSessionExitCleanupRegistered) return;
+
+    devSessionExitCleanupRegistered = true;
+    process.once('exit', () => {
+        if (!currentDevSessionFilePath) return;
+        removeDevSessionRecordSync(currentDevSessionFilePath);
+    });
+};
+
+const updateCurrentDevSession = async (patch: { publicUrl?: string; state?: 'starting' | 'ready' }) => {
+    if (!currentDevSessionFilePath) return;
+
+    await updateDevSessionRecord({
+        sessionFilePath: currentDevSessionFilePath,
+        patch,
+    });
+};
+
+const cleanupCurrentDevSession = async () => {
+    if (!currentDevSessionFilePath) return;
+
+    const sessionFilePath = currentDevSessionFilePath;
+    currentDevSessionFilePath = undefined;
+    await removeDevSessionRecord(sessionFilePath);
+};
+
+const describeInspection = (inspection: TDevSessionInspection) => {
+    if (!inspection.record) {
+        return [
+            'stale invalid',
+            inspection.sessionFilePath,
+            inspection.parseError || 'Unreadable session file.',
+        ].join(' | ');
+    }
+
+    const parts = [
+        inspection.live ? 'live' : 'stale',
+        inspection.record.state,
+        `pid ${inspection.record.pid}`,
+        `port ${inspection.record.routerPort}`,
+    ];
+
+    if (inspection.record.publicUrl) parts.push(inspection.record.publicUrl);
+    parts.push(inspection.sessionFilePath);
+
+    return parts.join(' | ');
+};
+
+const describeStopResult = (result: TStopDevSessionResult) => {
+    if (!result.matched) return `missing | ${result.sessionFilePath}`;
+    if (result.invalid)
+        return `removed stale invalid | ${result.sessionFilePath} | ${result.parseError || 'Unreadable session file.'}`;
+    if (result.removed && result.stopped && !result.live) {
+        return [
+            result.pid !== null ? `stopped pid ${result.pid}` : 'stopped',
+            result.routerPort !== null ? `port ${result.routerPort}` : '',
+            result.publicUrl,
+            result.sessionFilePath,
+        ]
+            .filter(Boolean)
+            .join(' | ');
+    }
+
+    return [
+        'failed',
+        result.pid !== null ? `pid ${result.pid}` : '',
+        result.routerPort !== null ? `port ${result.routerPort}` : '',
+        result.publicUrl,
+        result.sessionFilePath,
+    ]
+        .filter(Boolean)
+        .join(' | ');
+};
+
+const printJson = (payload: unknown) => {
+    process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+};
+
+const runListCommand = async () => {
+    const inspections = await listDevSessionInspections({
+        appRoot: app.paths.root,
+        sessionFilePath: getRequestedSessionFilePath(),
+    });
+    const filteredInspections = cli.args.stale === true ? inspections.filter((inspection) => inspection.stale) : inspections;
+
+    if (cli.args.json === true) {
+        printJson({
+            appRoot: app.paths.root,
+            sessions: filteredInspections.map((inspection) => ({
+                sessionFilePath: inspection.sessionFilePath,
+                live: inspection.live,
+                stale: inspection.stale,
+                invalid: inspection.invalid,
+                parseError: inspection.parseError,
+                record: inspection.record,
+            })),
+        });
+        return;
+    }
+
+    if (filteredInspections.length === 0) {
+        console.info(`No Proteum dev sessions found for ${app.paths.root}.`);
+        return;
+    }
+
+    console.info(filteredInspections.map(describeInspection).join('\n'));
+};
+
+const runStopCommand = async () => {
+    const stopAll = cli.args.all === true;
+    const filterStale = cli.args.stale === true;
+
+    const targetSessionFilePaths = stopAll
+        ? (await listDevSessionInspections({
+              appRoot: app.paths.root,
+              sessionFilePath: getRequestedSessionFilePath(),
+          }))
+              .filter((inspection) => !filterStale || inspection.stale)
+              .map((inspection) => inspection.sessionFilePath)
+        : [getResolvedDevSessionFilePath()];
+
+    const results = await Promise.all(targetSessionFilePaths.map((sessionFilePath) => stopDevSessionFile(sessionFilePath)));
+    const failedResults = results.filter((result) => result.matched && !result.stopped);
+
+    if (cli.args.json === true) {
+        printJson({ appRoot: app.paths.root, results });
+    } else if (results.length === 0) {
+        console.info(`No Proteum dev sessions matched for ${app.paths.root}.`);
+    } else {
+        console.info(results.map(describeStopResult).join('\n'));
+    }
+
+    if (failedResults.length > 0) {
+        process.exitCode = 1;
+    }
+};
+
+const ensureDevSessionSlot = async () => {
+    const sessionFilePath = getResolvedDevSessionFilePath();
+    const existingInspection = await inspectDevSessionFile(sessionFilePath);
+
+    if (existingInspection?.record && existingInspection.live && existingInspection.record.pid !== process.pid) {
+        if (cli.args.replaceExisting !== true) {
+            throw new Error(
+                `A Proteum dev session is already registered at ${sessionFilePath} (pid ${existingInspection.record.pid}, port ${existingInspection.record.routerPort}). ` +
+                    'Use `proteum dev stop` or restart with `proteum dev --replace-existing`.',
+            );
+        }
+
+        const stopResult = await stopDevSessionFile(sessionFilePath);
+        if (!stopResult.stopped) {
+            throw new Error(`Could not stop the existing Proteum dev session registered at ${sessionFilePath}.`);
+        }
+    } else if (existingInspection) {
+        await stopDevSessionFile(sessionFilePath);
+    }
+
+    currentDevSessionFilePath = sessionFilePath;
+    registerDevSessionExitCleanup();
+    await fs.ensureDir(path.dirname(sessionFilePath));
+    await fs.writeJson(
+        sessionFilePath,
+        createDevSessionRecord({
+            appRoot: app.paths.root,
+            port: app.env.router.port,
+            sessionFilePath,
+        }),
+        { spaces: 2 },
+    );
+
+    logVerbose(`Registered Proteum dev session at ${sessionFilePath}.`);
+};
+
 async function startApp(app: App) {
     await runSerializedAppProcessOperation(async () => {
         if (devSessionStopping) return;
@@ -166,6 +365,7 @@ async function startApp(app: App) {
         await stopAppInternal('Restart asked');
         if (devSessionStopping) return;
 
+        await updateCurrentDevSession({ state: 'starting', publicUrl: '' });
         logVerbose('Launching new server ...');
         cp = spawn('node', ['--preserve-symlinks', app.outputPath('dev') + '/server.js'], {
             // stdin, stdout, stderr
@@ -191,6 +391,7 @@ async function startApp(app: App) {
             if (isServerReadyMessage(message)) {
                 childReady = true;
                 void (async () => {
+                    await updateCurrentDevSession({ publicUrl: message.publicUrl, state: 'ready' });
                     console.info(
                         await renderServerReadyBanner({
                             appName: getDevAppName(app),
@@ -351,12 +552,10 @@ const createIndexedSourceWatching = ({
     };
 };
 
-/*----------------------------------
-- MAIN PROCESS
-----------------------------------*/
-export const run = async () => {
+const runDevLoop = async () => {
     devSessionStopping = false;
     ensureProjectAgentSymlinks({ appRoot: app.paths.root, coreRoot: cli.paths.core.root });
+    await ensureDevSessionSlot();
 
     const devEventServer = await createDevEventServer(app.env.router.port + 1);
     app.devEventPort = devEventServer.port;
@@ -472,6 +671,7 @@ export const run = async () => {
             await stopApp(reason);
             await cleanupPersistedDevTraces(app);
             await devEventServer.close();
+            await cleanupCurrentDevSession();
             console.info(await renderDevShutdownBanner());
         })();
 
@@ -507,4 +707,23 @@ export const run = async () => {
     process.once('SIGINT', () => exitAfterShutdown('SIGINT', 0));
     process.once('SIGTERM', () => exitAfterShutdown('SIGTERM', 0));
     process.once('SIGHUP', () => exitAfterShutdown('SIGHUP', 0));
+};
+
+/*----------------------------------
+- MAIN PROCESS
+----------------------------------*/
+export const run = async () => {
+    const action = typeof cli.args.action === 'string' ? cli.args.action : 'start';
+
+    if (action === 'list') {
+        await runListCommand();
+        return;
+    }
+
+    if (action === 'stop') {
+        await runStopCommand();
+        return;
+    }
+
+    await runDevLoop();
 };

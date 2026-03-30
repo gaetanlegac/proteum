@@ -79,13 +79,38 @@ class DevCommand extends ProteumCommand {
 
     public static usage = buildUsage('dev');
 
+    public json = Option.Boolean('--json', false, { description: 'Print machine-readable dev session output.' });
     public port = Option.String('--port', { description: 'Override the router port.' });
     public cache = Option.Boolean('--cache', true, { description: 'Enable filesystem caching.' });
-    public legacyArgs = Option.Rest();
+    public sessionFile = Option.String('--session-file', {
+        description: 'Override the dev session file path used for list, stop, or the active dev server.',
+    });
+    public replaceExisting = Option.Boolean('--replace-existing', false, {
+        description: 'Stop the existing matching dev session before starting a new one.',
+    });
+    public all = Option.Boolean('--all', false, {
+        description: 'When used with `dev stop`, stop every tracked dev session for the current app root.',
+    });
+    public stale = Option.Boolean('--stale', false, {
+        description: 'Filter `dev list` or `dev stop --all` to stale tracked sessions only.',
+    });
+    public args = Option.Rest();
 
     public async execute() {
-        assertNoLegacyArgs('dev', this.legacyArgs);
-        this.setCliArgs({ port: this.port ?? '', cache: this.cache });
+        const [maybeAction = '', ...restArgs] = this.args;
+        const action = maybeAction === 'list' || maybeAction === 'stop' ? maybeAction : '';
+
+        assertNoLegacyArgs('dev', action ? restArgs : this.args);
+        this.setCliArgs({
+            action: action || 'start',
+            port: this.port ?? '',
+            cache: this.cache,
+            json: this.json,
+            sessionFile: this.sessionFile ?? '',
+            replaceExisting: this.replaceExisting,
+            all: this.all,
+            stale: this.stale,
+        });
         await runCommandModule(() => import('../commands/dev'));
     }
 }

@@ -12,6 +12,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 
 ## Runtime Diagnostics
 
+- For long-lived dev reproductions, start the app with `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically after the repro.
 - For request-time issues in dev, start with `npx proteum diagnose <path> --port <port>` when you have a concrete failing route, page, controller path, or request target. It combines owner lookup, manifest diagnostics, contract diagnostics, matching trace data, and buffered server logs in one pass.
 - For connected-project failures, confirm the consumer app resolves the expected `connect.<Namespace>.source` and `connect.<Namespace>.urlInternal` values, the producer app exposes `GET /api/__proteum/connected/ping`, and the imported controller entries show `scope=connected` in `proteum explain`.
 - Use `npx proteum explain owner <query>` when you need a fast ownership graph for a route, controller path, source file, or generated artifact before reading code.
@@ -48,6 +49,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 - For browser regressions, prefer targeted Playwright coverage and inspect failure artifacts such as screenshots, videos, `error-context.md`, and Playwright traces.
 - Treat server startup failures, runtime errors, browser console errors or warnings, and Playwright failures as blocking unless they are clearly unrelated to the change.
 - When the touched surface can affect coding-style enforcement, run the smallest relevant project check such as `npx proteum lint` or `npx proteum check` before finishing.
+- If the task started any long-lived `proteum dev` server, stop it explicitly with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`, then confirm the remaining tracked sessions with `npx proteum dev list --json`.
 - Add `data-testid` when stable selectors are missing instead of relying on brittle text or DOM-shape selectors.
 - If an isolated test misses prerequisite state, run the smallest broader scope that reproduces the real setup.
 - After a fix, re-check traces, rendered HTML, browser console, and server output when those surfaces were part of the original failure.

@@ -16,9 +16,12 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 - Follow project-root `diagnostics.md` for diagnosis, runtime reproduction, temporary instrumentation, error-solving workflow, and verification method selection.
 - For new app or artifact boilerplate, prefer `npx proteum init ...` and `npx proteum create ...` before creating files by hand. Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.
 - After running `npx proteum create ...`, adapt the generated code to the real feature instead of leaving placeholder logic in place.
+- When starting a long-lived dev server for an agent task, prefer `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically later.
+- Do not start a second `proteum dev` server for the same app and port until the earlier tracked session has been stopped or replaced.
 - When framework work changes Proteum CLI commands, profiler panels/features, or the `proteum dev` banners, keep this file, project-root `diagnostics.md`, and any narrower area `AGENTS.md` that mentions the same workflow aligned with the live framework behavior in the same pass.
 - Before finishing, double-check the touched files and generated output against the applicable optimization, diagnostics, and coding-style sources: project-root `optimizations.md`, project-root `diagnostics.md`, project-root `CODING_STYLE.md`, and any narrower area `AGENTS.md`.
 - After implementing any feature or behavior change, always verify it on a running app before finishing: start the server, exercise the affected flow with Playwright or the smallest real runtime or `npx proteum` surface, run the relevant diagnostics or perf commands, and confirm there is no meaningful regression in behavior, performance, bundle/load size, SEO output, or coding style.
+- Before finishing a task, stop every `proteum dev` session started during the task and confirm cleanup with `npx proteum dev list --json` or an explicit `npx proteum dev stop --session-file <path>`.
 - When you have finished your work, summarize in one top-level short (up to 100 characters) sentence ALL the changes you made since the beginning of the WHOLE conversation. Output as "Commit message".
 
 ## Project Shape
@@ -98,6 +101,8 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - `npx proteum command ...`
 - `npx proteum session ...`
 - `npx proteum create ... --dry-run --json`
+- `npx proteum dev list --json`
+- `npx proteum dev stop --session-file <path>`
 
 Prefer scaffold commands before hand-writing boilerplate:
 
@@ -224,7 +229,7 @@ Verify at the correct layer:
 - router or plugin changes: verify request context, auth, redirects, metrics, and validation on a running app
 - For trace-first reproduction, session-based auth setup, temporary logs, and post-fix surface checks, follow project-root `diagnostics.md`.
 
-Useful commands: `npx proteum init <dir> --name <name>`, `npx proteum create <kind> <target>`, `proteum dev`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum build --prod --analyze`, `npx proteum build --prod --analyze --analyze-serve --analyze-port auto`, `npx proteum perf top`, `npx proteum perf request <requestId|path>`, `npx proteum perf compare --baseline yesterday --target today`, `npx proteum command <path>`, `npx proteum session <email> --role <role>`.
+Useful commands: `npx proteum init <dir> --name <name>`, `npx proteum create <kind> <target>`, `proteum dev`, `proteum dev list --json`, `proteum dev stop --session-file <path>`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum build --prod --analyze`, `npx proteum build --prod --analyze --analyze-serve --analyze-port auto`, `npx proteum perf top`, `npx proteum perf request <requestId|path>`, `npx proteum perf compare --baseline yesterday --target today`, `npx proteum command <path>`, `npx proteum session <email> --role <role>`.
 
 ## High-Impact Files
 

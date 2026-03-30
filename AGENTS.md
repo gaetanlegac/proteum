@@ -26,6 +26,9 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 
 - If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it.
 - After implementing a framework feature or change, do not stop at code edits. Boot both reference apps, exercise the affected flow with Playwright or the smallest real Proteum surface, run the relevant `proteum` diagnostics or perf commands, and confirm there is no meaningful regression in runtime behavior, performance, load size, SEO output, or coding-style expectations before finishing.
+- When starting a long-lived reference app dev server for framework work, prefer `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically later.
+- Before retrying a boot on the same app, changing ports, or finishing the task, stop every framework-started dev session with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`.
+- If the task changed the dev workflow itself, verify the final cleanup path with `npx proteum dev list --json` before finishing.
 - When you have finished your work, summarize in one top-level short (up to 100 characters) sentence the changes you made since the beginning of the conversation. Output as "Commit message".
 
 ## Core Changes
@@ -54,7 +57,7 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 
 Do not stop at static analysis for routing, controllers, generated code, SSR, client runtime, services, webpack, Babel, or emitted assets.
 
-- Run `npx proteum dev --no-cache --port 3xxx` in both reference apps on explicit ports.
+- Run `npx proteum dev --no-cache --replace-existing --session-file var/run/proteum/dev/framework-<app>.json --port 3xxx` in both reference apps on explicit ports.
 - When validating a concrete route, controller path, or failing page on a running dev server, prefer `proteum diagnose <path> --port <port>` first. Use raw `proteum trace ...` output when you need lower-level event detail beyond the diagnose summary.
 - When the issue is latency, CPU, SQL cost, render cost, or memory drift, inspect `proteum perf top`, `proteum perf request`, `proteum perf compare`, or `proteum perf memory` against the running dev server before adding custom instrumentation.
 - When a framework change can affect shipped client code size, run `proteum build --prod --analyze` for static bundle artifacts or `proteum build --prod --analyze --analyze-serve --analyze-port auto` when you need a local analyzer URL.
