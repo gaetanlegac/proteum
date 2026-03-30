@@ -74,7 +74,13 @@ export class ApplicationContainer<TServicesIndex extends StartedServicesIndex = 
 
         // Start application
         try {
-            this.application.start();
+            void this.application.start().catch(async (error) => {
+                try {
+                    await this.handleBug(error, 'Failed to start the Application');
+                } finally {
+                    process.exit(1);
+                }
+            });
         } catch (error) {
             this.handleBug(error, 'Failed to start the Application');
             process.exit(1);

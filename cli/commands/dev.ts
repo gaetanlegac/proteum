@@ -174,13 +174,22 @@ async function startApp(app: App) {
         });
 
         const child = cp;
+        let childReady = false;
 
-        child.on('exit', () => {
-            if (cp === child) cp = undefined;
+        child.on('exit', (code, signal) => {
+            const isCurrentChild = cp === child;
+            if (isCurrentChild) cp = undefined;
+            if (!isCurrentChild || devSessionStopping || childReady) return;
+
+            console.error(
+                `Proteum dev server exited before reporting ready.${code !== null ? ` Exit code: ${code}.` : ''}${signal ? ` Signal: ${signal}.` : ''}`,
+            );
+            process.exit(code && code !== 0 ? code : 1);
         });
 
         child.on('message', (message: unknown) => {
             if (isServerReadyMessage(message)) {
+                childReady = true;
                 void (async () => {
                     console.info(
                         await renderServerReadyBanner({

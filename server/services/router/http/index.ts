@@ -95,6 +95,8 @@ const createContentSecurityPolicy = (config: Config['csp']): TContentSecurityPol
 const immutablePublicAssetCacheControl = 'public, max-age=31536000, immutable';
 const revalidatedPublicAssetCacheControl = 'public, max-age=0, must-revalidate';
 const hashedPublicAssetPattern = /(^|[-_.])[a-f0-9]{6,}(?=(\.[^.]+)+$)/i;
+const connectedProjectBootRetryCount = 10;
+const connectedProjectBootRetryDelayMs = 5_000;
 
 const isVersionedPublicAssetRequest = (res: express.Response, filePath: string) => {
     const requestUrl = res.req?.originalUrl || res.req?.url || '';
@@ -106,6 +108,10 @@ const isVersionedPublicAssetRequest = (res: express.Response, filePath: string) 
 
 const resolvePublicAssetCacheControl = (res: express.Response, filePath: string) =>
     isVersionedPublicAssetRequest(res, filePath) ? immutablePublicAssetCacheControl : revalidatedPublicAssetCacheControl;
+const wait = async (durationMs: number) =>
+    await new Promise<void>((resolve) => {
+        setTimeout(resolve, durationMs);
+    });
 
 /*----------------------------------
 - FUNCTION
@@ -164,22 +170,38 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
     private async verifyConnectedProjectsBeforeStart() {
         for (const connectedProject of Object.values(this.app.connectedProjects || {})) {
             const healthUrl = new URL(connectedProjectHealthPath, connectedProject.urlInternal).toString();
+            let lastError: Error | undefined;
 
-            let response: Response;
-            try {
-                response = await fetch(healthUrl, {
-                    headers: { Accept: 'application/json' },
-                });
-            } catch (error) {
-                throw new Error(
-                    `Connected project "${connectedProject.namespace}" is unreachable at ${connectedProject.urlInternal}. ${error instanceof Error ? error.message : String(error)}`,
-                );
-            }
+            for (let retryIndex = 0; retryIndex <= connectedProjectBootRetryCount; retryIndex++) {
+                try {
+                    const response = await fetch(healthUrl, {
+                        headers: { Accept: 'application/json' },
+                    });
 
-            if (!response.ok) {
-                throw new Error(
-                    `Connected project "${connectedProject.namespace}" health check failed at ${healthUrl} with status ${response.status}.`,
+                    if (!response.ok) {
+                        throw new Error(
+                            `Connected project "${connectedProject.namespace}" health check failed at ${healthUrl} with status ${response.status}.`,
+                        );
+                    }
+
+                    lastError = undefined;
+                    break;
+                } catch (error) {
+                    lastError =
+                        error instanceof Error && error.message.startsWith(`Connected project "${connectedProject.namespace}"`)
+                            ? error
+                            : new Error(
+                                  `Connected project "${connectedProject.namespace}" is unreachable at ${connectedProject.urlInternal}. ${error instanceof Error ? error.message : String(error)}`,
+                              );
+                }
+
+                if (!lastError) continue;
+                if (retryIndex === connectedProjectBootRetryCount) throw lastError;
+
+                console.warn(
+                    `[connect] ${lastError.message} Retrying ${retryIndex + 1}/${connectedProjectBootRetryCount} in ${connectedProjectBootRetryDelayMs / 1000}s.`,
                 );
+                await wait(connectedProjectBootRetryDelayMs);
             }
         }
     }
