@@ -138,6 +138,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'Use `--replace-existing` when retries should stop the previously tracked matching session before starting a new one.',
             '`proteum dev list` inspects tracked sessions for the current app root. Add `--stale` to show only orphaned or dead sessions.',
             '`proteum dev stop` targets the current session file by default. Add `--all` to stop every tracked session for the current app root.',
+            '`proteum dev` clears the interactive terminal once at startup, then shows `CTRL+R` reload and `CTRL+C` shutdown hotkeys in the session banner.',
             'Legacy single-dash long options remain supported, for example `proteum dev -port 3001`.',
         ],
         status: 'stable',

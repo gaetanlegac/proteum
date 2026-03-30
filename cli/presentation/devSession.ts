@@ -2,16 +2,7 @@ const React = require('react') as typeof import('react');
 
 import { renderRows } from './layout';
 import { renderInk } from './ink';
-
-const ProteumWordmark = [
-    String.raw` ____  ____   ___ _____ _____ _   _ __  __`,
-    String.raw`|  _ \|  _ \ / _ \_   _| ____| | | |  \/  |`,
-    String.raw`| |_) | |_) | | | || | |  _| | | | | |\/| |`,
-    String.raw`|  __/|  _ <| |_| || | | |___| |_| | |  | |`,
-    String.raw`|_|   |_| \_\\___/ |_| |_____|\___/|_|  |_|`,
-];
-
-const ProteumTagline = 'Agent-first SSR compiler and server loop.';
+import { renderWelcomePanel } from './welcome';
 
 export const renderDevSession = async ({
     appName,
@@ -29,21 +20,9 @@ export const renderDevSession = async ({
     proteumVersion: string;
 }) =>
     [
-        await renderInk(({ Box, Text }) => {
-            const createElement = React.createElement;
-            const wordmark = ProteumWordmark.map((line) =>
-                createElement(Text, { key: line, bold: true, color: 'blue' }, line),
-            );
-            const versionLabel = proteumVersion ? `v${proteumVersion}` : '';
-
-            return createElement(
-                Box,
-                { borderStyle: 'round', borderColor: 'blue', paddingX: 2, paddingY: 0, flexDirection: 'column' },
-                createElement(Text, { bold: true, backgroundColor: 'blue', color: 'white' }, ' WELCOME TO '),
-                createElement(Box, { flexDirection: 'column' }, ...wordmark),
-                versionLabel ? createElement(Text, { bold: true, color: 'blue' }, versionLabel) : null,
-                createElement(Text, { dimColor: true }, ProteumTagline),
-            );
+        await renderWelcomePanel({
+            version: proteumVersion,
+            tagline: 'Agent-first SSR compiler and server loop.',
         }),
         renderRows(
             [
@@ -61,7 +40,8 @@ export const renderDevSession = async ({
                 { label: 'perf', value: `proteum perf top --port ${routerPort}` },
                 { label: 'trace', value: `proteum trace latest --port ${routerPort}` },
                 { label: 'trace deep', value: `proteum trace arm --capture deep --port ${routerPort}` },
-                { label: 'hotkeys', value: 'Ctrl+R reload, Ctrl+C stop' },
+                { label: 'reload', value: 'CTRL+R' },
+                { label: 'shutdown', value: 'CTRL+C' },
             ],
             { minLabelWidth: 12, maxLabelWidth: 12 },
         ),

@@ -135,6 +135,10 @@ export const renderCliOverview = async ({
                     indent: '  ',
                     nextIndent: '  ',
                 }),
+                wrapText('Every Proteum CLI invocation prints the welcome banner. `proteum dev` is the only command that clears the interactive terminal before rendering its session UI.', {
+                    indent: '  ',
+                    nextIndent: '  ',
+                }),
                 wrapText('Legacy single-dash flags and positional booleans remain accepted for older app scripts, but new docs should prefer modern long flags.', {
                     indent: '  ',
                     nextIndent: '  ',

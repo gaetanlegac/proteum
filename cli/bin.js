@@ -2,12 +2,6 @@
 
 const path = require('path');
 
-const clearInteractiveConsole = () => {
-    if (process.stdout.isTTY !== true || process.env.TERM === 'dumb') return;
-
-    process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
-};
-
 /*
     Why this exists (npm i vs npm link difference)
 
@@ -35,8 +29,6 @@ if (!process.env.TS_NODE_IGNORE) {
 
 process.env.TS_NODE_PROJECT = path.join(__dirname, 'tsconfig.json');
 process.env.TS_NODE_TRANSPILE_ONLY = '1';
-
-clearInteractiveConsole();
 
 require('ts-node/register/transpile-only');
 

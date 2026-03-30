@@ -39,6 +39,7 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
   - `/Users/gaetan/Desktop/Projets/unique.domains/website`
 - Inspect how both apps currently use the touched feature, runtime, API, compiler behavior, or generated output before proposing or implementing changes.
 - Keep the developer-facing contract synchronized when framework work changes CLI commands, profiler capabilities, or the `proteum dev` banner. Update the live surfaces together in the same pass: CLI command/help definitions, profiler panels and dev-only endpoints, banner text/examples, and the most relevant agent docs that describe them, especially `AGENTS.md`, `agents/project/AGENTS.md`, `agents/project/diagnostics.md`, and any narrower `agents/project/**/AGENTS.md` file that mentions the changed workflow.
+- Current CLI banner contract: every human-facing Proteum CLI run prints the welcome banner, while only `proteum dev` clears the interactive terminal before rendering and exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI.
 - Keep core changes aligned with the explicit controller/page architecture in `agents/project/AGENTS.md`.
 - Prefer removing framework magic when the same result can be expressed with explicit contracts, generated code, or typed context.
 - Apply the pruning rules from `agents/project/optimizations.md`, especially for webpack plugins, Babel plugins, aliases, helpers, runtime services, and npm packages that are not meaningfully used by both apps.

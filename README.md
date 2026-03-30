@@ -347,6 +347,8 @@ proteum build --prod --analyze
 proteum build --prod --analyze --analyze-serve --analyze-port auto
 ```
 
+Every human-facing Proteum CLI run prints the welcome banner. `proteum dev` is the only command that clears the interactive terminal before rendering its live session UI, and its banner exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys.
+
 Useful inspection commands:
 
 ```bash
