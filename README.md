@@ -323,7 +323,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum typecheck` | Refresh generated typings, then run TypeScript |
 | `proteum lint` | Run ESLint for the current app |
 | `proteum check` | Refresh, typecheck, and lint in one command |
-| `proteum build --prod` | Produce the production server and client bundles into `bin/` |
+| `proteum build --prod` | Produce the production server and client bundles into `bin/`, with optional static or served bundle analysis |
 | `proteum connect` | Inspect connected-project sources, env, cached contracts, and imported controllers |
 | `proteum doctor` | Inspect manifest diagnostics |
 | `proteum explain` | Explain routes, controllers, services, layouts, conventions, env, and connected projects |
@@ -343,6 +343,8 @@ proteum dev
 proteum refresh
 proteum check
 proteum build --prod
+proteum build --prod --analyze
+proteum build --prod --analyze --analyze-serve --analyze-port auto
 ```
 
 Useful inspection commands:

@@ -57,6 +57,7 @@ Do not stop at static analysis for routing, controllers, generated code, SSR, cl
 - Run `npx proteum dev --no-cache --port 3xxx` in both reference apps on explicit ports.
 - When validating a concrete route, controller path, or failing page on a running dev server, prefer `proteum diagnose <path> --port <port>` first. Use raw `proteum trace ...` output when you need lower-level event detail beyond the diagnose summary.
 - When the issue is latency, CPU, SQL cost, render cost, or memory drift, inspect `proteum perf top`, `proteum perf request`, `proteum perf compare`, or `proteum perf memory` against the running dev server before adding custom instrumentation.
+- When a framework change can affect shipped client code size, run `proteum build --prod --analyze` for static bundle artifacts or `proteum build --prod --analyze --analyze-serve --analyze-port auto` when you need a local analyzer URL.
 - For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` to mint a dev auth cookie instead of automating the login UI. Use the login UI only when login itself is the feature under test.
 - For request-time behavior, arm traces with `proteum trace arm --capture deep`, reproduce once, then inspect `proteum trace latest` or `proteum trace show <requestId>`.
 - When the framework-facing workflow itself changed, verify the CLI surface too with `proteum verify framework-change --crosspath-port <port> --product-port <port> --website-port <port>`.

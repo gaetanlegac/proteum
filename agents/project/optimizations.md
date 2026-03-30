@@ -13,6 +13,7 @@ When tradeoffs exist inside optimization work, optimize in this order:
 ## Bundle Size And Runtime Cost
 
 - Reduce shipped client bundle size and unnecessary runtime code.
+- When you need evidence for a bundle-size regression, run `npx proteum build --prod --analyze` for static artifacts or `npx proteum build --prod --analyze --analyze-serve --analyze-port auto` for a local analyzer URL.
 - Before inventing a new helper, runtime, plugin, abstraction, primitive, parser, formatter, SDK wrapper, or build-time tool, first check whether the repo already depends on a suitable package.
 - If the repo does not already depend on one, search npm before writing a custom implementation.
 - Prefer established, flexible, well-typed, widely adopted, actively maintained packages.

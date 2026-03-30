@@ -141,7 +141,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'build',
         category: 'Daily workflow',
         summary: 'Build the application.',
-        usage: 'proteum build [--prod] [--strict] [--cache] [--analyze] [--port <port>]',
+        usage: 'proteum build [--prod] [--strict] [--cache] [--analyze] [--analyze-serve] [--analyze-host <host>] [--analyze-port <port|auto>] [--port <port>]',
         bestFor: 'CI, release builds, and local verification of the production server and client output.',
         examples: [
             { description: 'Run the normal production build', command: 'proteum build --prod' },
@@ -150,10 +150,17 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
                 command: 'proteum build --prod --strict',
             },
             { description: 'Generate bundle analysis artifacts', command: 'proteum build --prod --analyze' },
+            {
+                description: 'Serve the bundle analysis at a local URL and let the OS choose the port',
+                command: 'proteum build --prod --analyze --analyze-serve --analyze-port auto',
+            },
             { description: 'Reuse the filesystem cache during builds', command: 'proteum build --prod --cache' },
         ],
         notes: [
             'Legacy positional booleans remain supported, for example `proteum build prod strict analyze`.',
+            '`--analyze` alone emits `bin/bundle-analysis/client.html` and `client-stats.json`.',
+            '`--analyze-serve` switches the analyzer to HTTP server mode and keeps the process open until you stop it.',
+            '`--analyze-host` and `--analyze-port` require `--analyze-serve`; use `auto` to let the OS assign a free port.',
             'Use `--strict` when the build must refresh generated typings and fail on any TypeScript error before compilation starts.',
             'The production output is emitted under `bin/`.',
         ],

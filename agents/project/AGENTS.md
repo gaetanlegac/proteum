@@ -224,7 +224,7 @@ Verify at the correct layer:
 - router or plugin changes: verify request context, auth, redirects, metrics, and validation on a running app
 - For trace-first reproduction, session-based auth setup, temporary logs, and post-fix surface checks, follow project-root `diagnostics.md`.
 
-Useful commands: `npx proteum init <dir> --name <name>`, `npx proteum create <kind> <target>`, `proteum dev`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum perf top`, `npx proteum perf request <requestId|path>`, `npx proteum perf compare --baseline yesterday --target today`, `npx proteum command <path>`, `npx proteum session <email> --role <role>`.
+Useful commands: `npx proteum init <dir> --name <name>`, `npx proteum create <kind> <target>`, `proteum dev`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum build --prod --analyze`, `npx proteum build --prod --analyze --analyze-serve --analyze-port auto`, `npx proteum perf top`, `npx proteum perf request <requestId|path>`, `npx proteum perf compare --baseline yesterday --target today`, `npx proteum command <path>`, `npx proteum session <email> --role <role>`.
 
 ## High-Impact Files
 

@@ -113,6 +113,15 @@ class BuildCommand extends ProteumCommand {
     public prod = Option.Boolean('--prod', false, { description: 'Build in production mode.' });
     public cache = Option.Boolean('--cache', false, { description: 'Enable filesystem caching during the build.' });
     public analyze = Option.Boolean('--analyze', false, { description: 'Emit the client bundle analysis report.' });
+    public analyzeServe = Option.Boolean('--analyze-serve', false, {
+        description: 'Serve the bundle analysis over HTTP instead of only writing a static report.',
+    });
+    public analyzeHost = Option.String('--analyze-host', {
+        description: 'Host used by the analyzer HTTP server when `--analyze-serve` is enabled.',
+    });
+    public analyzePort = Option.String('--analyze-port', {
+        description: 'Port used by the analyzer HTTP server when `--analyze-serve` is enabled. Use `auto` for an ephemeral port.',
+    });
     public strict = Option.Boolean('--strict', false, {
         description: 'Refresh generated typings and fail the build if TypeScript reports any error.',
     });
@@ -125,6 +134,9 @@ class BuildCommand extends ProteumCommand {
             prod: this.prod,
             cache: this.cache,
             analyze: this.analyze,
+            analyzeServe: this.analyzeServe,
+            analyzeHost: this.analyzeHost ?? '',
+            analyzePort: this.analyzePort ?? '',
             strict: this.strict,
         } satisfies TArgsObject;
 
