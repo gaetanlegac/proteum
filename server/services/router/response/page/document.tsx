@@ -34,12 +34,10 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                     <head>
                         {/* Format */}
                         <meta charSet="utf-8" />
-                        <meta name="viewport" content="width=device-width,minimum-scale=1,initial-scale=1" />
+                        <meta name="viewport" content="width=device-width, initial-scale=1" />
 
                         {/* CSS */}
                         {this.clientStyles()}
-                        <link rel="preload" as="font" href={'/public/icons.woff2?v=' + BUILD_ID} type="font/woff2" />
-                        <link rel="stylesheet" type="text/css" href="/public/icons.css" />
 
                         {/* JS */}
                         <script
@@ -69,7 +67,7 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                         {/* Format */}
                         <meta charSet="utf-8" />
                         <meta content="IE=edge" httpEquiv="X-UA-Compatible" />
-                        <meta name="viewport" content="width=device-width,minimum-scale=1,initial-scale=1" />
+                        <meta name="viewport" content="width=device-width, initial-scale=1" />
 
                         {/* Mobile */}
                         <meta name="application-name" content={this.app.identity.web.title} />
@@ -80,18 +78,28 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                         <meta name="msapplication-TileColor" content={this.app.identity.maincolor} />
                         <meta name="apple-mobile-web-app-capable" content="yes" />
                         <meta name="mobile-web-app-capable" content="yes" />
-                        <meta
-                            name="viewport"
-                            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"
-                        />
 
                         {/* https://stackoverflow.com/questions/48956465/favicon-standard-2019-svg-ico-png-and-dimensions */}
                         {/*<link rel="manifest" href={RES['manifest.json']} />*/}
-                        <link rel="shortcut icon" href="/public/app/favicon.ico" />
-                        <link rel="icon" type="image/png" sizes="16x16" href="/public/app/favicon-16x16.png" />
-                        <link rel="icon" type="image/png" sizes="32x32" href="/public/app/favicon-32x32.png" />
-                        <link rel="apple-touch-icon" sizes="180x180" href="/public/app/apple-touch-icon-180x180.png" />
-                        <meta name="msapplication-config" content="/public/app/browserconfig.xml" />
+                        <link rel="shortcut icon" href={this.publicAssetUrl('app/favicon.ico', true)} />
+                        <link
+                            rel="icon"
+                            type="image/png"
+                            sizes="16x16"
+                            href={this.publicAssetUrl('app/favicon-16x16.png', true)}
+                        />
+                        <link
+                            rel="icon"
+                            type="image/png"
+                            sizes="32x32"
+                            href={this.publicAssetUrl('app/favicon-32x32.png', true)}
+                        />
+                        <link
+                            rel="apple-touch-icon"
+                            sizes="180x180"
+                            href={this.publicAssetUrl('app/apple-touch-icon-180x180.png', true)}
+                        />
+                        <meta name="msapplication-config" content={this.publicAssetUrl('app/browserconfig.xml', true)} />
 
                         {/* Page */}
                         <title>{page.title}</title>
@@ -165,7 +173,7 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
         return (
             <>
                 {scripts.map((script) => {
-                    const src = this.clientAssetUrl(script, true);
+                    const src = this.clientAssetUrl(script);
 
                     return (
                         <React.Fragment key={script}>
@@ -248,6 +256,10 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
     }
 
     private clientAssetUrl(asset: string, withBuildId = false) {
+        return this.publicAssetUrl(asset, withBuildId);
+    }
+
+    private publicAssetUrl(asset: string, withBuildId = false) {
         return `/public/${asset}${withBuildId ? `?v=${BUILD_ID}` : ''}`;
     }
 }

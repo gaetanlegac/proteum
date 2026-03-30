@@ -95,6 +95,9 @@ export type TApiResponseData = { data: any; triggers?: { [cle: string]: any } };
 
 export type HttpHeaders = { [cle: string]: string };
 
+const dynamicHtmlCacheControl = 'no-store, no-cache, must-revalidate, proxy-revalidate';
+const staticHtmlCacheControl = 'public, max-age=0, must-revalidate';
+
 /*----------------------------------
 - SERVICE CONFIG
 ----------------------------------*/
@@ -571,14 +574,10 @@ export default class ServerRouter<
     - RESOLUTION
     ----------------------------------*/
     public async middleware(req: express.Request, res: express.Response) {
-        // Don't cache HTML, because in case of update, assets file name will change (hash.ext)
-        // https://github.com/helmetjs/nocache/blob/main/index.ts
-        res.setHeader('Surrogate-Control', 'no-store');
-        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-
         // Create request
         let requestId = uuid();
         const cachedPage = req.headers['bypasscache'] ? undefined : this.cache[req.path];
+        this.applyHtmlCacheHeaders(res, Boolean(cachedPage));
         const headers: HttpHeaders = Object.fromEntries(
             Object.entries(req.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : value || '']),
         );
@@ -638,10 +637,39 @@ export default class ServerRouter<
             // Static pages
             if (cachedPage) {
                 console.log('[router] Get static page from cache', req.path);
+                res.status(response.statusCode);
+                res.header(response.headers);
+
+                if (response.headers['Location']) {
+                    res.send(response.data === undefined ? '' : response.data);
+                    this.app.container.Trace.record(
+                        request.id,
+                        'response.send',
+                        {
+                            cached: true,
+                            statusCode: response.statusCode,
+                            contentType: response.headers['Content-Type'] || '',
+                            headerKeys: Object.keys(response.headers),
+                            redirected: true,
+                        },
+                        'summary',
+                    );
+                    this.app.container.Trace.finishRequest(request.id, {
+                        statusCode: response.statusCode,
+                        user: request.user?.email,
+                    });
+                    return;
+                }
+
                 this.app.container.Trace.record(
                     request.id,
                     'response.send',
-                    { cached: true, statusCode: response.statusCode, contentType: 'text/html' },
+                    {
+                        cached: true,
+                        statusCode: response.statusCode,
+                        contentType: response.headers['Content-Type'] || 'text/html',
+                        headerKeys: Object.keys(response.headers),
+                    },
                     'summary',
                 );
                 res.send(cachedPage.rendered);
@@ -870,6 +898,12 @@ export default class ServerRouter<
                         }
 
                         this.app.container.Trace.record(request.id, 'resolve.routes-evaluated', routeStats, 'resolve');
+
+                        if (isStatic) {
+                            resolve(response);
+                            return;
+                        }
+
                         this.app.container.Trace.record(request.id, 'resolve.not-found', { path: request.path }, 'summary');
                         reject(new NotFound());
                     } catch (error) {
@@ -923,10 +957,19 @@ export default class ServerRouter<
         await response.runController(route);
         if (!response.wasProvided) return;
 
-        // Set in cache
-        if (response.request.path && route.options.static && route.options.static.urls.includes('*')) {
-            console.log('[router] Set in cache', response.request.path);
-            this.renderStatic(response.request.path, route.options.static, response.data);
+        if (response.request.path && route.options.static) {
+            const staticUrls = route.options.static.urls.includes('*') ? [response.request.path] : route.options.static.urls;
+
+            for (const staticUrl of staticUrls) {
+                if (!staticUrl) continue;
+
+                console.log('[router] Set in cache', staticUrl);
+                void this.renderStatic(
+                    staticUrl,
+                    route.options.static,
+                    staticUrl === response.request.path ? response.data : undefined,
+                );
+            }
         }
 
         const timeEndResolving = Date.now();
@@ -1007,5 +1050,18 @@ export default class ServerRouter<
         } else await response.text(error.message);
 
         return response;
+    }
+
+    private applyHtmlCacheHeaders(res: express.Response, isStaticHtml: boolean) {
+        if (isStaticHtml) {
+            res.removeHeader('Surrogate-Control');
+            res.setHeader('Cache-Control', staticHtmlCacheControl);
+            return;
+        }
+
+        // Don't cache dynamic HTML, because updated releases can change asset hashes.
+        // https://github.com/helmetjs/nocache/blob/main/index.ts
+        res.setHeader('Surrogate-Control', 'no-store');
+        res.setHeader('Cache-Control', dynamicHtmlCacheControl);
     }
 }

@@ -92,6 +92,21 @@ const createContentSecurityPolicy = (config: Config['csp']): TContentSecurityPol
     };
 };
 
+const immutablePublicAssetCacheControl = 'public, max-age=31536000, immutable';
+const revalidatedPublicAssetCacheControl = 'public, max-age=0, must-revalidate';
+const hashedPublicAssetPattern = /(^|[-_.])[a-f0-9]{6,}(?=(\.[^.]+)+$)/i;
+
+const isVersionedPublicAssetRequest = (res: express.Response, filePath: string) => {
+    const requestUrl = res.req?.originalUrl || res.req?.url || '';
+    const searchParams = new URL(requestUrl, 'http://proteum.local').searchParams;
+    if (searchParams.has('v')) return true;
+
+    return hashedPublicAssetPattern.test(path.basename(filePath));
+};
+
+const resolvePublicAssetCacheControl = (res: express.Response, filePath: string) =>
+    isVersionedPublicAssetRequest(res, filePath) ? immutablePublicAssetCacheControl : revalidatedPublicAssetCacheControl;
+
 /*----------------------------------
 - FUNCTION
 ----------------------------------*/
@@ -329,17 +344,8 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
             '/public',
             express.static(path.join(Container.path.root, APP_OUTPUT_DIR, 'public'), {
                 dotfiles: 'deny',
-                setHeaders: function setCustomCacheControl(res, path) {
-                    const dontCache = ['/public/icons', '/public/client'];
-
-                    res.setHeader('Cache-Control', 'public, max-age=0');
-
-                    // Set long term cache, except for non-hashed filenames
-                    /*if (dontCache.some( p => path.startsWith( p ))) {
-                        res.setHeader('Cache-Control', 'public, max-age=0');
-                    } else {
-                        res.setHeader('Cache-Control', 'public, max-age=604800000'); // 7 Days
-                    }*/
+                setHeaders: function setCustomCacheControl(res, filePath) {
+                    res.setHeader('Cache-Control', resolvePublicAssetCacheControl(res, filePath));
                 },
             }),
             (req, res) => {
