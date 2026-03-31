@@ -22,8 +22,15 @@ const readServerTsconfigPaths = () => {
     return compilerOptions.paths || {};
 };
 
-const createCommandsTsconfigContent = () =>
-    `${JSON.stringify(
+const getCommandsTsconfigFilepath = () => path.join(app.paths.root, 'commands', 'tsconfig.json');
+
+const getCommandsGlobalTypesPath = (commandsTsconfigFilepath: string) =>
+    cli.paths.relativeFrameworkPathFrom(commandsTsconfigFilepath, 'types', 'global');
+
+const createCommandsTsconfigContent = () => {
+    const commandsTsconfigFilepath = getCommandsTsconfigFilepath();
+
+    return `${JSON.stringify(
         {
             extends: '../server/tsconfig.json',
             compilerOptions: {
@@ -35,12 +42,13 @@ const createCommandsTsconfigContent = () =>
                     '@models/types': ['./.proteum/server/models.ts'],
                 },
             },
-            include: ['.', '../var/typings', '../node_modules/proteum/types/global', '../.proteum/server/commands.d.ts'],
+            include: ['.', '../var/typings', getCommandsGlobalTypesPath(commandsTsconfigFilepath), '../.proteum/server/commands.d.ts'],
         },
         null,
         4,
     )}
 `;
+};
 
 const legacyCommandsTsconfigContent = `{
     "extends": "../server/tsconfig.json",
@@ -105,8 +113,15 @@ const isManagedCommandsTsconfig = (content: string) => {
         };
 
         if (parsed.extends !== '../server/tsconfig.json') return false;
-        if (JSON.stringify(parsed.include || []) !== JSON.stringify(['.', '../var/typings', '../node_modules/proteum/types/global', '../.proteum/server/commands.d.ts']))
+        if (!Array.isArray(parsed.include) || parsed.include.length !== 4) return false;
+        if (parsed.include[0] !== '.' || parsed.include[1] !== '../var/typings') return false;
+        if (parsed.include[3] !== '../.proteum/server/commands.d.ts') return false;
+        if (
+            parsed.include[2] !== getCommandsGlobalTypesPath(getCommandsTsconfigFilepath()) &&
+            !parsed.include[2].includes('node_modules/proteum/types/global')
+        ) {
             return false;
+        }
 
         if (parsed.compilerOptions?.baseUrl !== undefined && parsed.compilerOptions.baseUrl !== '..') return false;
         if (parsed.compilerOptions?.rootDir !== undefined && parsed.compilerOptions.rootDir !== '..') return false;
@@ -119,7 +134,7 @@ const isManagedCommandsTsconfig = (content: string) => {
 
 const ensureCommandsTsconfig = () => {
     const commandsRoot = path.join(app.paths.root, 'commands');
-    const commandsTsconfigFilepath = path.join(commandsRoot, 'tsconfig.json');
+    const commandsTsconfigFilepath = getCommandsTsconfigFilepath();
     const nextContent = createCommandsTsconfigContent();
 
     if (!fs.existsSync(commandsRoot)) return;

@@ -9,6 +9,7 @@ import { rspack, type Compiler as RspackCompiler } from '@rspack/core';
 
 // Core
 import app from '../app';
+import cli from '..';
 import createServerConfig from './server';
 import createClientConfig from './client';
 import { TCompileMode, TCompileOutputTarget } from './common';
@@ -62,15 +63,21 @@ export default class Compiler {
         - Including React, so VSCode shows that JSX is missing
     */
     public fixNpmLinkIssues() {
-        const corePath = path.join(app.paths.root, '/node_modules/proteum');
-        if (!fs.lstatSync(corePath).isSymbolicLink())
-            return logVerbose("Not fixing npm issue because proteum wasn't installed with npm link.");
+        const installedFrameworkRoot = cli.paths.framework.installedRoot;
+
+        if (!installedFrameworkRoot || !fs.existsSync(installedFrameworkRoot)) {
+            return logVerbose("Not fixing npm link issues because the app can't see an installed Proteum package.");
+        }
+
+        if (!fs.lstatSync(installedFrameworkRoot).isSymbolicLink()) {
+            return logVerbose("Not fixing npm link issues because Proteum wasn't installed with npm link.");
+        }
 
         this.debug && logVerbose(`Fix NPM link issues ...`);
         const outputPath = app.outputPath(this.outputTarget);
 
-        const appModules = path.join(app.paths.root, 'node_modules');
-        const coreModules = path.join(corePath, 'node_modules');
+        const appModules = cli.paths.framework.appNodeModulesRoot;
+        const coreModules = cli.paths.framework.frameworkNodeModulesRoot;
 
         // When the 5htp package is installed from npm link,
         // Modules are installed locally and not glbally as with with the 5htp package from NPM.

@@ -1,28 +1,29 @@
 {
-    "extends": "../../node_modules/proteum/tsconfig.common.json",
+    "extends": "../tsconfig.common.json",
     "compilerOptions": {
         "rootDir": "..",
         "baseUrl": "..",
         "paths": {
             
-            "@client/*": ["../node_modules/proteum/client/*"],
-            "@common/*": ["../node_modules/proteum/common/*"],
+            "@client/*": ["./client/*"],
+            "@common/*": ["./common/*"],
 
             // Only used for typings (ex: ServerResponse)
             // Removed before bundling
-            "@server/*": ["../node_modules/proteum/server/*"],
+            "@server/*": ["./server/*"],
             "@/*": ["./*"],
 
             // ATTENTION: Les références à preact doivent toujours pointer vers la même instance
-            "react": ["preact/compat"],
-            "react-dom/test-utils": ["preact/test-utils"],
-            "react-dom": ["preact/compat"], // Must be below test-utils
-            "react/jsx-runtime": ["preact/jsx-runtime"],
-            "preact/jsx-runtime": ["preact/jsx-runtime"]
+            "react": ["../preact/compat"],
+            "react-dom/client": ["../preact/compat/client"],
+            "react-dom/test-utils": ["../preact/test-utils"],
+            "react-dom": ["../preact/compat"], // Must be below client + test-utils
+            "react/jsx-runtime": ["../preact/jsx-runtime"],
+            "preact/jsx-runtime": ["../preact/jsx-runtime"]
         }
     },
     "include": [
         ".",
-        "../../node_modules/proteum/types/global"
+        "../types/global"
     ]
 }

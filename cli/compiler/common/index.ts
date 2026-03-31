@@ -45,6 +45,11 @@ export default function createCommonConfig(
 ): Configuration {
     const dev = mode === 'dev';
     const enableFilesystemCache = dev ? cli.args.cache !== false : cli.args.cache === true;
+    const loaderModuleRoots = [
+        cli.paths.framework.appNodeModulesRoot,
+        cli.paths.framework.frameworkNodeModulesRoot,
+        path.join(cli.paths.core.cli, 'node_modules'),
+    ].filter((moduleRoot, index, list) => list.indexOf(moduleRoot) === index);
     const config: Configuration = {
         // Project root
         context: app.paths.root,
@@ -55,11 +60,7 @@ export default function createCommonConfig(
             // Support both install modes:
             // - npm i: loaders are often hoisted in app/node_modules
             // - npm link: loaders often live in framework/node_modules
-            modules: [
-                app.paths.root + '/node_modules',
-                cli.paths.core.root + '/node_modules',
-                cli.paths.core.cli + '/node_modules',
-            ],
+            modules: loaderModuleRoots,
             mainFields: ['loader', 'main'],
         },
 

@@ -13,9 +13,18 @@ export type TServerHotReloadResult = {
     error?: string;
 };
 
+export type TServerReadyConnectedProject = {
+    namespace: string;
+    identifier: string;
+    name: string;
+    urlInternal: string;
+    healthUrl: string;
+};
+
 export type TServerReadyMessage = {
     type: typeof serverHotReloadMessageType.ready;
     publicUrl: string;
+    connectedProjects?: TServerReadyConnectedProject[];
 };
 
 export const isServerHotReloadRequest = (value: unknown): value is TServerHotReloadRequest =>
@@ -31,8 +40,20 @@ export const isServerHotReloadResult = (value: unknown): value is TServerHotRelo
         (value as TServerHotReloadResult).type === serverHotReloadMessageType.failed) &&
     Array.isArray((value as TServerHotReloadResult).changedFiles);
 
+const isServerReadyConnectedProject = (value: unknown): value is TServerReadyConnectedProject =>
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as TServerReadyConnectedProject).namespace === 'string' &&
+    typeof (value as TServerReadyConnectedProject).identifier === 'string' &&
+    typeof (value as TServerReadyConnectedProject).name === 'string' &&
+    typeof (value as TServerReadyConnectedProject).urlInternal === 'string' &&
+    typeof (value as TServerReadyConnectedProject).healthUrl === 'string';
+
 export const isServerReadyMessage = (value: unknown): value is TServerReadyMessage =>
     typeof value === 'object' &&
     value !== null &&
     (value as TServerReadyMessage).type === serverHotReloadMessageType.ready &&
-    typeof (value as TServerReadyMessage).publicUrl === 'string';
+    typeof (value as TServerReadyMessage).publicUrl === 'string' &&
+    ((value as TServerReadyMessage).connectedProjects === undefined ||
+        (Array.isArray((value as TServerReadyMessage).connectedProjects) &&
+            (value as TServerReadyMessage).connectedProjects.every(isServerReadyConnectedProject)));

@@ -19,11 +19,16 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 - When starting a long-lived dev server for an agent task, prefer `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically later.
 - Do not start a second `proteum dev` server for the same app and port until the earlier tracked session has been stopped or replaced.
 - When framework work changes Proteum CLI commands, profiler panels/features, or the `proteum dev` banners, keep this file, project-root `diagnostics.md`, and any narrower area `AGENTS.md` that mentions the same workflow aligned with the live framework behavior in the same pass.
-- Current CLI banner contract: every human-facing Proteum CLI run prints the welcome banner, while only `proteum dev` clears the interactive terminal before rendering and exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI.
+- Current CLI banner contract: every human-facing Proteum CLI run prints the welcome banner and includes the active Proteum installation method, while only `proteum dev` clears the interactive terminal before rendering, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI, and reports connected app names plus successful connected `/ping` checks in the ready banner.
 - Before finishing, double-check the touched files and generated output against the applicable optimization, diagnostics, and coding-style sources: project-root `optimizations.md`, project-root `diagnostics.md`, project-root `CODING_STYLE.md`, and any narrower area `AGENTS.md`.
 - After implementing any feature or behavior change, always verify it on a running app before finishing: start the server, exercise the affected flow with Playwright or the smallest real runtime or `npx proteum` surface, run the relevant diagnostics or perf commands, and confirm there is no meaningful regression in behavior, performance, bundle/load size, SEO output, or coding style.
 - Before finishing a task, stop every `proteum dev` session started during the task and confirm cleanup with `npx proteum dev list --json` or an explicit `npx proteum dev stop --session-file <path>`.
-- When you have finished your work, summarize in one top-level short (up to 100 characters) sentence ALL the changes you made since the beginning of the WHOLE conversation. Output as "Commit message".
+- When you have finished your work, summarize in one top-level short (up to 100 characters) sentence the changes you made since the beginning of the conversation. Strictly use the Conventional Commits specification:
+```
+Commit message: <type>[optional scope]: <description>
+
+[optional body]
+```
 
 ## Project Shape
 

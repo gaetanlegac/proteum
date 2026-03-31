@@ -21,17 +21,18 @@ import type { App } from '../../app';
 
 const debug = false;
 const ssrScriptPattern = /\.ssr\.(ts|tsx)$/;
-const normalizedCoreRoot = cli.paths.core.root.replace(/\\/g, '/');
+const normalizedCoreRoot = cli.paths.framework.activeRoot.replace(/\\/g, '/');
 const hmrClientEntry = path.join(cli.paths.core.root, 'client', 'dev', 'hmr.ts');
 
 const normalizeModulePath = (value?: string) => (value || '').replace(/\\/g, '/');
-const resolveFromAppOrCore = (app: App, request: string) =>
-    require.resolve(request, { paths: [app.paths.root, cli.paths.core.root] });
+const resolveFromAppOrCore = (_app: App, request: string) => cli.paths.resolveRequest(request);
 const rewriteFrameworkAliasTargets = (app: App, aliases: Record<string, string | string[]>) => {
-    const installedCoreRoot = normalizeModulePath(path.join(app.paths.root, 'node_modules', 'proteum'));
-    const activeCoreRoot = normalizeModulePath(cli.paths.core.root);
+    const installedCoreRoot = cli.paths.framework.installedRoot
+        ? normalizeModulePath(cli.paths.framework.installedRoot)
+        : undefined;
+    const activeCoreRoot = normalizeModulePath(cli.paths.framework.activeRoot);
 
-    if (installedCoreRoot === activeCoreRoot) return aliases;
+    if (!installedCoreRoot || installedCoreRoot === activeCoreRoot) return aliases;
 
     const rewriteCandidate = (candidate: string) =>
         normalizeModulePath(candidate).startsWith(installedCoreRoot + '/')
@@ -76,8 +77,7 @@ export default function createCompiler(
     logVerbose(`Creating compiler for client (${mode}).`);
     const dev = mode === 'dev';
     const outputPath = app.outputPath(outputTarget);
-    const installedCoreRoot = path.join(app.paths.root, 'node_modules', 'proteum');
-    const frameworkRoots = [cli.paths.core.root, installedCoreRoot];
+    const frameworkRoots = cli.paths.getFrameworkRoots();
     const transpileModuleDirectories = app.transpileModuleDirectories;
 
     const commonConfig = createCommonConfig(app, 'client', mode, outputTarget);
@@ -93,7 +93,7 @@ export default function createCompiler(
         );*/
 
     // Convert tsconfig paths into bundler aliases.
-    const { aliases } = app.aliases.client.forWebpack({ modulesPath: app.paths.root + '/node_modules' });
+    const { aliases } = app.aliases.client.forWebpack({ modulesPath: cli.paths.framework.appNodeModulesRoot });
     const resolvedAliases = rewriteFrameworkAliasTargets(app, aliases);
 
     // We're not supposed in any case to import server libs from client

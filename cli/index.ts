@@ -3,6 +3,7 @@ process.traceDeprecation = true;
 import { Cli } from 'clipanion';
 
 import cli from './context';
+import { resolveFrameworkInstallInfo } from './paths';
 import { proteumCommandNames } from './presentation/commands';
 import { renderCliOverview, renderCommandHelp, resolveCustomHelpRequest } from './presentation/help';
 import { renderCliWelcomeBanner } from './presentation/welcome';
@@ -32,6 +33,10 @@ const shouldRenderSharedWelcomeBanner = ({
 export const runCli = async (argv: string[] = process.argv.slice(2)) => {
     const normalizedArgv = normalizeHelpArgv(normalizeLegacyArgv(argv), proteumCommandNames);
     const version = String(cli.packageJson.version || '');
+    const proteumInstall = resolveFrameworkInstallInfo({
+        appRoot: cli.paths.appRoot,
+        framework: cli.paths.framework,
+    });
     const clipanion = createCli(version);
     const initAvailable = true;
     const helpRequest = resolveCustomHelpRequest(normalizedArgv);
@@ -44,6 +49,7 @@ export const runCli = async (argv: string[] = process.argv.slice(2)) => {
         process.stderr.write(
             `${await renderCliWelcomeBanner({
                 command: formatInvocation(normalizedArgv),
+                installSummary: proteumInstall.summary,
                 version,
             })}\n\n`,
         );

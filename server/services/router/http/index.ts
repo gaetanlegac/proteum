@@ -26,10 +26,12 @@ import type { TBasicUser } from '@server/services/auth';
 import type { TServerRouter } from '..';
 import type { TDevConsoleLogLevel } from '@common/dev/console';
 import type { TPerfGroupBy } from '@common/dev/performance';
+import type { TServerReadyConnectedProject } from '@common/dev/serverHotReload';
 import type { TDevSessionStartResponse, TDevSessionUserSummary } from '@common/dev/session';
 import { serverHotReloadMessageType } from '@common/dev/serverHotReload';
 import { explainSectionNames } from '@common/dev/diagnostics';
 import {
+    type TConnectedProjectHealthResponse,
     connectedProjectHealthPath,
     connectedProjectProxyPathPrefix,
     parseConnectedProjectProxyPath,
@@ -93,25 +95,48 @@ const createContentSecurityPolicy = (config: Config['csp']): TContentSecurityPol
 };
 
 const immutablePublicAssetCacheControl = 'public, max-age=31536000, immutable';
+const devPublicAssetCacheControl = 'no-store';
 const revalidatedPublicAssetCacheControl = 'public, max-age=0, must-revalidate';
 const hashedPublicAssetPattern = /(^|[-_.])[a-f0-9]{6,}(?=(\.[^.]+)+$)/i;
 const connectedProjectBootRetryCount = 10;
 const connectedProjectBootRetryDelayMs = 5_000;
 
-const isVersionedPublicAssetRequest = (res: express.Response, filePath: string) => {
-    const requestUrl = res.req?.originalUrl || res.req?.url || '';
+const isVersionedPublicAssetRequest = (res: undefined | express.Response | http.ServerResponse, filePath: string) => {
+    const request =
+        res && typeof res === 'object' && 'req' in res
+            ? ((res as express.Response | (http.ServerResponse & { req?: express.Request })).req ?? undefined)
+            : undefined;
+    const requestUrl = request?.originalUrl || request?.url || '';
     const searchParams = new URL(requestUrl, 'http://proteum.local').searchParams;
     if (searchParams.has('v')) return true;
 
     return hashedPublicAssetPattern.test(path.basename(filePath));
 };
 
-const resolvePublicAssetCacheControl = (res: express.Response, filePath: string) =>
-    isVersionedPublicAssetRequest(res, filePath) ? immutablePublicAssetCacheControl : revalidatedPublicAssetCacheControl;
+const resolvePublicAssetCacheControl = ({
+    res,
+    filePath,
+    profile,
+}: {
+    res: undefined | express.Response | http.ServerResponse;
+    filePath: string;
+    profile: string;
+}) => {
+    if (profile === 'dev') return devPublicAssetCacheControl;
+    return isVersionedPublicAssetRequest(res, filePath) ? immutablePublicAssetCacheControl : revalidatedPublicAssetCacheControl;
+};
 const wait = async (durationMs: number) =>
     await new Promise<void>((resolve) => {
         setTimeout(resolve, durationMs);
     });
+const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
+const isConnectedProjectHealthResponse = (value: unknown): value is TConnectedProjectHealthResponse =>
+    typeof value === 'object' &&
+    value !== null &&
+    (value as TConnectedProjectHealthResponse).ok === true &&
+    isNonEmptyString((value as TConnectedProjectHealthResponse).identifier) &&
+    isNonEmptyString((value as TConnectedProjectHealthResponse).name) &&
+    Array.isArray((value as TConnectedProjectHealthResponse).connectedProjects);
 
 /*----------------------------------
 - FUNCTION
@@ -167,7 +192,9 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         };
     }
 
-    private async verifyConnectedProjectsBeforeStart() {
+    private async verifyConnectedProjectsBeforeStart(): Promise<TServerReadyConnectedProject[]> {
+        const verifiedConnectedProjects: TServerReadyConnectedProject[] = [];
+
         for (const connectedProject of Object.values(this.app.connectedProjects || {})) {
             const healthUrl = new URL(connectedProjectHealthPath, connectedProject.urlInternal).toString();
             let lastError: Error | undefined;
@@ -184,7 +211,21 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
                         );
                     }
 
+                    const payload = (await response.json()) as unknown;
+                    if (!isConnectedProjectHealthResponse(payload)) {
+                        throw new Error(
+                            `Connected project "${connectedProject.namespace}" health check returned an invalid payload at ${healthUrl}.`,
+                        );
+                    }
+
                     lastError = undefined;
+                    verifiedConnectedProjects.push({
+                        namespace: connectedProject.namespace,
+                        identifier: payload.identifier.trim(),
+                        name: payload.name.trim(),
+                        urlInternal: connectedProject.urlInternal,
+                        healthUrl,
+                    });
                     break;
                 } catch (error) {
                     lastError =
@@ -204,15 +245,20 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
                 await wait(connectedProjectBootRetryDelayMs);
             }
         }
+
+        return verifiedConnectedProjects;
     }
 
     private registerConnectedProjectRoutes(routes: express.Express) {
         routes.get(connectedProjectHealthPath, (_req, res) => {
-            res.json({
+            const response: TConnectedProjectHealthResponse = {
                 connectedProjects: Object.keys(this.app.connectedProjects || {}),
                 identifier: this.app.identity.identifier,
+                name: this.app.identity.name,
                 ok: true,
-            });
+            };
+
+            res.json(response);
         });
 
         routes.all(`${connectedProjectHealthPath}/*`, (_req, res) => {
@@ -360,14 +406,29 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         // Normalement, seulement utile pour le mode production,
         // Quand mode debug, les ressources client semblent servies par le dev middlewae
         // Sauf que les ressources serveur ne semblent pas trouvées par le dev-middleware
+        const disablePublicAssetCaching = this.app.env.profile === 'dev';
         routes.use(compression());
         routes.use('/public', cors());
         routes.use(
             '/public',
             express.static(path.join(Container.path.root, APP_OUTPUT_DIR, 'public'), {
                 dotfiles: 'deny',
-                setHeaders: function setCustomCacheControl(res, filePath) {
-                    res.setHeader('Cache-Control', resolvePublicAssetCacheControl(res, filePath));
+                etag: !disablePublicAssetCaching,
+                lastModified: !disablePublicAssetCaching,
+                setHeaders: (res, filePath) => {
+                    if (disablePublicAssetCaching) {
+                        res.removeHeader('ETag');
+                        res.removeHeader('Last-Modified');
+                    }
+
+                    res.setHeader(
+                        'Cache-Control',
+                        resolvePublicAssetCacheControl({
+                            res,
+                            filePath,
+                            profile: this.app.env.profile,
+                        }),
+                    );
                 },
             }),
             (req, res) => {
@@ -426,12 +487,13 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         /*----------------------------------
         - BOOT SERVICES
         ----------------------------------*/
-        await this.verifyConnectedProjectsBeforeStart();
+        const verifiedConnectedProjects = await this.verifyConnectedProjectsBeforeStart();
 
         this.http.listen(this.config.port, () => {
             if (__DEV__ && typeof process.send === 'function') {
                 process.send({
                     type: serverHotReloadMessageType.ready,
+                    connectedProjects: verifiedConnectedProjects,
                     publicUrl: this.publicUrl,
                 });
                 return;

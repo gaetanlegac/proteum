@@ -29,17 +29,23 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 - When starting a long-lived reference app dev server for framework work, prefer `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically later.
 - Before retrying a boot on the same app, changing ports, or finishing the task, stop every framework-started dev session with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`.
 - If the task changed the dev workflow itself, verify the final cleanup path with `npx proteum dev list --json` before finishing.
-- When you have finished your work, summarize in one top-level short (up to 100 characters) sentence the changes you made since the beginning of the conversation. Output as "Commit message".
+- When you have finished your work, summarize in one top-level short (up to 100 characters) sentence the changes you made since the beginning of the conversation. Strictly use the Conventional Commits specification:
+```
+Commit message: <type>[optional scope]: <description>
+
+[optional body]
+```
 
 ## Core Changes
 
 - Validate framework changes against the reference apps:
-  - `/Users/gaetan/Desktop/Projets/crosspath/platform`
-  - `/Users/gaetan/Desktop/Projets/unique.domains/product`
-  - `/Users/gaetan/Desktop/Projets/unique.domains/website`
+  - `/Users/gaetan/Desktop/Projets/crosspath/platform`: Standalone app
+  - `/Users/gaetan/Desktop/Projets/unique.domains/platform`: Monorepo including the following apps:
+    - `/Users/gaetan/Desktop/Projets/unique.domains/platform/apps/product`
+    - `/Users/gaetan/Desktop/Projets/unique.domains/platform/apps/website`
 - Inspect how both apps currently use the touched feature, runtime, API, compiler behavior, or generated output before proposing or implementing changes.
 - Keep the developer-facing contract synchronized when framework work changes CLI commands, profiler capabilities, or the `proteum dev` banner. Update the live surfaces together in the same pass: CLI command/help definitions, profiler panels and dev-only endpoints, banner text/examples, and the most relevant agent docs that describe them, especially `AGENTS.md`, `agents/project/AGENTS.md`, `agents/project/diagnostics.md`, and any narrower `agents/project/**/AGENTS.md` file that mentions the changed workflow.
-- Current CLI banner contract: every human-facing Proteum CLI run prints the welcome banner, while only `proteum dev` clears the interactive terminal before rendering and exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI.
+- Current CLI banner contract: every human-facing Proteum CLI run prints the welcome banner and includes the active Proteum installation method, while only `proteum dev` clears the interactive terminal before rendering, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI, and reports connected app names plus successful connected `/ping` checks in the ready banner.
 - Keep core changes aligned with the explicit controller/page architecture in `agents/project/AGENTS.md`.
 - Prefer removing framework magic when the same result can be expressed with explicit contracts, generated code, or typed context.
 - Apply the pruning rules from `agents/project/optimizations.md`, especially for webpack plugins, Babel plugins, aliases, helpers, runtime services, and npm packages that are not meaningfully used by both apps.

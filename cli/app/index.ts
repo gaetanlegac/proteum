@@ -38,16 +38,16 @@ const normalizeModulePath = (value: string) => value.replace(/\\/g, '/').replace
 
 const resolveTranspileModuleDirectories = ({
     moduleNames,
-    searchRoots,
+    nodeModulesRoots,
 }: {
     moduleNames: string[];
-    searchRoots: string[];
+    nodeModulesRoots: string[];
 }) => {
     const directories = new Set<string>();
 
     for (const moduleName of moduleNames) {
-        for (const searchRoot of searchRoots) {
-            const candidate = normalizeModulePath(path.join(searchRoot, 'node_modules', moduleName));
+        for (const nodeModulesRoot of nodeModulesRoots) {
+            const candidate = normalizeModulePath(path.join(nodeModulesRoot, moduleName));
             if (!fs.existsSync(candidate)) continue;
 
             directories.add(candidate);
@@ -136,7 +136,7 @@ export class App {
     public get transpileModuleDirectories() {
         return resolveTranspileModuleDirectories({
             moduleNames: this.transpile,
-            searchRoots: [this.paths.root, cli.paths.core.root],
+            nodeModulesRoots: [cli.paths.framework.appNodeModulesRoot, cli.paths.framework.frameworkNodeModulesRoot],
         });
     }
 
@@ -161,12 +161,12 @@ export class App {
     public aliases = {
         client: new TsAlias({
             rootDir: this.paths.root + '/client',
-            modulesDir: [cli.paths.appRoot + '/node_modules', cli.paths.coreRoot + '/node_modules'],
+            modulesDir: [cli.paths.framework.appNodeModulesRoot, cli.paths.framework.frameworkNodeModulesRoot],
             debug: false,
         }),
         server: new TsAlias({
             rootDir: this.paths.root + '/server',
-            modulesDir: [cli.paths.appRoot + '/node_modules', cli.paths.coreRoot + '/node_modules'],
+            modulesDir: [cli.paths.framework.appNodeModulesRoot, cli.paths.framework.frameworkNodeModulesRoot],
             debug: false,
         }),
     };

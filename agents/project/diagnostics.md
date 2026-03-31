@@ -13,7 +13,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 ## Runtime Diagnostics
 
 - For long-lived dev reproductions, start the app with `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically after the repro.
-- Human-facing Proteum CLI runs now print the welcome banner, but only `npx proteum dev` clears the interactive terminal before rendering; keep that in mind when capturing or comparing command logs during diagnosis.
+- Human-facing Proteum CLI runs now print the welcome banner and include the active Proteum installation method, but only `npx proteum dev` clears the interactive terminal before rendering and reports connected app names plus successful connected `/ping` checks in the ready banner; keep that in mind when capturing or comparing command logs during diagnosis.
 - For request-time issues in dev, start with `npx proteum diagnose <path> --port <port>` when you have a concrete failing route, page, controller path, or request target. It combines owner lookup, manifest diagnostics, contract diagnostics, matching trace data, and buffered server logs in one pass.
 - For connected-project failures, confirm the consumer app resolves the expected `connect.<Namespace>.source` and `connect.<Namespace>.urlInternal` values, the producer app exposes `GET /api/__proteum/connected/ping`, and the imported controller entries show `scope=connected` in `proteum explain`.
 - Use `npx proteum explain owner <query>` when you need a fast ownership graph for a route, controller path, source file, or generated artifact before reading code.

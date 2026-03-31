@@ -2,6 +2,18 @@ import type { TScaffoldInitConfig, TScaffoldResult } from './types';
 
 const renderJson = (value: unknown) => JSON.stringify(value, null, 4);
 
+export type TTsconfigTemplatePaths = {
+    frameworkTsconfig: string;
+    frameworkClient: string;
+    frameworkCommon: string;
+    frameworkServer: string;
+    frameworkTypesGlobal: string;
+    preactCompat: string;
+    preactCompatClient: string;
+    preactTestUtils: string;
+    preactJsxRuntime: string;
+};
+
 export const createPageTemplate = ({
     routePath,
     heading,
@@ -162,8 +174,8 @@ export default class ${appIdentifier} extends Application {
 }
 `;
 
-export const createClientTsconfigTemplate = () => `{
-    "extends": "../node_modules/proteum/tsconfig.common.json",
+export const createClientTsconfigTemplate = (paths: TTsconfigTemplatePaths) => `{
+    "extends": ${JSON.stringify(paths.frameworkTsconfig)},
     "compilerOptions": {
         "rootDir": "..",
         "baseUrl": "..",
@@ -172,9 +184,9 @@ export const createClientTsconfigTemplate = () => `{
         "strictBindCallApply": true,
         "useUnknownInCatchVariables": true,
         "paths": {
-            "@client/*": ["./node_modules/proteum/client/*"],
-            "@common/*": ["./node_modules/proteum/common/*"],
-            "@server/*": ["./node_modules/proteum/server/*"],
+            "@client/*": [${JSON.stringify(paths.frameworkClient)}],
+            "@common/*": [${JSON.stringify(paths.frameworkCommon)}],
+            "@server/*": [${JSON.stringify(paths.frameworkServer)}],
 
             "@/client/context": ["./.proteum/client/context.ts"],
             "@generated/client/*": ["./.proteum/client/*"],
@@ -182,24 +194,25 @@ export const createClientTsconfigTemplate = () => `{
             "@generated/server/*": ["./.proteum/server/*"],
             "@/*": ["./*"],
 
-            "react": ["./node_modules/preact/compat"],
-            "react-dom/test-utils": ["./node_modules/preact/test-utils"],
-            "react-dom": ["./node_modules/preact/compat"],
-            "react/jsx-runtime": ["./node_modules/preact/jsx-runtime"]
+            "react": [${JSON.stringify(paths.preactCompat)}],
+            "react-dom/client": [${JSON.stringify(paths.preactCompatClient)}],
+            "react-dom/test-utils": [${JSON.stringify(paths.preactTestUtils)}],
+            "react-dom": [${JSON.stringify(paths.preactCompat)}],
+            "react/jsx-runtime": [${JSON.stringify(paths.preactJsxRuntime)}]
         }
     },
     "include": [
         ".",
         "../var/typings",
-        "../node_modules/proteum/types/global",
+        ${JSON.stringify(paths.frameworkTypesGlobal)},
         "../.proteum/client/services.d.ts",
         "../server/index.ts"
     ]
 }
 `;
 
-export const createServerTsconfigTemplate = () => `{
-    "extends": "../node_modules/proteum/tsconfig.common.json",
+export const createServerTsconfigTemplate = (paths: TTsconfigTemplatePaths) => `{
+    "extends": ${JSON.stringify(paths.frameworkTsconfig)},
     "compilerOptions": {
         "rootDir": "..",
         "baseUrl": "..",
@@ -209,9 +222,9 @@ export const createServerTsconfigTemplate = () => `{
         "useUnknownInCatchVariables": true,
         "moduleSuffixes": [".ssr", ""],
         "paths": {
-            "@client/*": ["./node_modules/proteum/client/*"],
-            "@common/*": ["./node_modules/proteum/common/*"],
-            "@server/*": ["./node_modules/proteum/server/*"],
+            "@client/*": [${JSON.stringify(paths.frameworkClient)}],
+            "@common/*": [${JSON.stringify(paths.frameworkCommon)}],
+            "@server/*": [${JSON.stringify(paths.frameworkServer)}],
 
             "@/client/context": ["./.proteum/client/context.ts"],
             "@generated/client/*": ["./.proteum/client/*"],
@@ -219,10 +232,11 @@ export const createServerTsconfigTemplate = () => `{
             "@generated/server/*": ["./.proteum/server/*"],
             "@/*": ["./*"],
 
-            "react": ["./node_modules/preact/compat"],
-            "react-dom/test-utils": ["./node_modules/preact/test-utils"],
-            "react-dom": ["./node_modules/preact/compat"],
-            "react/jsx-runtime": ["./node_modules/preact/jsx-runtime"]
+            "react": [${JSON.stringify(paths.preactCompat)}],
+            "react-dom/client": [${JSON.stringify(paths.preactCompatClient)}],
+            "react-dom/test-utils": [${JSON.stringify(paths.preactTestUtils)}],
+            "react-dom": [${JSON.stringify(paths.preactCompat)}],
+            "react/jsx-runtime": [${JSON.stringify(paths.preactJsxRuntime)}]
         }
     },
     "include": [
@@ -230,7 +244,7 @@ export const createServerTsconfigTemplate = () => `{
         "../identity.config.ts",
         "../proteum.config.ts",
         "../var/typings",
-        "../node_modules/proteum/types/global",
+        ${JSON.stringify(paths.frameworkTypesGlobal)},
         "../.proteum/server/services.d.ts",
         "../server/index.ts"
     ]

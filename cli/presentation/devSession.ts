@@ -1,8 +1,12 @@
 const React = require('react') as typeof import('react');
 
+import type { TServerReadyConnectedProject } from '../../common/dev/serverHotReload';
 import { renderRows } from './layout';
 import { renderInk } from './ink';
 import { renderWelcomePanel } from './welcome';
+
+const formatConnectedProjectLabel = (connectedProject: TServerReadyConnectedProject) =>
+    `${connectedProject.namespace} -> ${connectedProject.name}`;
 
 export const renderDevSession = async ({
     appName,
@@ -10,6 +14,7 @@ export const renderDevSession = async ({
     routerPort,
     devEventPort,
     connectedProjects,
+    proteumInstallSummary,
     proteumVersion,
 }: {
     appName: string;
@@ -17,10 +22,12 @@ export const renderDevSession = async ({
     routerPort: number;
     devEventPort: number;
     connectedProjects?: Array<{ namespace: string; urlInternal: string }>;
+    proteumInstallSummary?: string;
     proteumVersion: string;
 }) =>
     [
         await renderWelcomePanel({
+            installSummary: proteumInstallSummary,
             version: proteumVersion,
             tagline: 'Agent-first SSR compiler and server loop.',
         }),
@@ -51,15 +58,16 @@ export const renderServerReadyBanner = async ({
     appName,
     publicUrl,
     routerPort,
-    connectedProjectsCount,
+    connectedProjects,
 }: {
     appName: string;
     publicUrl: string;
     routerPort: number;
-    connectedProjectsCount?: number;
+    connectedProjects?: TServerReadyConnectedProject[];
 }) =>
     renderInk(({ Box, Text }) => {
         const createElement = React.createElement;
+        const verifiedConnectedProjects = connectedProjects || [];
 
         return createElement(
             Box,
@@ -68,13 +76,20 @@ export const renderServerReadyBanner = async ({
             createElement(Text, { bold: true, color: 'green' }, appName),
             createElement(Text, { bold: true }, publicUrl),
             createElement(Text, { dimColor: true }, 'SSR server is listening for requests and hot reloads.'),
-            connectedProjectsCount
+            verifiedConnectedProjects.length > 0
                 ? createElement(
                       Text,
                       { dimColor: true },
-                      `Connected projects: ${connectedProjectsCount}`,
+                      `Connected apps: ${verifiedConnectedProjects.map((connectedProject) => formatConnectedProjectLabel(connectedProject)).join(', ')}`,
                   )
                 : null,
+            ...verifiedConnectedProjects.map((connectedProject) =>
+                createElement(
+                    Text,
+                    { key: `connected-ping-${connectedProject.namespace}`, dimColor: true },
+                    `Ping OK: ${formatConnectedProjectLabel(connectedProject)} responded to /api/__proteum/connected/ping`,
+                ),
+            ),
             createElement(Text, { dimColor: true }, `Diagnose /: proteum diagnose / --port ${routerPort}`),
             createElement(Text, { dimColor: true }, `Perf top: proteum perf top --port ${routerPort}`),
             createElement(Text, { dimColor: true }, `Trace latest: proteum trace latest --port ${routerPort}`),

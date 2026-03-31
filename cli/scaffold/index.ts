@@ -26,6 +26,7 @@ import {
     createServiceConfigTemplate,
     createServiceTemplate,
 } from './templates';
+import type { TTsconfigTemplatePaths } from './templates';
 import type { TScaffoldFilePlan, TScaffoldInitConfig, TScaffoldKind, TScaffoldResult } from './types';
 
 type TCreatePlan = {
@@ -602,7 +603,29 @@ const assertInitTarget = ({ appRoot }: { appRoot: string }) => {
     );
 };
 
-const createInitFilePlans = (config: TScaffoldInitConfig): TScaffoldFilePlan[] => [
+const createAppTsconfigTemplatePaths = ({
+    appRoot,
+    side,
+}: {
+    appRoot: string;
+    side: 'client' | 'server';
+}): TTsconfigTemplatePaths => {
+    const tsconfigFilepath = path.join(appRoot, side, 'tsconfig.json');
+
+    return {
+        frameworkTsconfig: cli.paths.relativeFrameworkPathForAppRoot(appRoot, tsconfigFilepath, 'tsconfig.common.json'),
+        frameworkClient: cli.paths.relativeFrameworkPathFromDirectoryForAppRoot(appRoot, appRoot, 'client', '*'),
+        frameworkCommon: cli.paths.relativeFrameworkPathFromDirectoryForAppRoot(appRoot, appRoot, 'common', '*'),
+        frameworkServer: cli.paths.relativeFrameworkPathFromDirectoryForAppRoot(appRoot, appRoot, 'server', '*'),
+        frameworkTypesGlobal: cli.paths.relativeFrameworkPathForAppRoot(appRoot, tsconfigFilepath, 'types', 'global'),
+        preactCompat: cli.paths.relativeAppNodeModulesPathFromDirectoryForAppRoot(appRoot, appRoot, 'preact', 'compat'),
+        preactCompatClient: cli.paths.relativeAppNodeModulesPathFromDirectoryForAppRoot(appRoot, appRoot, 'preact', 'compat', 'client'),
+        preactTestUtils: cli.paths.relativeAppNodeModulesPathFromDirectoryForAppRoot(appRoot, appRoot, 'preact', 'test-utils'),
+        preactJsxRuntime: cli.paths.relativeAppNodeModulesPathFromDirectoryForAppRoot(appRoot, appRoot, 'preact', 'jsx-runtime'),
+    };
+};
+
+const createInitFilePlans = ({ appRoot, config }: { appRoot: string; config: TScaffoldInitConfig }): TScaffoldFilePlan[] => [
     {
         relativePath: 'package.json',
         content: createPackageJsonTemplate({
@@ -643,11 +666,11 @@ const createInitFilePlans = (config: TScaffoldInitConfig): TScaffoldFilePlan[] =
     },
     {
         relativePath: path.join('client', 'tsconfig.json'),
-        content: createClientTsconfigTemplate(),
+        content: createClientTsconfigTemplate(createAppTsconfigTemplatePaths({ appRoot, side: 'client' })),
     },
     {
         relativePath: path.join('server', 'tsconfig.json'),
-        content: createServerTsconfigTemplate(),
+        content: createServerTsconfigTemplate(createAppTsconfigTemplatePaths({ appRoot, side: 'server' })),
     },
     {
         relativePath: path.join('server', 'config', 'app.ts'),
@@ -675,7 +698,7 @@ export const runInitScaffold = async () => {
     assertInitTarget({ appRoot });
 
     const result = createEmptyResult({ dryRun: isDryRun() });
-    const filePlans = createInitFilePlans(config);
+    const filePlans = createInitFilePlans({ appRoot, config });
 
     maybeWriteFilePlans({ rootDir: appRoot, filePlans, result });
 

@@ -36,6 +36,7 @@ import {
     type TDevSessionInspection,
     type TStopDevSessionResult,
 } from '../runtime/devSessions';
+import { resolveFrameworkInstallInfo } from '../paths';
 import { logVerbose } from '../runtime/verbose';
 
 // Core
@@ -396,7 +397,7 @@ async function startApp(app: App) {
                     console.info(
                         await renderServerReadyBanner({
                             appName: getDevAppName(app),
-                            connectedProjectsCount: Object.keys(app.env.connectedProjects).length,
+                            connectedProjects: message.connectedProjects,
                             publicUrl: message.publicUrl,
                             routerPort: app.env.router.port,
                         }),
@@ -558,6 +559,10 @@ const runDevLoop = async () => {
     clearInteractiveConsole();
     ensureProjectAgentSymlinks({ appRoot: app.paths.root, coreRoot: cli.paths.core.root });
     await ensureDevSessionSlot();
+    const proteumInstall = resolveFrameworkInstallInfo({
+        appRoot: app.paths.root,
+        framework: cli.paths.framework,
+    });
 
     const devEventServer = await createDevEventServer(app.env.router.port + 1);
     app.devEventPort = devEventServer.port;
@@ -568,6 +573,7 @@ const runDevLoop = async () => {
             connectedProjects: Object.values(app.env.connectedProjects),
             routerPort: app.env.router.port,
             devEventPort: devEventServer.port,
+            proteumInstallSummary: proteumInstall.summary,
             proteumVersion: String(cli.packageJson.version || ''),
         }),
     );

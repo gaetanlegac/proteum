@@ -44,6 +44,13 @@ export type TConnectedProjectEnvConfig = {
     urlInternal: string;
 };
 
+export type TConnectedProjectHealthResponse = {
+    connectedProjects: string[];
+    identifier: string;
+    name: string;
+    ok: true;
+};
+
 export type TConnectedFetcherTarget = {
     namespace: string;
     controllerAccessor: string;

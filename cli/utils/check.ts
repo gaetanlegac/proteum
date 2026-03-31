@@ -8,13 +8,7 @@ import { runProcess } from './runProcess';
 const tsconfigPaths = ['client/tsconfig.json', 'server/tsconfig.json', 'commands/tsconfig.json'];
 const eslintConfigPaths = ['eslint.config.mjs', 'eslint.config.js', 'eslint.config.cjs'];
 
-const resolveInstalledBinary = (name: string) => {
-    const binary = path.join(cli.paths.core.root, 'node_modules', '.bin', name);
-
-    if (!fs.existsSync(binary)) throw new Error(`Missing required binary "${name}" in Proteum dependencies.`);
-
-    return binary;
-};
+const resolveInstalledBinary = (packageName: string, binName: string) => cli.paths.resolveBinary(packageName, binName);
 
 const resolveExistingAppPaths = (paths: string[]) =>
     paths
@@ -43,10 +37,10 @@ export const runAppTypecheck = async () => {
     if (existingProjects.length === 0)
         throw new Error(`No TypeScript app projects found. Expected one of: ${tsconfigPaths.join(', ')}.`);
 
-    const tsc = resolveInstalledBinary('tsc');
+    const tsc = resolveInstalledBinary('typescript', 'tsc');
 
     for (const { relativePath } of existingProjects)
-        await runProcess(tsc, ['-p', relativePath, '--noEmit', '--pretty', 'false'], {
+        await runProcess(tsc.command, [...tsc.args, '-p', relativePath, '--noEmit', '--pretty', 'false'], {
             cwd: cli.paths.appRoot,
             env: getTypecheckEnv(),
         });
@@ -62,10 +56,10 @@ export const runAppLint = async ({ fix = false } = {}) => {
                 .join(', ')}.`,
         );
 
-    const eslint = resolveInstalledBinary('eslint');
+    const eslint = resolveInstalledBinary('eslint', 'eslint');
     const args = ['.', '--config', config.absolutePath, '--no-config-lookup'];
 
     if (fix) args.push('--fix');
 
-    await runProcess(eslint, args, { cwd: cli.paths.appRoot });
+    await runProcess(eslint.command, [...eslint.args, ...args], { cwd: cli.paths.appRoot });
 };

@@ -18,9 +18,11 @@ export const clearInteractiveConsole = () => {
 };
 
 export const renderWelcomePanel = async ({
+    installSummary,
     version,
     tagline,
 }: {
+    installSummary?: string;
     version: string;
     tagline: string;
 }) =>
@@ -37,19 +39,23 @@ export const renderWelcomePanel = async ({
             createElement(Text, { bold: true, backgroundColor: 'blue', color: 'white' }, ' WELCOME TO '),
             createElement(Box, { flexDirection: 'column' }, ...wordmark),
             versionLabel ? createElement(Text, { bold: true, color: 'blue' }, versionLabel) : null,
+            installSummary ? createElement(Text, { dimColor: true }, `Installed via ${installSummary}`) : null,
             createElement(Text, { dimColor: true }, tagline),
         );
     });
 
 export const renderCliWelcomeBanner = async ({
     command,
+    installSummary,
     version,
 }: {
     command: string;
+    installSummary?: string;
     version: string;
 }) =>
     [
         await renderWelcomePanel({
+            installSummary,
             version,
             tagline: 'Explicit SSR / SEO / TypeScript framework for agent-friendly apps.',
         }),

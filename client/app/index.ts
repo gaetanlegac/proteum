@@ -41,6 +41,18 @@ type Prettify<T> = { [K in keyof T]: T[K] } & {};
 
 export type ApplicationProperties = Prettify<keyof Application>;
 
+const normalizeBrowserErrorMessage = (value: unknown): string => {
+    if (typeof value === 'string') return value;
+    if (value && typeof value === 'object' && 'message' in value && typeof value.message === 'string')
+        return value.message;
+
+    return '';
+};
+
+const isIgnorableBrowserErrorMessage = (message: string) =>
+    message === 'ResizeObserver loop completed with undelivered notifications.' ||
+    message === 'ResizeObserver loop limit exceeded';
+
 /*----------------------------------
 - CLASS
 ----------------------------------*/
@@ -81,8 +93,11 @@ export default abstract class Application {
         });
 
         window.onerror = (message, file, line, col, stacktrace) => {
-            console.error(`Exception catched by method B`, message);
-            this.reportBug({ stacktrace: stacktrace?.stack || JSON.stringify({ message, file, line, col }) }).then(
+            const normalizedMessage = normalizeBrowserErrorMessage(message);
+            if (isIgnorableBrowserErrorMessage(normalizedMessage)) return true;
+
+            console.error(`Exception catched by method B`, normalizedMessage || message);
+            this.reportBug({ stacktrace: stacktrace?.stack || JSON.stringify({ message: normalizedMessage || message, file, line, col }) }).then(
                 () => {
                     // TODO in toas service: app.on('bug', () => toast.warning( ... ))
                     /*context?.toast.warning("Bug detected", 
