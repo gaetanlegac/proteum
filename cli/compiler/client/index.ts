@@ -21,23 +21,40 @@ import type { App } from '../../app';
 
 const debug = false;
 const ssrScriptPattern = /\.ssr\.(ts|tsx)$/;
-const normalizedCoreRoot = cli.paths.framework.activeRoot.replace(/\\/g, '/');
-const hmrClientEntry = path.join(cli.paths.core.root, 'client', 'dev', 'hmr.ts');
-
 const normalizeModulePath = (value?: string) => (value || '').replace(/\\/g, '/');
-const resolveFromAppOrCore = (_app: App, request: string) => cli.paths.resolveRequest(request);
-const rewriteFrameworkAliasTargets = (app: App, aliases: Record<string, string | string[]>) => {
+const getFrameworkSourceRoot = () => {
     const installedCoreRoot = cli.paths.framework.installedRoot
         ? normalizeModulePath(cli.paths.framework.installedRoot)
         : undefined;
     const activeCoreRoot = normalizeModulePath(cli.paths.framework.activeRoot);
 
-    if (!installedCoreRoot || installedCoreRoot === activeCoreRoot) return aliases;
+    if (installedCoreRoot && activeCoreRoot.includes('/node_modules/')) {
+        return installedCoreRoot;
+    }
+
+    return activeCoreRoot;
+};
+
+const resolveFromAppOrCore = (_app: App, request: string) => cli.paths.resolveRequest(request);
+const rewriteFrameworkAliasTargets = (aliases: Record<string, string | string[]>) => {
+    const visibleFrameworkRoots = [
+        ...cli.paths.getVisiblePackageInstallRoots('proteum'),
+        cli.paths.framework.installedRoot,
+        cli.paths.framework.activeRoot,
+    ]
+        .filter((rootPath): rootPath is string => typeof rootPath === 'string' && rootPath !== '')
+        .map((rootPath) => normalizeModulePath(rootPath))
+        .filter((rootPath, index, list) => list.indexOf(rootPath) === index);
+    const frameworkSourceRoot = getFrameworkSourceRoot();
 
     const rewriteCandidate = (candidate: string) =>
-        normalizeModulePath(candidate).startsWith(installedCoreRoot + '/')
-            ? activeCoreRoot + normalizeModulePath(candidate).substring(installedCoreRoot.length)
-            : candidate;
+        visibleFrameworkRoots.reduce((nextCandidate, rootPath) => {
+                const normalizedCandidate = normalizeModulePath(nextCandidate);
+
+                return normalizedCandidate.startsWith(rootPath + '/')
+                    ? frameworkSourceRoot + normalizedCandidate.substring(rootPath.length)
+                    : nextCandidate;
+            }, candidate);
 
     return Object.fromEntries(
         Object.entries(aliases).map(([alias, value]) => [
@@ -62,8 +79,9 @@ const isExternalVendorModule = (module: Module) => {
 
 const isCoreSourceModule = (module: Module) => {
     const modulePath = getModulePath(module);
+    const frameworkSourceRoot = getFrameworkSourceRoot();
 
-    return modulePath.startsWith(normalizedCoreRoot + '/') || modulePath.includes('/node_modules/proteum/');
+    return modulePath.startsWith(frameworkSourceRoot + '/') || modulePath.includes('/node_modules/proteum/');
 };
 
 /*----------------------------------
@@ -77,8 +95,12 @@ export default function createCompiler(
     logVerbose(`Creating compiler for client (${mode}).`);
     const dev = mode === 'dev';
     const outputPath = app.outputPath(outputTarget);
-    const frameworkRoots = cli.paths.getFrameworkRoots();
+    const frameworkSourceRoot = getFrameworkSourceRoot();
+    const frameworkRoots = [frameworkSourceRoot, ...cli.paths.getFrameworkRoots()].filter(
+        (rootPath, index, list) => list.indexOf(rootPath) === index,
+    );
     const transpileModuleDirectories = app.transpileModuleDirectories;
+    const hmrClientEntry = path.join(frameworkSourceRoot, 'client', 'dev', 'hmr.ts');
 
     const commonConfig = createCommonConfig(app, 'client', mode, outputTarget);
 
@@ -94,13 +116,14 @@ export default function createCompiler(
 
     // Convert tsconfig paths into bundler aliases.
     const { aliases } = app.aliases.client.forWebpack({ modulesPath: cli.paths.framework.appNodeModulesRoot });
-    const resolvedAliases = rewriteFrameworkAliasTargets(app, aliases);
+    const resolvedAliases = rewriteFrameworkAliasTargets(aliases);
 
     // We're not supposed in any case to import server libs from client
     delete resolvedAliases['@server'];
     delete resolvedAliases['@/server'];
     const rspackAliases = toRspackAliases(resolvedAliases);
-    rspackAliases['@/client/router$'] = cli.paths.core.root + '/client/router.ts';
+    rspackAliases['proteum'] = frameworkSourceRoot;
+    rspackAliases['@/client/router$'] = frameworkSourceRoot + '/client/router.ts';
     rspackAliases['preact/jsx-runtime$'] = resolveFromAppOrCore(app, 'preact/jsx-runtime');
     rspackAliases['react/jsx-runtime$'] = resolveFromAppOrCore(app, 'preact/jsx-runtime');
     rspackAliases['react/jsx-dev-runtime$'] = resolveFromAppOrCore(app, 'preact/jsx-dev-runtime');
@@ -113,8 +136,8 @@ export default function createCompiler(
         target: 'web',
         entry: {
             client: dev
-                ? [hmrClientEntry, cli.paths.core.root + '/client/index.ts']
-                : [cli.paths.core.root + '/client/index.ts'],
+                ? [hmrClientEntry, frameworkSourceRoot + '/client/index.ts']
+                : [frameworkSourceRoot + '/client/index.ts'],
         },
 
         output: {
@@ -168,7 +191,7 @@ export default function createCompiler(
                         ...transpileModuleDirectories,
                     ],
                     loader: path.join(
-                        cli.paths.core.root,
+                        frameworkSourceRoot,
                         'cli',
                         'compiler',
                         'common',
@@ -229,11 +252,11 @@ export default function createCompiler(
                 : [
                       new rspack.NormalModuleReplacementPlugin(
                           /^@client\/dev\/profiler$/,
-                          cli.paths.core.root + '/client/dev/profiler/noop.tsx',
+                          frameworkSourceRoot + '/client/dev/profiler/noop.tsx',
                       ),
                       new rspack.NormalModuleReplacementPlugin(
                           /^@client\/dev\/profiler\/runtime$/,
-                          cli.paths.core.root + '/client/dev/profiler/runtime.noop.ts',
+                          frameworkSourceRoot + '/client/dev/profiler/runtime.noop.ts',
                       ),
                   ]),
 

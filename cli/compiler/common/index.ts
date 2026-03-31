@@ -45,7 +45,17 @@ export default function createCommonConfig(
 ): Configuration {
     const dev = mode === 'dev';
     const enableFilesystemCache = dev ? cli.args.cache !== false : cli.args.cache === true;
+    const frameworkPackageRoots = [cli.paths.framework.installedRoot, cli.paths.framework.activeRoot].filter(
+        (rootPath, index, list): rootPath is string => typeof rootPath === 'string' && list.indexOf(rootPath) === index,
+    );
+    const visibleNodeModulesRoots = [
+        ...cli.paths.getVisibleNodeModulesRootsForPath(app.paths.root),
+        ...frameworkPackageRoots.flatMap((rootPath) => cli.paths.getVisibleNodeModulesRootsForPath(rootPath)),
+        ...cli.paths.getVisibleNodeModulesRootsForPath(cli.paths.core.cli),
+    ].filter((moduleRoot, index, list) => list.indexOf(moduleRoot) === index);
     const loaderModuleRoots = [
+        ...visibleNodeModulesRoots,
+        ...frameworkPackageRoots.map((rootPath) => path.join(rootPath, 'node_modules')),
         cli.paths.framework.appNodeModulesRoot,
         cli.paths.framework.frameworkNodeModulesRoot,
         path.join(cli.paths.core.cli, 'node_modules'),

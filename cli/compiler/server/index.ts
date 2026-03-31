@@ -3,6 +3,7 @@
 ----------------------------------*/
 
 // Npm
+import path from 'path';
 import { type Configuration } from '@rspack/core';
 
 // Core
@@ -50,18 +51,38 @@ const getDevGeneratedRuntimeEntries = (app: App) => ({
     __proteum_dev_controllers: [app.paths.server.generated + '/controllers.ts'],
 });
 const normalizeModulePath = (value?: string) => (value || '').replace(/\\/g, '/');
-const rewriteFrameworkAliasTargets = (app: App, aliases: Record<string, string | string[]>) => {
+const getFrameworkSourceRoot = () => {
     const installedCoreRoot = cli.paths.framework.installedRoot
         ? normalizeModulePath(cli.paths.framework.installedRoot)
         : undefined;
     const activeCoreRoot = normalizeModulePath(cli.paths.framework.activeRoot);
 
-    if (!installedCoreRoot || installedCoreRoot === activeCoreRoot) return aliases;
+    if (installedCoreRoot && activeCoreRoot.includes('/node_modules/')) {
+        return installedCoreRoot;
+    }
+
+    return activeCoreRoot;
+};
+
+const rewriteFrameworkAliasTargets = (aliases: Record<string, string | string[]>) => {
+    const visibleFrameworkRoots = [
+        ...cli.paths.getVisiblePackageInstallRoots('proteum'),
+        cli.paths.framework.installedRoot,
+        cli.paths.framework.activeRoot,
+    ]
+        .filter((rootPath): rootPath is string => typeof rootPath === 'string' && rootPath !== '')
+        .map((rootPath) => normalizeModulePath(rootPath))
+        .filter((rootPath, index, list) => list.indexOf(rootPath) === index);
+    const frameworkSourceRoot = getFrameworkSourceRoot();
 
     const rewriteCandidate = (candidate: string) =>
-        normalizeModulePath(candidate).startsWith(installedCoreRoot + '/')
-            ? activeCoreRoot + normalizeModulePath(candidate).substring(installedCoreRoot.length)
-            : candidate;
+        visibleFrameworkRoots.reduce((nextCandidate, rootPath) => {
+                const normalizedCandidate = normalizeModulePath(nextCandidate);
+
+                return normalizedCandidate.startsWith(rootPath + '/')
+                    ? frameworkSourceRoot + normalizedCandidate.substring(rootPath.length)
+                    : nextCandidate;
+            }, candidate);
 
     return Object.fromEntries(
         Object.entries(aliases).map(([alias, value]) => [
@@ -82,18 +103,22 @@ export default function createCompiler(
     debug && console.info(`Creating compiler for server (${mode}).`);
     const dev = mode === 'dev';
     const outputPath = app.outputPath(outputTarget);
-    const frameworkRoots = cli.paths.getFrameworkRoots();
+    const frameworkSourceRoot = getFrameworkSourceRoot();
+    const frameworkRoots = [frameworkSourceRoot, ...cli.paths.getFrameworkRoots()].filter(
+        (rootPath, index, list) => list.indexOf(rootPath) === index,
+    );
     const transpileModuleDirectories = app.transpileModuleDirectories;
 
     const commonConfig = createCommonConfig(app, 'server', mode, outputTarget);
     const { aliases } = app.aliases.server.forWebpack({ modulesPath: cli.paths.framework.appNodeModulesRoot });
-    const resolvedAliases = rewriteFrameworkAliasTargets(app, aliases);
+    const resolvedAliases = rewriteFrameworkAliasTargets(aliases);
 
     // We're not supposed in any case to import client services from server
     delete resolvedAliases['@client/services'];
     delete resolvedAliases['@/client/services'];
     const rspackAliases = toRspackAliases(resolvedAliases);
-    rspackAliases['@/client/router$'] = cli.paths.core.root + '/client/router.ts';
+    rspackAliases['proteum'] = frameworkSourceRoot;
+    rspackAliases['@/client/router$'] = frameworkSourceRoot + '/client/router.ts';
 
     debug &&
         console.log(
@@ -108,7 +133,7 @@ export default function createCompiler(
         name: 'server',
         target: 'node',
         entry: {
-            server: [cli.paths.coreRoot + '/server/index.ts'],
+            server: [path.join(frameworkSourceRoot, 'server', 'index.ts')],
             ...(dev ? getDevGeneratedRuntimeEntries(app) : {}),
         },
 

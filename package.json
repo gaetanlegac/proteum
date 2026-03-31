@@ -1,7 +1,7 @@
 {
 	"name": "proteum",
 	"description": "LLM-first Opinionated Typescript Framework for web applications.",
-	"version": "2.1.9",
+	"version": "2.1.9-1",
 	"author": "Gaetan Le Gac (https://github.com/gaetanlegac)",
 	"repository": "git://github.com/gaetanlegac/proteum.git",
 	"license": "MIT",
@@ -69,6 +69,7 @@
 		"preact": "^10.27.1",
 		"preact-render-to-string": "^6.6.1",
 		"prompts": "^2.4.2",
+		"react": "^19.2.0",
 		"react-apexcharts": "^2.1.0",
 		"replace-once": "^1.0.0",
 		"responsive-loader": "^3.1.2",

@@ -1,8 +1,6 @@
-const React = require('react') as typeof import('react');
-
 import type { TServerReadyConnectedProject } from '../../common/dev/serverHotReload';
 import { renderRows } from './layout';
-import { renderInk } from './ink';
+import { CliReact, renderInk } from './ink';
 import { renderWelcomePanel } from './welcome';
 
 const formatConnectedProjectLabel = (connectedProject: TServerReadyConnectedProject) =>
@@ -66,7 +64,7 @@ export const renderServerReadyBanner = async ({
     connectedProjects?: TServerReadyConnectedProject[];
 }) =>
     renderInk(({ Box, Text }) => {
-        const createElement = React.createElement;
+        const createElement = CliReact.createElement;
         const verifiedConnectedProjects = connectedProjects || [];
 
         return createElement(
@@ -87,7 +85,7 @@ export const renderServerReadyBanner = async ({
                 createElement(
                     Text,
                     { key: `connected-ping-${connectedProject.namespace}`, dimColor: true },
-                    `Ping OK: ${formatConnectedProjectLabel(connectedProject)} responded to /api/__proteum/connected/ping`,
+                    `Ping OK (/ping): ${formatConnectedProjectLabel(connectedProject)}`,
                 ),
             ),
             createElement(Text, { dimColor: true }, `Diagnose /: proteum diagnose / --port ${routerPort}`),
@@ -98,7 +96,7 @@ export const renderServerReadyBanner = async ({
 
 export const renderDevShutdownBanner = async () =>
     renderInk(({ Box, Text }) => {
-        const createElement = React.createElement;
+        const createElement = CliReact.createElement;
 
         return createElement(
             Box,

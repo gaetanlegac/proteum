@@ -1,7 +1,5 @@
-const React = require('react') as typeof import('react');
-
 import { renderRows } from './layout';
-import { renderInk } from './ink';
+import { CliReact, renderInk } from './ink';
 
 const ProteumWordmark = [
     String.raw` ____  ____   ___ _____ _____ _   _ __  __`,
@@ -27,7 +25,7 @@ export const renderWelcomePanel = async ({
     tagline: string;
 }) =>
     renderInk(({ Box, Text }) => {
-        const createElement = React.createElement;
+        const createElement = CliReact.createElement;
         const wordmark = ProteumWordmark.map((line) =>
             createElement(Text, { key: line, bold: true, color: 'blue' }, line),
         );

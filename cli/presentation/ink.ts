@@ -1,4 +1,4 @@
-const React = require('react') as typeof import('react');
+import { createRequire } from 'module';
 
 import { importEsm } from '../runtime/importEsm';
 import { getTerminalWidth } from './layout';
@@ -12,6 +12,9 @@ type TInkRuntime = {
     renderToString: TInkModule['renderToString'];
     StatusMessage: TInkUiModule['StatusMessage'];
 };
+
+// Keep the CLI renderer on the exact React instance Ink resolved for this install shape.
+const CliReact = createRequire(require.resolve('ink'))('react') as typeof import('react');
 
 let inkRuntimePromise: Promise<TInkRuntime> | undefined;
 
@@ -41,7 +44,7 @@ export const renderInk = async (
 
 export const renderTitle = async (title: string, subtitle?: string) =>
     renderInk(({ Box, Text }) => {
-        const createElement = React.createElement;
+        const createElement = CliReact.createElement;
 
         return createElement(
             Box,
@@ -52,18 +55,20 @@ export const renderTitle = async (title: string, subtitle?: string) =>
     });
 
 export const renderSection = async (title: string, body: string) => {
-    const heading = await renderInk(({ Text }) => React.createElement(Text, { bold: true }, title));
+    const heading = await renderInk(({ Text }) => CliReact.createElement(Text, { bold: true }, title));
     return `${heading}\n${body}`;
 };
 
 export const renderStep = async (label: string, message: string) =>
-    renderInk(({ Text }) => React.createElement(Text, { color: 'cyan' }, `${label} ${message}`));
+    renderInk(({ Text }) => CliReact.createElement(Text, { color: 'cyan' }, `${label} ${message}`));
 
 const renderStatusMessage = async (variant: 'success' | 'warning' | 'error', message: string) =>
-    renderInk(({ StatusMessage }) => React.createElement(StatusMessage, { variant }, message));
+    renderInk(({ StatusMessage }) => CliReact.createElement(StatusMessage, { variant }, message));
 
 export const renderSuccess = (message: string) => renderStatusMessage('success', message);
 
 export const renderWarning = (message: string) => renderStatusMessage('warning', message);
 
 export const renderDanger = (message: string) => renderStatusMessage('error', message);
+
+export { CliReact };

@@ -38,20 +38,34 @@ const normalizeModulePath = (value: string) => value.replace(/\\/g, '/').replace
 
 const resolveTranspileModuleDirectories = ({
     moduleNames,
-    nodeModulesRoots,
+    resolvePackageRoot,
+    getVisiblePackageInstallRoots,
 }: {
     moduleNames: string[];
-    nodeModulesRoots: string[];
+    resolvePackageRoot: (moduleName: string) => string;
+    getVisiblePackageInstallRoots: (moduleName: string) => string[];
 }) => {
     const directories = new Set<string>();
 
     for (const moduleName of moduleNames) {
-        for (const nodeModulesRoot of nodeModulesRoots) {
-            const candidate = normalizeModulePath(path.join(nodeModulesRoot, moduleName));
+        const candidates = new Set<string>();
+
+        try {
+            candidates.add(normalizeModulePath(resolvePackageRoot(moduleName)));
+        } catch {}
+
+        for (const visibleInstallRoot of getVisiblePackageInstallRoots(moduleName)) {
+            candidates.add(normalizeModulePath(visibleInstallRoot));
+        }
+
+        for (const candidate of candidates) {
             if (!fs.existsSync(candidate)) continue;
 
             directories.add(candidate);
-            directories.add(normalizeModulePath(fs.realpathSync(candidate)));
+
+            try {
+                directories.add(normalizeModulePath(fs.realpathSync(candidate)));
+            } catch {}
         }
     }
 
@@ -136,15 +150,25 @@ export class App {
     public get transpileModuleDirectories() {
         return resolveTranspileModuleDirectories({
             moduleNames: this.transpile,
-            nodeModulesRoots: [cli.paths.framework.appNodeModulesRoot, cli.paths.framework.frameworkNodeModulesRoot],
+            resolvePackageRoot: (moduleName) => cli.paths.resolvePackageRoot(moduleName),
+            getVisiblePackageInstallRoots: (moduleName) => cli.paths.getVisiblePackageInstallRoots(moduleName),
         });
     }
 
     public isTranspileModuleFile(filepath: string) {
         const normalizedFilepath = normalizeModulePath(path.resolve(filepath));
+        let normalizedRealFilepath: string | undefined;
+
+        try {
+            normalizedRealFilepath = normalizeModulePath(fs.realpathSync(filepath));
+        } catch {}
 
         return this.transpileModuleDirectories.some(
-            (directory) => normalizedFilepath === directory || normalizedFilepath.startsWith(directory + '/'),
+            (directory) =>
+                normalizedFilepath === directory ||
+                normalizedFilepath.startsWith(directory + '/') ||
+                normalizedRealFilepath === directory ||
+                normalizedRealFilepath?.startsWith(directory + '/') === true,
         );
     }
 

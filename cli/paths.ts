@@ -114,6 +114,20 @@ const findVisibleNodeModulesRoot = (startPath: string): string | undefined => {
     }
 };
 
+const findVisibleNodeModulesRoots = (startPath: string): string[] => {
+    const roots: string[] = [];
+    let currentPath = path.resolve(startPath);
+
+    while (true) {
+        const candidate = path.join(currentPath, 'node_modules');
+        if (fs.existsSync(candidate) && !roots.includes(candidate)) roots.push(candidate);
+
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) return roots;
+        currentPath = parentPath;
+    }
+};
+
 const findVisiblePackageInstall = (startPath: string, packageName: string): string | undefined => {
     let currentPath = path.resolve(startPath);
 
@@ -123,6 +137,20 @@ const findVisiblePackageInstall = (startPath: string, packageName: string): stri
 
         const parentPath = path.dirname(currentPath);
         if (parentPath === currentPath) return undefined;
+        currentPath = parentPath;
+    }
+};
+
+const findVisiblePackageInstalls = (startPath: string, packageName: string): string[] => {
+    const installs: string[] = [];
+    let currentPath = path.resolve(startPath);
+
+    while (true) {
+        const candidate = path.join(currentPath, 'node_modules', packageName);
+        if (fs.existsSync(candidate) && !installs.includes(candidate)) installs.push(candidate);
+
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) return installs;
         currentPath = parentPath;
     }
 };
@@ -346,7 +374,16 @@ export default class Paths {
         return [
             this.framework.activeRoot,
             ...(this.framework.installedRoot ? [this.framework.installedRoot] : []),
+            ...this.getVisiblePackageInstallRoots('proteum'),
         ].filter((rootPath, index, list) => list.indexOf(rootPath) === index && fs.existsSync(rootPath));
+    }
+
+    public getVisibleNodeModulesRootsForPath(startPath: string): string[] {
+        return findVisibleNodeModulesRoots(startPath);
+    }
+
+    public getVisiblePackageInstallRoots(packageName: string, startPath = this.appRoot): string[] {
+        return findVisiblePackageInstalls(startPath, packageName);
     }
 
     public getFrameworkInstallRoot(): string {
@@ -419,16 +456,20 @@ export default class Paths {
     }
 
     public resolvePackageRoot(packageName: string, { preferApp = true }: { preferApp?: boolean } = {}): string {
-        const searchPaths = preferApp
-            ? [this.appRoot, this.framework.activeRoot]
-            : [this.framework.activeRoot, this.appRoot];
+        const installedRoot = this.framework.installedRoot;
+        const searchPaths = (preferApp
+            ? [this.appRoot, ...(installedRoot ? [installedRoot] : []), this.framework.activeRoot]
+            : [this.framework.activeRoot, ...(installedRoot ? [installedRoot] : []), this.appRoot]
+        ).filter((searchPath, index, list) => list.indexOf(searchPath) === index);
         return path.dirname(resolvePackageJsonPath(packageName, searchPaths));
     }
 
     public resolveRequest(request: string, { preferApp = true }: { preferApp?: boolean } = {}): string {
-        const searchPaths = preferApp
-            ? [this.appRoot, this.framework.activeRoot]
-            : [this.framework.activeRoot, this.appRoot];
+        const installedRoot = this.framework.installedRoot;
+        const searchPaths = (preferApp
+            ? [this.appRoot, ...(installedRoot ? [installedRoot] : []), this.framework.activeRoot]
+            : [this.framework.activeRoot, ...(installedRoot ? [installedRoot] : []), this.appRoot]
+        ).filter((searchPath, index, list) => list.indexOf(searchPath) === index);
         return require.resolve(request, { paths: searchPaths });
     }
 
