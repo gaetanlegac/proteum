@@ -853,6 +853,9 @@ export default abstract class AuthService<
         return user as TUser;
     }
 
+    /**
+     * @deprecated Use `check(request, null, tracking)` to make the authenticated-user requirement explicit.
+     */
     public check(request: TRequest): TUser;
 
     public check(request: TRequest, conditions: null, tracking?: TAuthTrackingContext): TUser;
@@ -861,8 +864,14 @@ export default abstract class AuthService<
 
     public check(request: TRequest, conditions: false, tracking?: TAuthTrackingContext): null;
 
+    /**
+     * @deprecated Use `check(request, { role }, tracking)` or another explicit conditions object instead.
+     */
     public check(request: TRequest, role?: TUserRole | boolean): TUser | null;
 
+    /**
+     * @deprecated Use `check(request, { role, ...rules }, tracking)` with app-defined auth rules instead of legacy feature/action arguments.
+     */
     public check(request: TRequest, role: TUserRole | boolean, feature: FeatureKeys, action?: string): TUser | null;
 
     public check(
