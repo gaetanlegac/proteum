@@ -29,6 +29,8 @@ Diagnostics source of truth: project-root `diagnostics.md`.
 - Use runtime models through `this.models` or the app model accessors.
 - Use Prisma typings through `@models/types` only.
 - In database queries, prefer explicit `select` or narrow `include`.
+- For database structure changes, edit the app's `schema.prisma` only. Never create or edit migration files manually.
+- Never use raw SQL DDL or other schema-mutating SQL to change database structure.
 - Prefer inferred return types such as `Awaited<ReturnType<MyService['methodName']>>` over manual DTO duplication.
 
 ## Errors

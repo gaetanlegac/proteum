@@ -4,6 +4,8 @@ Proteum is an LLM-first SSR / SEO / TypeScript framework for full-stack web appl
 
 It is built for teams that want explicit server contracts, server-first rendering, deterministic generated artifacts, and a codebase that an AI agent can inspect without reverse-engineering hidden runtime magic.
 
+Migration guide for older apps: [docs/migrate-from-2.1.3.md](docs/migrate-from-2.1.3.md)
+
 ## Why Proteum
 
 Most full-stack frameworks optimize first for human convenience.

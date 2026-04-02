@@ -29,6 +29,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 ## Temporary Instrumentation
 
 - When manifest inspection, trace data, browser console output, and server errors are still insufficient, add temporary targeted logs in the code to confirm control flow, payload shape, query shape, or branch selection.
+- If SQL is needed during diagnosis, keep it read-only. Never use SQL to change database structure or execute schema-mutating DDL.
 - Keep temporary logs narrow, contextual, and easy to remove. Do not leave broad debug noise in shared execution paths.
 - Re-run only the smallest relevant repro, request, or test after adding temporary instrumentation.
 - Temporary logs added in the code for diagnosis must be cleaned at the end of tests or the repro cycle and must never be committed.

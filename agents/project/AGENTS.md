@@ -23,11 +23,12 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 - Before finishing, double-check the touched files and generated output against the applicable optimization, diagnostics, and coding-style sources: project-root `optimizations.md`, project-root `diagnostics.md`, project-root `CODING_STYLE.md`, and any narrower area `AGENTS.md`.
 - After implementing any feature or behavior change, always verify it on a running app before finishing: start the server, exercise the affected flow with Playwright or the smallest real runtime or `npx proteum` surface, run the relevant diagnostics or perf commands, and confirm there is no meaningful regression in behavior, performance, bundle/load size, SEO output, or coding style.
 - Before finishing a task, stop every `proteum dev` session started during the task and confirm cleanup with `npx proteum dev list --json` or an explicit `npx proteum dev stop --session-file <path>`.
-- When you have finished your work, summarize in one top-level short (up to 100 characters) sentence the changes you made since the beginning of the conversation. Strictly use the Conventional Commits specification:
+- When you have finished your work, summarize in one top-level short (up to 100 characters) sentence ALL the changes you made since the beginning of the WHOLE conversation. Strictly use the Conventional Commits specification:
 ```
 Commit message: <type>[optional scope]: <description>
 
 [optional body]
+```
 ```
 
 ## Project Shape
@@ -53,6 +54,8 @@ This is a TypeScript, Node.js, Preact, Proteum monolith:
 - Prefer a deep tree grouped by business concern instead of long file names.
 - Use the default `*.ts` or `*.tsx` file unless an `*.ssr.ts` or `*.ssr.tsx` variant is truly required.
 - Never edit generated files under `.proteum`.
+- When a task changes database structure, edit the app's `schema.prisma` only.
+- Never create or edit migration files manually.
 - Use `@generated/client/*`, `@generated/common/*`, and `@generated/server/*` for generated surfaces.
 - Client context is typically imported from `@/client/context`.
 - Normal service methods do not read request state directly.
@@ -186,6 +189,7 @@ Prefer scaffold commands before hand-writing boilerplate:
 - Use Prisma typings from `@models/types`.
 - Use runtime models through `this.models` or `this.app.Models.client`.
 - Keep Prisma runtime access inside services when possible and prefer explicit `select` or narrow `include`.
+- Never run schema-mutating SQL such as `ALTER TABLE`, `CREATE TABLE`, `DROP TABLE`, or `CREATE INDEX` to change database structure.
 - Do not import runtime values from `@models` or edit generated Prisma client files.
 - Aliases:
   - `@/client/...`, `@/server/...`, `@/common/...`: app code

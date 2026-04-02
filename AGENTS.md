@@ -19,6 +19,7 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 - Keep `server/index.ts` as the canonical type root for services, router context, request context, and models.
 - Keep generated code deterministic, auditable, and easy to map back to source.
 - Prefer typed traces, perf rollups, and manifest-backed diagnostics over ad hoc logging.
+- For Prisma-backed apps, declare database structure changes in the app's `schema.prisma` only. Never create or edit migration files manually, and never run schema-mutating SQL such as `ALTER TABLE`, `CREATE TABLE`, or `DROP TABLE`.
 - Follow `agents/project/optimizations.md` when choosing packages, helpers, runtimes, plugins, or build infrastructure.
 - Delete obsolete compatibility layers, helper indirection, and unused packages when safe.
 
@@ -29,7 +30,7 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 - When starting a long-lived reference app dev server for framework work, prefer `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically later.
 - Before retrying a boot on the same app, changing ports, or finishing the task, stop every framework-started dev session with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`.
 - If the task changed the dev workflow itself, verify the final cleanup path with `npx proteum dev list --json` before finishing.
-- When you have finished your work, summarize in one top-level short (up to 100 characters) sentence the changes you made since the beginning of the conversation. Strictly use the Conventional Commits specification:
+- When you have finished your work, summarize in one top-level short (up to 100 characters) sentence ALL the changes you made since the beginning of the WHOLE conversation. Strictly use the Conventional Commits specification:
 ```
 Commit message: <type>[optional scope]: <description>
 
