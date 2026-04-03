@@ -15,6 +15,7 @@ export const proteumCommandNames = [
     'connect',
     'doctor',
     'explain',
+    'orient',
     'diagnose',
     'perf',
     'trace',
@@ -44,16 +45,16 @@ export type TProteumCommandDoc = {
 };
 
 export const proteumRecommendedFlow: TRow[] = [
-    { label: '1. proteum dev', value: 'Start the compiler, SSR server, and hot reload loop.' },
-    { label: '2. proteum refresh', value: 'Regenerate .proteum contracts and typings after source or framework changes.' },
-    { label: '3. proteum check', value: 'Refresh, typecheck, and lint before you commit or push.' },
-    { label: '4. proteum build --prod', value: 'Produce the production server and client bundles.' },
+    { label: '1. proteum orient <query>', value: 'Start here for multi-repo, generated, or connected work before reading code.' },
+    { label: '2. proteum dev', value: 'Start the compiler, SSR server, and hot reload loop.' },
+    { label: '3. proteum diagnose <path> --hit <path>', value: 'Validate the smallest trustworthy request surface before broader checks.' },
+    { label: '4. proteum check', value: 'Refresh, typecheck, and lint before you commit or push.' },
 ];
 
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
-    { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'diagnose', 'perf', 'trace', 'command', 'session', 'verify'] },
+    { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'trace', 'command', 'session', 'verify'] },
     { title: 'Project scaffolding', names: ['init', 'create'] },
 ];
 
@@ -283,6 +284,25 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         ],
         status: 'stable',
     },
+    orient: {
+        name: 'orient',
+        category: 'Manifest and contracts',
+        summary: 'Resolve owners, guidance files, connected boundaries, and next steps before opening code.',
+        usage: 'proteum orient <query> [--port <port>|--url <baseUrl>] [--json]',
+        bestFor:
+            'Starting multi-repo, generated-artifact, or connected-project work with one explicit orientation step instead of guessing the first files to read.',
+        examples: [
+            { description: 'Orient around a generated controller path', command: 'proteum orient /api/Auth/CurrentUser' },
+            { description: 'Orient around a connected namespace or route', command: 'proteum orient Product.Stats.general' },
+            { description: 'Use a running dev server when the local manifest is unavailable', command: 'proteum orient /domains --port 3101 --json' },
+        ],
+        notes: [
+            'This command combines manifest owner lookup, local or fallback guidance resolution, connected-boundary hints, and three recommended next commands.',
+            'Use it before reading source when the query might map to generated code, connected imports, or framework-owned files.',
+            'When `--port` or `--url` is provided, Proteum can read the manifest from a running dev server instead of only from disk.',
+        ],
+        status: 'experimental',
+    },
     diagnose: {
         name: 'diagnose',
         category: 'Manifest and contracts',
@@ -407,14 +427,26 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
     verify: {
         name: 'verify',
         category: 'Manifest and contracts',
-        summary: 'Validate framework changes against CrossPath, Unique Domains Product, and Unique Domains Website.',
-        usage: 'proteum verify [framework-change] [--crosspath <path>] [--product <path>] [--website <path>] [--crosspath-port <port>] [--product-port <port>] [--website-port <port>] [--route <path>] [--json]',
+        summary: 'Run focused owner/request/browser verification or the full framework reference-app validation pass.',
+        usage: 'proteum verify [framework-change|owner <query>|request <path>|browser <path>] [--port <port>|--url <baseUrl>] [--session-email <email>] [--session-role <role>] [--method <verb>] [--data-json <json>] [--strict-global] [--crosspath <path>] [--product <path>] [--website <path>] [--crosspath-port <port>] [--product-port <port>] [--website-port <port>] [--route <path>] [--json]',
         bestFor:
-            'Framework-repo smoke validation when Proteum changes must be exercised against CrossPath and the website -> product connected-project flow before review.',
+            'Choosing the smallest trustworthy verification surface first, then separating introduced blocking findings from unrelated pre-existing diagnostics.',
         examples: [
             {
                 description: 'Run the default framework smoke verification against the reference apps',
                 command: 'proteum verify framework-change',
+            },
+            {
+                description: 'Verify only the owner-scoped chain for a generated controller or route',
+                command: 'proteum verify owner /api/Auth/CurrentUser',
+            },
+            {
+                description: 'Hit one real request against a running dev server and classify findings',
+                command: 'proteum verify request /domains --port 3101',
+            },
+            {
+                description: 'Run browser verification only when the issue is browser-visible',
+                command: 'proteum verify browser /dashboard --port 3101 --session-email admin@example.com --session-role ADMIN',
             },
             {
                 description: 'Load a specific route in the website validation pass',
@@ -422,6 +454,10 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             },
         ],
         notes: [
+            '`proteum verify owner` starts from `proteum orient`, then chooses the smallest trustworthy verify path instead of defaulting to broad global checks.',
+            '`proteum verify owner`, `request`, and `browser` emit `introducedFindings`, `preExistingFindings`, `verificationSteps`, and `result` in JSON.',
+            'Focused verification fails on introduced blocking findings by default and only fails on unrelated pre-existing blockers when `--strict-global` is passed.',
+            '`proteum verify browser` uses an app-local browser workspace under `var/proteum/browser/<run-id>` and never reuses a previous run profile.',
             'When a reference app is already running on the requested port, Proteum reuses it instead of spawning a new `proteum dev` process.',
             'When Proteum spawns the website reference app, it sets the env values consumed by the website `proteum.config.ts` for the product internal and public URLs.',
             'This command is intended for the framework repo and will be most useful where the reference app paths exist locally.',

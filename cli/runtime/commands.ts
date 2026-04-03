@@ -316,6 +316,30 @@ class ExplainCommand extends ProteumCommand {
     }
 }
 
+class OrientCommand extends ProteumCommand {
+    public static paths = [['orient']];
+
+    public static usage = buildUsage('orient');
+
+    public port = Option.String('--port', { description: 'Target an existing dev server on the given port.' });
+    public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL.' });
+    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const query = this.args.join(' ').trim();
+
+        this.setCliArgs({
+            json: this.json,
+            port: this.port ?? '',
+            query,
+            url: this.url ?? '',
+        });
+
+        await runCommandModule(() => import('../commands/orient'));
+    }
+}
+
 class TraceCommand extends ProteumCommand {
     public static paths = [['trace']];
 
@@ -478,6 +502,17 @@ class VerifyCommand extends ProteumCommand {
     public static usage = buildUsage('verify');
 
     public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public port = Option.String('--port', { description: 'Target an existing dev server on the given port for focused verify actions.' });
+    public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL for focused verify actions.' });
+    public sessionEmail = Option.String('--session-email', {
+        description: 'Mint a dev session before request or browser verification and attach the returned cookie.',
+    });
+    public sessionRole = Option.String('--session-role', { description: 'Require the dev session user to have this role.' });
+    public method = Option.String('--method', { description: 'HTTP method used by request verification.' });
+    public dataJson = Option.String('--data-json', { description: 'JSON request body used by request verification.' });
+    public strictGlobal = Option.Boolean('--strict-global', false, {
+        description: 'Fail focused verification when unrelated pre-existing blocking findings exist.',
+    });
     public crosspath = Option.String('--crosspath', { description: 'Override the CrossPath reference app path.' });
     public product = Option.String('--product', { description: 'Override the Unique Domains Product reference app path.' });
     public website = Option.String('--website', { description: 'Override the Unique Domains Website reference app path.' });
@@ -492,16 +527,25 @@ class VerifyCommand extends ProteumCommand {
     public args = Option.Rest();
 
     public async execute() {
-        const [action = 'framework-change'] = this.args;
+        const [action = 'framework-change', ...restArgs] = this.args;
+        const target = restArgs.join(' ').trim();
 
         this.setCliArgs({
             action,
             crosspath: this.crosspath ?? '',
             crosspathPort: this.crosspathPort ?? '',
+            dataJson: this.dataJson ?? '',
             json: this.json,
+            method: this.method ?? '',
+            port: this.port ?? '',
             product: this.product ?? '',
             productPort: this.productPort ?? '',
             route: this.route ?? '',
+            sessionEmail: this.sessionEmail ?? '',
+            sessionRole: this.sessionRole ?? '',
+            strictGlobal: this.strictGlobal,
+            target,
+            url: this.url ?? '',
             website: this.website ?? '',
             websitePort: this.websitePort ?? '',
         });
@@ -522,6 +566,7 @@ export const registeredCommands = {
     connect: ConnectCommand,
     doctor: DoctorCommand,
     explain: ExplainCommand,
+    orient: OrientCommand,
     diagnose: DiagnoseCommand,
     perf: PerfCommand,
     trace: TraceCommand,
@@ -551,6 +596,7 @@ export const createCli = (version: string) => {
     clipanion.register(ConnectCommand);
     clipanion.register(DoctorCommand);
     clipanion.register(ExplainCommand);
+    clipanion.register(OrientCommand);
     clipanion.register(DiagnoseCommand);
     clipanion.register(PerfCommand);
     clipanion.register(TraceCommand);

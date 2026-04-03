@@ -55,7 +55,7 @@ export const run = async (): Promise<void> => {
                     ? ['- No matching manifest owners were found.']
                     : response.matches.map(
                           (match) =>
-                              `- [${match.kind}] ${match.label} score=${match.score} source=${match.source.filepath}${match.source.line ? `:${match.source.line}` : ''}${match.source.column ? `:${match.source.column}` : ''}`,
+                              `- [${match.kind}] ${match.label} score=${match.score} scope=${match.scopeLabel} origin=${match.originHint} source=${match.source.filepath}${match.source.line ? `:${match.source.line}` : ''}${match.source.column ? `:${match.source.column}` : ''}`,
                       )),
             ].join('\n'),
         );

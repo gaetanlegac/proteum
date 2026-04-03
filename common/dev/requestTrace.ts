@@ -36,6 +36,8 @@ export const traceEventTypes = [
     'render.end',
     'response.send',
     'request.finish',
+    'cache.hit',
+    'cache.write',
     'error',
 ] as const;
 
@@ -81,6 +83,11 @@ export type TTraceCall = {
     fetcherId?: string;
     connectedProjectNamespace?: string;
     connectedControllerAccessor?: string;
+    ownerLabel?: string;
+    ownerFilepath?: string;
+    serviceLabel?: string;
+    cacheKey?: string;
+    cachePhase?: string;
     startedAt: string;
     finishedAt?: string;
     durationMs?: number;
@@ -107,6 +114,11 @@ export type TTraceSqlQuery = {
     kind: TTraceSqlQueryKind;
     model?: string;
     operation: string;
+    fingerprint?: string;
+    ownerLabel?: string;
+    ownerFilepath?: string;
+    serviceLabel?: string;
+    connectedNamespace?: string;
     paramsJson?: unknown;
     paramsText?: string;
     query: string;

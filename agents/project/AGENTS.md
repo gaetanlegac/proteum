@@ -14,6 +14,7 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 - At the beginning of every task, acknowledge the applicable optimization, diagnostics, and coding-style sources before analyzing or editing code: project-root `optimizations.md`, project-root `diagnostics.md`, project-root `CODING_STYLE.md`, and any narrower area `AGENTS.md`.
 - If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it.
 - Follow project-root `diagnostics.md` for diagnosis, runtime reproduction, temporary instrumentation, error-solving workflow, and verification method selection.
+- Start ambiguous, generated, connected, or multi-repo work with `npx proteum orient <query>` before reading large parts of the codebase.
 - For new app or artifact boilerplate, prefer `npx proteum init ...` and `npx proteum create ...` before creating files by hand. Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.
 - After running `npx proteum create ...`, adapt the generated code to the real feature instead of leaving placeholder logic in place.
 - When starting a long-lived dev server for an agent task, prefer `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically later.
@@ -22,6 +23,7 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 - Current CLI banner contract: every human-facing Proteum CLI run prints the welcome banner and includes the active Proteum installation method, while only `proteum dev` clears the interactive terminal before rendering, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI, and reports connected app names plus successful connected `/ping` checks in the ready banner.
 - Before finishing, double-check the touched files and generated output against the applicable optimization, diagnostics, and coding-style sources: project-root `optimizations.md`, project-root `diagnostics.md`, project-root `CODING_STYLE.md`, and any narrower area `AGENTS.md`.
 - After implementing any feature or behavior change, always verify it on a running app before finishing: start the server, exercise the affected flow with Playwright or the smallest real runtime or `npx proteum` surface, run the relevant diagnostics or perf commands, and confirm there is no meaningful regression in behavior, performance, bundle/load size, SEO output, or coding style.
+- Treat `runtime/provider-hook-outside-provider`, `runtime/client-only-hook-in-ssr`, `runtime/router-context-outside-router`, and `runtime/connected-boundary-mismatch` as framework contract failures first. Fix the provider, SSR/client, router, or connected boundary that violated the contract before assuming a local leaf-component bug.
 - Before finishing a task, stop every `proteum dev` session started during the task and confirm cleanup with `npx proteum dev list --json` or an explicit `npx proteum dev stop --session-file <path>`.
 - When you have finished your work, summarize in one top-level short (up to 100 characters) sentence ALL the changes you made since the beginning of the WHOLE conversation. Strictly use the Conventional Commits specification:
 ```
@@ -99,12 +101,16 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 
 - `npx proteum connect --json`
 - `npx proteum connect --controllers --strict`
+- `npx proteum orient <query>`
 - `npx proteum explain --json`
 - `npx proteum explain --connected --controllers`
 - `npx proteum explain owner <query>`
 - `npx proteum doctor --json`
 - `npx proteum doctor --contracts --json`
 - `npx proteum diagnose <path> --port <port>`
+- `npx proteum verify owner <query>`
+- `npx proteum verify request <path>`
+- `npx proteum verify browser <path>`
 - `npx proteum perf ...`
 - `npx proteum trace ...`
 - `npx proteum command ...`
@@ -237,6 +243,8 @@ Verify at the correct layer:
 - controller changes: exercise the generated client call or generated `/api/...` endpoint
 - SSR changes: load the real page and inspect rendered HTML plus browser console
 - router or plugin changes: verify request context, auth, redirects, metrics, and validation on a running app
+- generated, connected, or ownership-ambiguous changes: start with `npx proteum orient <query>` and prefer `npx proteum verify owner <query>` before broad global checks
+- browser-visible issues: prefer `npx proteum verify browser <path>` or the narrowest targeted Playwright pass only after request-level verification is insufficient
 - For trace-first reproduction, session-based auth setup, temporary logs, and post-fix surface checks, follow project-root `diagnostics.md`.
 
 Useful commands: `npx proteum init <dir> --name <name>`, `npx proteum create <kind> <target>`, `proteum dev`, `proteum dev list --json`, `proteum dev stop --session-file <path>`, `npx proteum refresh`, `npx proteum typecheck`, `npx proteum lint`, `npx proteum check`, `npx proteum build prod`, `npx proteum build --prod --analyze`, `npx proteum build --prod --analyze --analyze-serve --analyze-port auto`, `npx proteum perf top`, `npx proteum perf request <requestId|path>`, `npx proteum perf compare --baseline yesterday --target today`, `npx proteum command <path>`, `npx proteum session <email> --role <role>`.

@@ -164,12 +164,19 @@ const renderRequest = (response: TPerfRequestResponse) =>
                   (call) =>
                       `- ${call.label} | duration=${formatDuration(call.durationMs)} status=${call.statusCode ?? 'pending'} origin=${call.origin}${call.errorMessage ? ` error=${truncate(call.errorMessage, 96)}` : ''}`,
               )),
+        'Chain',
+        ...(!response.request.chain || response.request.chain.length === 0
+            ? ['- none']
+            : response.request.chain.map(
+                  (item) =>
+                      `- [${item.kind}] ${item.label}${item.source?.filepath ? ` | ${item.source.filepath}${item.source.line ? `:${item.source.line}` : ''}${item.source.column ? `:${item.source.column}` : ''}` : ''}${item.details.length > 0 ? ` | ${item.details.join(', ')}` : ''}`,
+              )),
         'Hot SQL',
         ...(response.request.hottestSqlQueries.length === 0
             ? ['- none']
             : response.request.hottestSqlQueries.map(
                   (query) =>
-                      `- ${query.callerLabel} | ${query.operation}${query.model ? ` ${query.model}` : ''} | duration=${formatDuration(query.durationMs)} | ${truncate(query.query, 104)}`,
+                      `- ${query.callerLabel} | ${query.operation}${query.model ? ` ${query.model}` : ''}${query.fingerprint ? ` | fp=${query.fingerprint}` : ''} | duration=${formatDuration(query.durationMs)} | ${truncate(query.query, 104)}`,
               )),
     ].join('\n');
 

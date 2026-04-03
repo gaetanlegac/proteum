@@ -4,6 +4,7 @@ export const profilerTraceRequestIdHeader = 'x-proteum-trace-request-id';
 export const profilerSessionIdHeader = 'x-proteum-profiler-session-id';
 export const profilerOriginHeader = 'x-proteum-profiler-origin';
 export const profilerParentRequestIdHeader = 'x-proteum-profiler-parent-request-id';
+export const profilerConnectedNamespaceHeader = 'x-proteum-profiler-connected-namespace';
 
 export type TProfilerUiState = 'expanded' | 'minimized' | 'pinned-handle';
 export type TProfilerPanel =

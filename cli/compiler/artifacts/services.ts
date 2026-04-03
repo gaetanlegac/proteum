@@ -791,15 +791,24 @@ import type ${appClassIdentifier}Client from '@/client/index';
 export type ClientContext = ${appClassIdentifier}Client["Router"]["context"];
 
 type GlobalClientContextStore = typeof globalThis & {
-    __proteumClientContexts?: Record<string, React.Context<ClientContext>>;
+    __proteumClientContexts?: Record<string, React.Context<ClientContext | undefined>>;
 };
 
 const globalClientContextStore = globalThis as GlobalClientContextStore;
 const clientContexts = (globalClientContextStore.__proteumClientContexts ??= {});
 
 export const ReactClientContext =
-    clientContexts['${appClassIdentifier}'] ?? (clientContexts['${appClassIdentifier}'] = React.createContext<ClientContext>({} as ClientContext));
-export default (): ClientContext => React.useContext<ClientContext>(ReactClientContext);`,
+    clientContexts['${appClassIdentifier}'] ?? (clientContexts['${appClassIdentifier}'] = React.createContext<ClientContext | undefined>(undefined));
+export default (): ClientContext => {
+    const context = React.useContext<ClientContext | undefined>(ReactClientContext);
+    if (context) return context;
+
+    throw new Error(
+        'Proteum router context hook was called outside the App provider. This is a framework contract failure. ' +
+            'Likely fix: move the hook back under Router.page render ownership or pass the required values explicitly. ' +
+            'Re-check both SSR and client navigation after the fix.',
+    );
+};`,
     );
 
     writeIfChanged(

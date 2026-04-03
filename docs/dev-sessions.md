@@ -37,6 +37,7 @@ Behavior:
 - remote mode talks to an already running `proteum dev` instance
 - the command requires an explicit email and optionally asserts a role before returning the session
 - the command is available only in dev mode
+- browser verification flows should keep browser state app-local and disposable instead of reusing a shared temp profile
 
 ## Output Contract
 
@@ -69,17 +70,20 @@ curl -H "$(jq -r '.curlCookieHeader' session.json)" http://localhost:3101/api/Au
 - Prefer `proteum session` over UI login automation when the goal is to test or debug protected application behavior.
 - Use UI login automation only when the auth UX itself is the feature under test.
 - Pair it with `proteum diagnose` for a fast protected-route summary, `proteum perf request` for a one-request timing breakdown, then use `proteum trace` when you need lower-level request events.
+- After an interrupted browser run, clean up stale tracked dev sessions with `proteum dev stop --all --stale` and remove stale lock files under the app-local `var/proteum/browser/` workspace before retrying.
 
 Typical flow:
 
 ```bash
-proteum trace arm --capture deep --port 3101
+proteum orient /dashboard
 proteum session admin@example.com --role ADMIN --port 3101 --json > session.json
 # add the returned cookie in Playwright, then load the protected page once
-proteum diagnose /dashboard --port 3101
+proteum diagnose /dashboard --hit /dashboard --port 3101
 proteum perf request /dashboard --port 3101
 proteum trace latest --port 3101
 ```
+
+When `proteum verify browser <path>` is available in the target app, it uses a fresh per-run browser profile under `var/proteum/browser/<run-id>` and should be preferred over ad hoc shared Playwright profile reuse.
 
 ## Dev HTTP Endpoint
 

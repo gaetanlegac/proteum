@@ -7,6 +7,7 @@ import type { TProteumManifest } from '@common/dev/proteumManifest';
 export type {
     TProteumManifest,
     TProteumManifestCommand,
+    TProteumManifestConnectedProject,
     TProteumManifestController,
     TProteumManifestDiagnostic,
     TProteumManifestDiagnosticLevel,

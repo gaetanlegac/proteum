@@ -34,9 +34,9 @@ Before reproducing a bug or starting a new test pass:
 Typical debugging flow:
 
 ```bash
-proteum trace arm --capture deep --port 3103
-# reproduce the failing request once
-proteum trace requests --port 3103
+proteum orient /dashboard
+proteum diagnose /dashboard --hit /dashboard --port 3103
+proteum perf request /dashboard --port 3103
 proteum trace show <requestId> --port 3103
 ```
 
@@ -44,14 +44,16 @@ Use `--url http://host:port` when the dev server is reachable on a non-standard 
 
 If the request under test is protected and login UX is not the feature under test, mint an auth cookie with `proteum session <email> --role <role>` before reproducing the request. This keeps the trace focused on the protected behavior instead of the login flow.
 
-If you already know the failing path and want a one-shot suspect list before reading raw events, start with `proteum diagnose <path> --port <port>` and drop into `proteum trace show <requestId>` only when the lower-level event stream is still needed.
+If you already know the failing path and want a one-shot suspect list before reading raw events, start with `proteum diagnose <path> --port <port>` and `proteum perf request <path> --port <port>` first, then drop into `proteum trace show <requestId>` only when the lower-level event stream is still needed.
 
-Trace summaries include `sql=<count>`. Detailed trace output includes both a `Calls` section for API/fetcher activity and a `SQL` section for captured Prisma queries.
+Use ad hoc database queries or one-off scripts only after `orient`, `diagnose`, `perf request`, and `trace show` still leave the request chain unclear.
+
+Trace summaries include `sql=<count>`. Detailed trace output includes both a `Calls` section for API, cache, or fetcher activity and a `SQL` section for captured Prisma queries.
 
 `proteum perf` is a grouped view over the same trace store:
 
 - `top` ranks routes, concrete paths, or controllers by avg, p95, CPU, SQL, render, self time, and heap delta
-- `request` shows one traced request waterfall with stage timings plus the hottest calls and SQL
+- `request` shows one traced request waterfall with stage timings plus the hottest calls, SQL, chain attribution, connected boundary, and SQL fingerprints
 - `compare` shows baseline-vs-target regressions between trace windows such as `yesterday` and `today`
 - `memory` shows grouped heap and RSS drift trends
 
@@ -65,6 +67,7 @@ Depending on capture mode, traces can include:
 - route resolution start, match, and deep-mode skip reasons
 - controller start and result shape
 - synchronous SSR fetcher calls, API batch fetchers, and async request traces
+- cache hits and cache writes observed during request handling
 - Prisma SQL queries with caller method/path, optional fetcher attribution, SQL text, params, kind, operation, and timing
 - created router/context keys
 - setup output keys and page data summaries
@@ -72,6 +75,7 @@ Depending on capture mode, traces can include:
 - render start/end timings and document output sizes
 - per-request CPU usage deltas plus heap and RSS snapshots before and after the request
 - normalized request errors
+- additive owner, service, cache, and connected-boundary metadata propagated from route/controller resolution into downstream calls and SQL
 
 ## SQL Tracing
 
@@ -86,6 +90,21 @@ Prisma query tracing covers both ORM operations and raw queries.
 - `query`, `paramsText`, and parsed `paramsJson` are stored for inspection
 
 This currently covers SQL issued through Proteum's Prisma service, including raw helpers that flow through the same Prisma client.
+
+Each traced SQL entry can now include:
+
+- `fingerprint`: stable normalized SQL shape for repeated-query comparison
+- `ownerLabel` and `ownerFilepath`: route/controller ownership propagated from the request
+- `serviceLabel`: the inferred service boundary when available
+- `connectedNamespace`: the connected producer namespace when the request crossed an app boundary
+
+`proteum diagnose` and `proteum perf request` collapse those lower-level records into a compact request chain:
+
+- route or controller
+- service
+- cache branch when used
+- connected app boundary when used
+- SQL fingerprints
 
 ## Capture Modes
 

@@ -4,7 +4,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 
 ## Initial Triage
 
-- Start with machine-readable app state before reading large parts of the codebase: `./.proteum/manifest.json`, `npx proteum connect --json`, `npx proteum explain --json`, `npx proteum doctor --json`, and `npx proteum doctor --contracts --json` when generated artifacts or manifest-owned files may be stale.
+- Start with machine-readable app state before reading large parts of the codebase: `npx proteum orient <query>`, `./.proteum/manifest.json`, `npx proteum connect --json`, `npx proteum explain --json`, `npx proteum doctor --json`, and `npx proteum doctor --contracts --json` when generated artifacts or manifest-owned files may be stale.
 - When one app depends on another app's generated controllers, inspect `npx proteum connect --controllers`, `npx proteum explain --connected --controllers`, the producer `proteum.connected.json`, the consumer `proteum.config.ts` connected `source` value, and the producer `./.proteum/proteum.connected.d.ts` before assuming the contract is local.
 - Use `rg -n` first to narrow the exact code path, then read only the relevant files.
 - Inspect `./server/index.ts`, `./server/config/*.ts`, and the touched files under `./commands`, `./server/controllers`, `./server/services`, `./server/routes`, `./client/pages`, and `./tests`.
@@ -14,10 +14,12 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 
 - For long-lived dev reproductions, start the app with `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically after the repro.
 - Human-facing Proteum CLI runs now print the welcome banner and include the active Proteum installation method, but only `npx proteum dev` clears the interactive terminal before rendering and reports connected app names plus successful connected `/ping` checks in the ready banner; keep that in mind when capturing or comparing command logs during diagnosis.
+- For ownership or repo discovery questions, start with `npx proteum orient <query>` instead of jumping straight into source searches.
 - For request-time issues in dev, start with `npx proteum diagnose <path> --port <port>` when you have a concrete failing route, page, controller path, or request target. It combines owner lookup, manifest diagnostics, contract diagnostics, matching trace data, and buffered server logs in one pass.
+- Prefer focused verification before global checks: `npx proteum verify owner <query>`, `npx proteum verify request <path>`, and only then `npx proteum verify browser <path>` when the bug is browser-visible.
 - For connected-project failures, confirm the consumer app resolves the expected `connect.<Namespace>.source` and `connect.<Namespace>.urlInternal` values, the producer app exposes `GET /api/__proteum/connected/ping`, and the imported controller entries show `scope=connected` in `proteum explain`.
 - Use `npx proteum explain owner <query>` when you need a fast ownership graph for a route, controller path, source file, or generated artifact before reading code.
-- For performance issues or regressions in dev, use `npx proteum perf top --since <window>` to rank hot paths, `npx proteum perf request <requestId|path>` for one request waterfall, `npx proteum perf compare --baseline <window> --target <window>` for regressions, and `npx proteum perf memory --since <window>` for heap or RSS drift.
+- For performance issues or regressions in dev, use `npx proteum perf top --since <window>` to rank hot paths, `npx proteum perf request <requestId|path>` for one request waterfall plus chain attribution and SQL fingerprints, `npx proteum perf compare --baseline <window> --target <window>` for regressions, and `npx proteum perf memory --since <window>` for heap or RSS drift.
 - For bundle-size inspection, use `npx proteum build --prod --analyze` to emit `bin/bundle-analysis/client.html` and `client-stats.json`, or add `--analyze-serve --analyze-port auto` when you want a local analyzer URL instead of a static HTML file.
 - For request-time issues in dev, inspect traces before adding logs when the diagnose surface is still too coarse.
 - If a server is already running on the default port from `PORT` or `./.proteum/manifest.json`, inspect existing traces before reproducing the issue.
@@ -25,6 +27,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 - Inspect browser console errors and warnings for frontend, SSR, hydration, and controller-call issues.
 - Inspect server startup and runtime errors.
 - For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` over driving the login UI. Use the login UI only when auth UX itself is under test.
+- For interrupted browser runs, clear stale app-local browser state under `var/proteum/browser/` and stop stale tracked dev sessions before retrying.
 
 ## Temporary Instrumentation
 
@@ -37,6 +40,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 ## Error Solving
 
 - Fix the contract boundary, not only the downstream symptom.
+- Treat provider, SSR/client-only hook, router-context, and connected-boundary failures as contract mistakes first. The likely fix is where the boundary was crossed incorrectly, not only where the throw surfaced.
 - Prefer explicit typed schemas, adapters, query `select`s, and narrow response shapes over casts, broad payloads, or hidden fallbacks.
 - Keep patches narrow, then verify immediately at the failing layer before broadening the test surface.
 - Review the resulting diff to confirm the fix removed the cause instead of masking it.
@@ -47,7 +51,8 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 - After implementing a feature or behavior change, always verify it on a running app instead of stopping at static analysis or code review.
 - For compile-time or type-safety issues, start with the relevant typecheck or build command.
 - For request/runtime issues, verify through the real page, route, generated controller call, or command on a running app.
-- Start the smallest trustworthy runtime surface first: boot the server, run the relevant real URL, generated controller call, command, or `npx proteum diagnose <path> --port <port>`, then add targeted Playwright coverage when the change is browser-visible.
+- Start the smallest trustworthy runtime surface first: `npx proteum orient <query>`, then the relevant real URL, generated controller call, command, or `npx proteum diagnose <path> --port <port>`. Add targeted Playwright coverage only when request-level verification is insufficient or the change is browser-visible.
+- Focused verification should treat unrelated global diagnostics as visible but non-blocking by default. Use `--strict-global` only when the task explicitly requires broad clean-room validation.
 - For browser regressions, prefer targeted Playwright coverage and inspect failure artifacts such as screenshots, videos, `error-context.md`, and Playwright traces.
 - Treat server startup failures, runtime errors, browser console errors or warnings, and Playwright failures as blocking unless they are clearly unrelated to the change.
 - When the touched surface can affect coding-style enforcement, run the smallest relevant project check such as `npx proteum lint` or `npx proteum check` before finishing.

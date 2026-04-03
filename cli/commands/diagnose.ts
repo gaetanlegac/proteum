@@ -163,7 +163,35 @@ const renderOwners = (matches: TExplainOwnerMatch[]) =>
         ? ['Owner matches', '- none'].join('\n')
         : [
               'Owner matches',
-              ...matches.map((match) => `- [${match.kind}] ${match.label} score=${match.score} source=${formatSource(match)}`),
+              ...matches.map(
+                  (match) =>
+                      `- [${match.kind}] ${match.label} score=${match.score} scope=${match.scopeLabel} origin=${match.originHint} source=${formatSource(match)}`,
+              ),
+          ].join('\n');
+
+const renderChain = (response: TDiagnoseResponse) =>
+    !response.chain || response.chain.length === 0
+        ? ['Chain', '- none'].join('\n')
+        : [
+              'Chain',
+              ...response.chain.map(
+                  (item) =>
+                      `- [${item.kind}] ${item.label}${item.source?.filepath ? ` source=${item.source.filepath}${item.source.line ? `:${item.source.line}` : ''}${item.source.column ? `:${item.source.column}` : ''}` : ''}${item.details.length > 0 ? ` details=${item.details.join(', ')}` : ''}`,
+              ),
+          ].join('\n');
+
+const renderOrientation = (response: TDiagnoseResponse) =>
+    !response.orientation
+        ? ['Orientation', '- none'].join('\n')
+        : [
+              'Orientation',
+              `- agents=${response.orientation.guidance.agents}`,
+              `- diagnostics=${response.orientation.guidance.diagnostics}`,
+              `- optimizations=${response.orientation.guidance.optimizations}`,
+              `- codingStyle=${response.orientation.guidance.codingStyle}`,
+              `- areaAgents=${response.orientation.guidance.areaAgents.join(', ') || 'none'}`,
+              `- connected imports=${response.orientation.connected.imports.length} producers=${response.orientation.connected.producers.length}`,
+              ...response.orientation.nextSteps.map((step) => `- next=${step.command} (${step.reason})`),
           ].join('\n');
 
 const renderSuspects = (response: TDiagnoseResponse) =>
@@ -187,6 +215,10 @@ const renderHuman = (manifest: ReturnType<typeof readProteumManifest>, response:
         renderSuspects(response),
         '',
         renderOwners(response.owner.matches.slice(0, 6)),
+        '',
+        renderChain(response),
+        '',
+        renderOrientation(response),
         '',
         renderDoctorResponseHuman({
             emptyMessage: 'No manifest diagnostics were found.',

@@ -186,6 +186,6 @@ export default class DevDiagnosticsRegistry<TApplication extends Application = A
     }
 
     public perfRequest(requestIdOrPath: string): TPerfRequestResponse {
-        return { request: resolvePerfRequest(this.readPerfRequests(), requestIdOrPath) };
+        return { request: resolvePerfRequest(this.readPerfRequests(), requestIdOrPath, this.readManifest()) };
     }
 }

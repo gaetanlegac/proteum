@@ -6,6 +6,7 @@
 
 import { fromJson as errorFromJson } from '@common/errors';
 import {
+    profilerConnectedNamespaceHeader,
     profilerOriginHeader,
     profilerParentRequestIdHeader,
     profilerSessionIdHeader,
@@ -87,6 +88,7 @@ export default class ApiClientRequest extends RequestService implements ApiClien
 
         if (fetcher.options?.connected) {
             headers.set(profilerOriginHeader, this.getTraceCallOrigin());
+            headers.set(profilerConnectedNamespaceHeader, fetcher.options.connected.namespace);
 
             const profilerSessionId = this.request.headers[profilerSessionIdHeader];
             if (profilerSessionId) headers.set(profilerSessionIdHeader, profilerSessionId);
@@ -102,7 +104,11 @@ export default class ApiClientRequest extends RequestService implements ApiClien
 
         const connectedProject = this.request.router.app.connectedProjects?.[connected.namespace];
         if (!connectedProject) {
-            throw new Error(`Connected project "${connected.namespace}" is not registered on ${this.request.router.app.identity.identifier}.`);
+            throw new Error(
+                `Proteum connected boundary mismatch: "${connected.namespace}" is not registered on ${this.request.router.app.identity.identifier}. ` +
+                    `Likely fix: declare connect.${connected.namespace} in proteum.config.ts for the consumer app or stop using that connected controller accessor here. ` +
+                    `Re-check both SSR and client navigation if this fetcher is used from a page setup or render path.`,
+            );
         }
 
         const headers = this.buildConnectedRequestHeaders(fetcher);

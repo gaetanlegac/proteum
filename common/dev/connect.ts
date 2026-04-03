@@ -1,5 +1,3 @@
-import fs from 'fs';
-
 import {
     formatManifestFilepath,
     formatManifestLocation,
@@ -53,6 +51,24 @@ export type TConnectResponse = {
     diagnostics: TProteumManifestDiagnostic[];
 };
 
+type TNodeFs = {
+    existsSync: (filepath: string) => boolean;
+};
+
+let cachedNodeFs: TNodeFs | null | undefined;
+
+const getNodeFs = () => {
+    if (cachedNodeFs !== undefined) return cachedNodeFs || undefined;
+
+    try {
+        cachedNodeFs = (eval('require')('fs') as TNodeFs) || null;
+    } catch (_error) {
+        cachedNodeFs = null;
+    }
+
+    return cachedNodeFs || undefined;
+};
+
 const createDiagnostic = ({
     code,
     filepath,
@@ -102,7 +118,7 @@ export const buildConnectResponse = (
             .sort((left, right) => left.clientAccessor.localeCompare(right.clientAccessor));
         const sourceConfigured = typeof project.sourceValue === 'string' && project.sourceValue.trim() !== '';
         const urlInternalConfigured = typeof project.urlInternal === 'string' && project.urlInternal.trim() !== '';
-        const cachedContractExists = project.cachedContractFilepath ? fs.existsSync(project.cachedContractFilepath) : false;
+        const cachedContractExists = project.cachedContractFilepath ? getNodeFs()?.existsSync(project.cachedContractFilepath) === true : false;
 
         if (!sourceConfigured) {
             diagnostics.push(
@@ -258,7 +274,7 @@ export const renderConnectHuman = (manifest: TProteumManifest, response: TConnec
         title: 'Diagnostics',
         items: response.diagnostics.map(
             (diagnostic) =>
-                `[${diagnostic.level}] ${diagnostic.code} ${diagnostic.message} source=${formatManifestFilepath(manifest, diagnostic.filepath)}${formatManifestLocation(diagnostic.sourceLocation?.line, diagnostic.sourceLocation?.column)}`,
+                `[${diagnostic.level}] ${diagnostic.code} ${diagnostic.message} source=${formatManifestFilepath(manifest, diagnostic.filepath)}${formatManifestLocation(diagnostic.sourceLocation?.line, diagnostic.sourceLocation?.column)}${diagnostic.fixHint ? ` fix=${diagnostic.fixHint}` : ''}`,
         ),
         empty: 'No connect diagnostics were found.',
     });

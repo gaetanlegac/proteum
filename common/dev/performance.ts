@@ -7,6 +7,8 @@ import type {
     TTraceSqlQuery,
     TTraceSummaryValue,
 } from './requestTrace';
+import { buildRequestChain, explainOwner, type TDiagnoseChainItem } from './inspection';
+import type { TProteumManifest } from './proteumManifest';
 
 export const perfGroupByValues = ['path', 'route', 'controller'] as const;
 export const perfWindowPresets = ['1h', '6h', '24h', 'today', 'yesterday'] as const;
@@ -38,11 +40,14 @@ export type TRequestPerfCall = {
 export type TRequestPerfSql = {
     callerLabel: string;
     durationMs: number;
+    fingerprint?: string;
     id: string;
     kind: TTraceSqlQuery['kind'];
+    connectedNamespace?: string;
     model?: string;
     operation: string;
     query: string;
+    serviceLabel?: string;
     target?: string;
 };
 
@@ -53,6 +58,7 @@ export type TRequestPerformance = {
     callDurationMs: number;
     capture: TRequestTrace['capture'];
     controllerLabel: string;
+    chain?: TDiagnoseChainItem[];
     cpuSystemMs?: number;
     cpuTotalMs?: number;
     cpuUserMs?: number;
@@ -321,12 +327,16 @@ const formatCallLabel = (call: TTraceCall) => {
     }
 
     const reference = `${call.method} ${call.path}`.trim();
+    if (call.serviceLabel && call.label && reference) return `${call.serviceLabel} -> ${call.label} (${reference})`;
+    if (call.serviceLabel && reference) return `${call.serviceLabel} -> ${reference}`;
     if (call.label && reference) return `${call.label} (${reference})`;
     return call.label || reference || call.origin;
 };
 
 const formatSqlCallerLabel = (query: TTraceSqlQuery) => {
     const reference = `${query.callerMethod} ${query.callerPath}`.trim();
+    if (query.serviceLabel && query.callerLabel && reference) return `${query.serviceLabel} -> ${query.callerLabel} (${reference})`;
+    if (query.serviceLabel && reference) return `${query.serviceLabel} -> ${reference}`;
     if (query.callerLabel && reference) return `${query.callerLabel} (${reference})`;
     return query.callerLabel || reference || query.operation;
 };
@@ -472,7 +482,7 @@ const summarizeProfiles = (profiles: TRequestPerformance[]): TPerfTopSummary => 
     };
 };
 
-export const buildRequestPerformance = (trace: TRequestTrace): TRequestPerformance => {
+export const buildRequestPerformance = (trace: TRequestTrace, manifest?: TProteumManifest): TRequestPerformance => {
     const performance = trace.performance;
     const cpuUserMs = performance ? performance.cpu.userMicros / 1000 : undefined;
     const cpuSystemMs = performance ? performance.cpu.systemMicros / 1000 : undefined;
@@ -503,6 +513,7 @@ export const buildRequestPerformance = (trace: TRequestTrace): TRequestPerforman
         callDurationMs,
         capture: trace.capture,
         controllerLabel: findControllerLabel(trace),
+        chain: manifest ? buildRequestChain({ manifest, owner: explainOwner(manifest, trace.path), request: trace }) : undefined,
         cpuSystemMs,
         cpuTotalMs,
         cpuUserMs,
@@ -534,11 +545,14 @@ export const buildRequestPerformance = (trace: TRequestTrace): TRequestPerforman
             .map((query) => ({
                 callerLabel: formatSqlCallerLabel(query),
                 durationMs: query.durationMs,
+                fingerprint: query.fingerprint,
                 id: query.id,
                 kind: query.kind,
+                connectedNamespace: query.connectedNamespace,
                 model: query.model,
                 operation: query.operation,
                 query: query.query,
+                serviceLabel: query.serviceLabel,
                 target: query.target,
             })),
         htmlBytes: readNumber(renderEnd?.details.htmlLength),
@@ -582,7 +596,7 @@ export const buildPerfTopResponse = ({
 }): TPerfTopResponse => {
     const selectedGroupBy = perfGroupByValues.includes(groupBy) ? groupBy : 'path';
     const { requests: filteredRequests, window } = selectRequestsInWindow(requests, since);
-    const profiles = filteredRequests.map(buildRequestPerformance);
+    const profiles = filteredRequests.map((trace) => buildRequestPerformance(trace));
     const groups = new Map<string, TRequestPerformance[]>();
 
     for (const profile of profiles) {
@@ -738,7 +752,7 @@ export const buildPerfMemoryResponse = ({
 }): TPerfMemoryResponse => {
     const selectedGroupBy = perfGroupByValues.includes(groupBy) ? groupBy : 'path';
     const { requests: filteredRequests, window } = selectRequestsInWindow(requests, since);
-    const profiles = filteredRequests.map(buildRequestPerformance);
+    const profiles = filteredRequests.map((trace) => buildRequestPerformance(trace));
     const groups = new Map<string, TRequestPerformance[]>();
 
     for (const profile of profiles) {
@@ -793,7 +807,7 @@ export const buildPerfMemoryResponse = ({
     };
 };
 
-export const resolvePerfRequest = (requests: TRequestTrace[], requestOrPath: string) => {
+export const resolvePerfRequest = (requests: TRequestTrace[], requestOrPath: string, manifest?: TProteumManifest) => {
     const normalized = requestOrPath.trim();
     if (!normalized) throw new Error('Perf request id or path is required.');
 
@@ -805,5 +819,5 @@ export const resolvePerfRequest = (requests: TRequestTrace[], requestOrPath: str
         throw new Error(`Could not find a traced request for "${requestOrPath}".`);
     }
 
-    return buildRequestPerformance(request);
+    return buildRequestPerformance(request, manifest);
 };

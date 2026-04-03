@@ -154,11 +154,18 @@ export default class ServerResponse<
         // Create response context for controllers
         const requestContext = await this.createContext(route);
         const contextStore = context.getStore() as
-            | { requestContext?: TRouterContext<TAnyRouter>; inputSchemaUsed?: boolean }
+            | {
+                  requestContext?: TRouterContext<TAnyRouter>;
+                  inputSchemaUsed?: boolean;
+                  ownerLabel?: string;
+                  ownerFilepath?: string;
+              }
             | undefined;
         if (contextStore) {
             contextStore.requestContext = requestContext;
             contextStore.inputSchemaUsed = false;
+            contextStore.ownerLabel = getRouteTraceTarget(route as TAnyRoute<TRouterContext<TServerRouter>>);
+            contextStore.ownerFilepath = route.options.filepath || undefined;
         }
 
         // Run controller

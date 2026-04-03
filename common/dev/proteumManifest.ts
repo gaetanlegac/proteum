@@ -14,6 +14,7 @@ export type TProteumManifestDiagnostic = {
     message: string;
     filepath: string;
     sourceLocation?: TProteumManifestSourceLocation;
+    fixHint?: string;
     relatedFilepaths?: string[];
 };
 

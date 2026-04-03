@@ -12,6 +12,12 @@ export type TDevConsoleLogChannel = {
     method?: string;
     path?: string;
     user?: string;
+    connectedNamespace?: string;
+    ownerLabel?: string;
+    ownerFilepath?: string;
+    serviceLabel?: string;
+    cacheKey?: string;
+    cachePhase?: string;
     traceCallId?: string;
     traceCallOrigin?: TTraceCallOrigin;
     traceCallLabel?: string;

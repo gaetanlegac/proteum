@@ -37,6 +37,7 @@ import type { TSsrUnresolvedRoute, TRegisterPageArgs } from '@common/router/cont
 import { buildRegex, getRegisterPageArgs } from '@common/router/register';
 import { layoutsList, getLayout } from '@common/router/layouts';
 import {
+    profilerConnectedNamespaceHeader,
     profilerOriginHeader,
     profilerParentRequestIdHeader,
     profilerSessionIdHeader,
@@ -607,6 +608,14 @@ export default class ServerRouter<
             profilerParentRequestId: request.headers[profilerParentRequestIdHeader] || undefined,
         });
         if (this.app.container.Trace.isEnabled()) res.setHeader(profilerTraceRequestIdHeader, request.id);
+        if (cachedPage) {
+            this.app.container.Trace.record(
+                request.id,
+                'cache.hit',
+                { cacheKey: req.path, cachePhase: 'hit' },
+                'summary',
+            );
+        }
 
         let response: ServerResponse<this>;
         try {
@@ -749,6 +758,7 @@ export default class ServerRouter<
                     channelId: request.id,
                     method: request.method,
                     path: request.path,
+                    connectedNamespace: request.headers[profilerConnectedNamespaceHeader] || undefined,
                     ...(request.traceCall
                         ? {
                               traceCallFetcherId: request.traceCall.fetcherId,
@@ -964,6 +974,12 @@ export default class ServerRouter<
                 if (!staticUrl) continue;
 
                 console.log('[router] Set in cache', staticUrl);
+                this.app.container.Trace.record(
+                    response.request.id,
+                    'cache.write',
+                    { cacheKey: staticUrl, cachePhase: 'write' },
+                    'summary',
+                );
                 void this.renderStatic(
                     staticUrl,
                     route.options.static,

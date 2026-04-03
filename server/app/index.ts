@@ -202,7 +202,11 @@ export abstract class Application<
         const connectedProject = this.getConnectedProject(namespace);
         if (connectedProject) return connectedProject;
 
-        throw new Error(`Connected project "${namespace}" is not configured on ${this.identity.identifier}.`);
+        throw new Error(
+            `Proteum connected boundary mismatch: "${namespace}" is not configured on ${this.identity.identifier}. ` +
+                `Likely fix: add connect.${namespace} in proteum.config.ts for this app or stop calling that connected namespace from this side. ` +
+                `Re-check both SSR and client navigation if the namespace is used from page render or setup code.`,
+        );
     }
 
     public register(service: AnyService) {

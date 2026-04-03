@@ -1,7 +1,10 @@
 import fs from 'fs-extra';
 import path from 'path';
+import { createHash } from 'crypto';
 
 import type ApplicationContainer from '..';
+import context from '@server/context';
+import type { ChannelInfos } from '../console';
 import {
     traceCaptureModes,
     type TTraceCaptureMode,
@@ -17,6 +20,7 @@ import {
     type TTraceMemorySnapshot,
     type TRequestTraceListItem,
 } from '@common/dev/requestTrace';
+import type { TProteumManifest } from '@common/dev/proteumManifest';
 
 export type Config = {
     enable: boolean;
@@ -33,6 +37,10 @@ const capturePriority: Record<TTraceCaptureMode, number> = { summary: 0, resolve
 const sensitiveKeyPattern =
     /(^|\.)(authorization|cookie|set-cookie|password|pass|pwd|secret|token|refreshToken|accessToken|apiKey|apiSecret|secretAccessKey|accessKeyId|privateKey|session|jwt|rawBody)$/i;
 const maxStringLength = 240;
+const normalizeFilepath = (value: string) => value.replace(/\\/g, '/');
+const sqlCommentPattern = /\/\*[\s\S]*?\*\//g;
+const sqlLineCommentPattern = /--.*$/gm;
+const stackFilepathPatterns = [/\((\/.+?):\d+:\d+\)$/, /at (\/.+?):\d+:\d+$/];
 
 const isTraceCaptureMode = (value: string): value is TTraceCaptureMode =>
     traceCaptureModes.includes(value as TTraceCaptureMode);
@@ -176,6 +184,11 @@ export default class Trace {
     private requests = new Map<string, TRequestTrace>();
     private order: string[] = [];
     private armedCapture?: TTraceCaptureMode;
+    private manifestCache?: {
+        manifest: TProteumManifest;
+        mtimeMs: number;
+        serviceByFilepath: Map<string, string>;
+    };
     private activeMeasurements = new Map<
         string,
         {
@@ -191,6 +204,86 @@ export default class Trace {
 
     public isEnabled() {
         return __DEV__ && this.config.enable && this.container.Environment.profile === 'dev';
+    }
+
+    private getContextChannel() {
+        return context.getStore() as ChannelInfos | undefined;
+    }
+
+    private readManifestCache() {
+        const manifestFilepath = path.join(this.container.path.root, '.proteum', 'manifest.json');
+        if (!fs.existsSync(manifestFilepath)) return undefined;
+
+        const stats = fs.statSync(manifestFilepath);
+        if (this.manifestCache && this.manifestCache.mtimeMs === stats.mtimeMs) return this.manifestCache;
+
+        const manifest = fs.readJSONSync(manifestFilepath) as TProteumManifest;
+        const serviceByFilepath = new Map<string, string>();
+        for (const service of [...manifest.services.app, ...manifest.services.routerPlugins]) {
+            if (!service.sourceFilepath) continue;
+            serviceByFilepath.set(normalizeFilepath(path.resolve(service.sourceFilepath)), service.registeredName);
+        }
+
+        this.manifestCache = {
+            manifest,
+            mtimeMs: stats.mtimeMs,
+            serviceByFilepath,
+        };
+
+        return this.manifestCache;
+    }
+
+    private getStackFilepaths(stack?: string) {
+        if (!stack) return [];
+
+        const filepaths: string[] = [];
+        for (const line of stack.split('\n')) {
+            const trimmedLine = line.trim();
+            let matchedFilepath: string | undefined;
+
+            for (const pattern of stackFilepathPatterns) {
+                const match = trimmedLine.match(pattern);
+                if (match?.[1]) {
+                    matchedFilepath = match[1];
+                    break;
+                }
+            }
+
+            if (!matchedFilepath) continue;
+            if (matchedFilepath.includes('/node_modules/')) continue;
+
+            filepaths.push(normalizeFilepath(path.resolve(matchedFilepath)));
+        }
+
+        return filepaths;
+    }
+
+    private inferServiceLabelFromStack(stack?: string) {
+        const manifestCache = this.readManifestCache();
+        if (!manifestCache) return undefined;
+
+        for (const filepath of this.getStackFilepaths(stack)) {
+            const serviceLabel = manifestCache.serviceByFilepath.get(filepath);
+            if (serviceLabel) return serviceLabel;
+        }
+
+        return undefined;
+    }
+
+    private createSqlFingerprint(query: string) {
+        const normalized = query
+            .replace(sqlCommentPattern, ' ')
+            .replace(sqlLineCommentPattern, ' ')
+            .replace(/'([^']|'')*'/g, '?')
+            .replace(/"([^"]|"")*"/g, '?')
+            .replace(/\b\d+(?:\.\d+)?\b/g, '?')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toUpperCase();
+
+        if (!normalized) return undefined;
+
+        return createHash('sha1').update(normalized).digest('hex').slice(0, 12);
     }
 
     public armNextRequest(capture: string) {
@@ -330,6 +423,11 @@ export default class Trace {
             fetcherId?: string;
             connectedProjectNamespace?: string;
             connectedControllerAccessor?: string;
+            ownerLabel?: string;
+            ownerFilepath?: string;
+            serviceLabel?: string;
+            cacheKey?: string;
+            cachePhase?: string;
             parentId?: string;
             requestDataKeys?: string[];
             requestData?: TTraceInspectable;
@@ -337,6 +435,8 @@ export default class Trace {
     ) {
         const trace = this.requests.get(requestId);
         if (!trace) return undefined;
+        const channel = this.getContextChannel();
+        const inferredServiceLabel = input.serviceLabel || channel?.serviceLabel || this.inferServiceLabelFromStack(new Error().stack);
 
         const call: TTraceCall = {
             id: `${requestId}:call:${trace.calls.length}`,
@@ -348,6 +448,11 @@ export default class Trace {
             fetcherId: input.fetcherId,
             connectedProjectNamespace: input.connectedProjectNamespace,
             connectedControllerAccessor: input.connectedControllerAccessor,
+            ownerLabel: input.ownerLabel || channel?.ownerLabel,
+            ownerFilepath: input.ownerFilepath || channel?.ownerFilepath,
+            serviceLabel: inferredServiceLabel,
+            cacheKey: input.cacheKey || channel?.cacheKey,
+            cachePhase: input.cachePhase || channel?.cachePhase,
             startedAt: nowIso(),
             requestDataKeys: input.requestDataKeys || [],
             requestData: input.requestData !== undefined ? summarizeCaptureValue(input.requestData, trace.capture, 'requestData') : undefined,
@@ -405,6 +510,10 @@ export default class Trace {
             kind: TTraceSqlQueryKind;
             model?: string;
             operation: string;
+            ownerLabel?: string;
+            ownerFilepath?: string;
+            serviceLabel?: string;
+            connectedNamespace?: string;
             paramsJson?: unknown;
             paramsText?: string;
             query: string;
@@ -413,12 +522,15 @@ export default class Trace {
     ) {
         const trace = this.requests.get(requestId);
         if (!trace) return;
+        const channel = this.getContextChannel();
 
         const durationMs = Math.max(0, input.durationMs || 0);
         const finishedAt = input.finishedAt || nowIso();
         const finishedAtMs = Date.parse(finishedAt);
         const startedAt =
             Number.isFinite(finishedAtMs) && durationMs > 0 ? new Date(finishedAtMs - durationMs).toISOString() : finishedAt;
+        const fingerprint = this.createSqlFingerprint(input.query);
+        const inferredServiceLabel = input.serviceLabel || channel?.serviceLabel || this.inferServiceLabelFromStack(new Error().stack);
 
         const sqlQuery: TTraceSqlQuery = {
             id: `${requestId}:sql:${trace.sqlQueries.length}`,
@@ -433,6 +545,11 @@ export default class Trace {
             kind: input.kind,
             model: input.model,
             operation: input.operation,
+            fingerprint,
+            ownerLabel: input.ownerLabel || channel?.ownerLabel,
+            ownerFilepath: input.ownerFilepath || channel?.ownerFilepath,
+            serviceLabel: inferredServiceLabel,
+            connectedNamespace: input.connectedNamespace || channel?.connectedNamespace,
             paramsJson: input.paramsJson,
             paramsText: input.paramsText,
             query: input.query.trim(),

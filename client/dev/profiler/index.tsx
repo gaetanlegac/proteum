@@ -1172,6 +1172,8 @@ const traceEventDepths: Record<TTraceEventType, number> = {
     'ssr.payload': 3,
     'render.start': 2,
     'render.end': 2,
+    'cache.hit': 2,
+    'cache.write': 2,
     'response.send': 1,
     'request.finish': 0,
     error: 0,

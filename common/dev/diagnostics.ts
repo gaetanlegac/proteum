@@ -87,8 +87,9 @@ const formatDiagnosticItem = (manifest: TProteumManifest, diagnostic: TProteumMa
         diagnostic.relatedFilepaths && diagnostic.relatedFilepaths.length > 0
             ? ` related=${diagnostic.relatedFilepaths.map((filepath) => formatManifestFilepath(manifest, filepath)).join(',')}`
             : '';
+    const fixHint = diagnostic.fixHint ? ` fix=${diagnostic.fixHint}` : '';
 
-    return `[${diagnostic.level}] ${diagnostic.code} ${diagnostic.message} source=${formatManifestFilepath(manifest, diagnostic.filepath)}${formatManifestLocation(diagnostic.sourceLocation?.line, diagnostic.sourceLocation?.column)}${related}`;
+    return `[${diagnostic.level}] ${diagnostic.code} ${diagnostic.message} source=${formatManifestFilepath(manifest, diagnostic.filepath)}${formatManifestLocation(diagnostic.sourceLocation?.line, diagnostic.sourceLocation?.column)}${related}${fixHint}`;
 };
 
 export const pickExplainManifestSections = (manifest: TProteumManifest, sectionNames: TExplainSectionName[]) => {
@@ -291,8 +292,9 @@ export const buildDoctorBlocksFromDiagnostics = (
                     diagnostic.relatedFilepaths && diagnostic.relatedFilepaths.length > 0
                         ? ` related=${diagnostic.relatedFilepaths.map((filepath) => formatManifestFilepath(manifest, filepath)).join(',')}`
                         : '';
+                const fixHint = diagnostic.fixHint ? ` fix=${diagnostic.fixHint}` : '';
 
-                return `${diagnostic.code} ${diagnostic.message} source=${formatManifestFilepath(manifest, diagnostic.filepath)}${formatManifestLocation(diagnostic.sourceLocation?.line, diagnostic.sourceLocation?.column)}${related}`;
+                return `${diagnostic.code} ${diagnostic.message} source=${formatManifestFilepath(manifest, diagnostic.filepath)}${formatManifestLocation(diagnostic.sourceLocation?.line, diagnostic.sourceLocation?.column)}${related}${fixHint}`;
             }),
         },
         {
@@ -302,8 +304,9 @@ export const buildDoctorBlocksFromDiagnostics = (
                     diagnostic.relatedFilepaths && diagnostic.relatedFilepaths.length > 0
                         ? ` related=${diagnostic.relatedFilepaths.map((filepath) => formatManifestFilepath(manifest, filepath)).join(',')}`
                         : '';
+                const fixHint = diagnostic.fixHint ? ` fix=${diagnostic.fixHint}` : '';
 
-                return `${diagnostic.code} ${diagnostic.message} source=${formatManifestFilepath(manifest, diagnostic.filepath)}${formatManifestLocation(diagnostic.sourceLocation?.line, diagnostic.sourceLocation?.column)}${related}`;
+                return `${diagnostic.code} ${diagnostic.message} source=${formatManifestFilepath(manifest, diagnostic.filepath)}${formatManifestLocation(diagnostic.sourceLocation?.line, diagnostic.sourceLocation?.column)}${related}${fixHint}`;
             }),
         },
     ];
