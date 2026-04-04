@@ -26,6 +26,11 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 ## Workflow
 
 - If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it.
+- If you changed any app `schema.prisma`, do not start testing or validation yet. Ask the user to run the following command in the affected worktree directory, replacing the placeholders, and wait for the user to reply exactly `continue` before resuming validation or tests:
+```
+cd <worktree path>
+npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
+```
 - After implementing a framework feature or change, do not stop at code edits. Boot both reference apps, exercise the affected flow with Playwright or the smallest real Proteum surface, run the relevant `proteum` diagnostics or perf commands, and confirm there is no meaningful regression in runtime behavior, performance, load size, SEO output, or coding-style expectations before finishing.
 - When starting a long-lived reference app dev server for framework work, prefer `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically later.
 - Before retrying a boot on the same app, changing ports, or finishing the task, stop every framework-started dev session with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`.

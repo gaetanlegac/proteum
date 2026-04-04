@@ -18,6 +18,11 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 - Do not load project-root `optimizations.md` at task start. After implementation, load and apply it only when touched files are client-side, especially `client/**` and page files, for post-implementation checking and optimization. Skip it for server-only, test-only, doc-only, and non-client refactor tasks unless the user explicitly asks for optimization work.
 - For new app or artifact boilerplate, prefer `npx proteum init ...` and `npx proteum create ...` before creating files by hand. Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.
 - After running `npx proteum create ...`, adapt the generated code to the real feature instead of leaving placeholder logic in place.
+- If you changed `schema.prisma`, do not start testing or validation yet. Ask the user to run the following command in the affected worktree directory, replacing the placeholders, and wait for the user to reply exactly `continue` before resuming validation or tests:
+```
+cd <worktree path>
+npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
+```
 - When starting a long-lived dev server for an agent task, prefer `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically later.
 - Do not start a second `proteum dev` server for the same app and port until the earlier tracked session has been stopped or replaced.
 - For raw browser automation, use `npx proteum verify browser` when it matches the task, or direct Playwright with a disposable profile when lower-level control is required. Bootstrap protected browser state through `npx proteum session`.
@@ -29,10 +34,9 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 - Before finishing a task, stop every `proteum dev` session started during the task and confirm cleanup with `npx proteum dev list --json` or an explicit `npx proteum dev stop --session-file <path>`.
 - When you have finished your work, ask the user whether they want a commit message. If the user replies exactly `commit`, respond with one top-level short (up to 100 characters) sentence covering all changes made since the last `commit` (and if not, since the beginning of the whole conversation), strictly using the Conventional Commits specification:
 ```
-Commit message: <type>[optional scope]: <description>
+<type>[optional scope]: <description>
 
 [optional body]
-```
 ```
 
 ## Project Shape

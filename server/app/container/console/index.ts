@@ -294,7 +294,11 @@ export default class Console {
     public async createBugReport(error: TCatchedError, request?: ServerRequest) {
         const application = this.container.application;
         if (application === undefined)
-            return console.error(LogPrefix, "Can't send bug report because the application is not instanciated");
+            return console.error(
+                LogPrefix,
+                "Can't send bug report because the application is not instanciated",
+                error,
+            );
 
         // Get context
         const now = new Date();
