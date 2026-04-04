@@ -1,6 +1,6 @@
 # Dev Sessions
 
-Proteum ships a dev-only auth bootstrap command so agents, Playwright runs, and local debugging can start from an authenticated state without driving the login UI.
+Proteum ships a dev-only auth bootstrap command so `proteum verify browser`, Playwright runs, and local debugging can start from an authenticated state without driving the login UI.
 
 ## When To Use It
 
@@ -37,7 +37,7 @@ Behavior:
 - remote mode talks to an already running `proteum dev` instance
 - the command requires an explicit email and optionally asserts a role before returning the session
 - the command is available only in dev mode
-- browser verification flows should keep browser state app-local and disposable instead of reusing a shared temp profile
+- browser verification flows should keep browser state app-local and disposable through `proteum verify browser` or direct Playwright instead of reusing a shared temp profile
 
 ## Output Contract
 
@@ -68,22 +68,22 @@ curl -H "$(jq -r '.curlCookieHeader' session.json)" http://localhost:3101/api/Au
 ## Agent Guidance
 
 - Prefer `proteum session` over UI login automation when the goal is to test or debug protected application behavior.
+- Prefer `proteum verify browser` for focused browser-visible verification. When lower-level control is required, use direct Playwright with a disposable profile.
 - Use UI login automation only when the auth UX itself is the feature under test.
 - Pair it with `proteum diagnose` for a fast protected-route summary, `proteum perf request` for a one-request timing breakdown, then use `proteum trace` when you need lower-level request events.
-- After an interrupted browser run, clean up stale tracked dev sessions with `proteum dev stop --all --stale` and remove stale lock files under the app-local `var/proteum/browser/` workspace before retrying.
+- Only the final verifier agent should usually run browser flows. Earlier agents should stay on `orient`, `verify owner`, `verify request`, and request-level diagnostics unless browser execution is required.
 
 Typical flow:
 
 ```bash
 proteum orient /dashboard
 proteum session admin@example.com --role ADMIN --port 3101 --json > session.json
-# add the returned cookie in Playwright, then load the protected page once
 proteum diagnose /dashboard --hit /dashboard --port 3101
 proteum perf request /dashboard --port 3101
 proteum trace latest --port 3101
 ```
 
-When `proteum verify browser <path>` is available in the target app, it uses a fresh per-run browser profile under `var/proteum/browser/<run-id>` and should be preferred over ad hoc shared Playwright profile reuse.
+When `proteum verify browser <path>` is available in the target app, it uses the same fresh per-run browser workspace model under `var/proteum/browser/<run-id>` and should be preferred over ad hoc shared Playwright profile reuse.
 
 ## Dev HTTP Endpoint
 

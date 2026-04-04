@@ -84,7 +84,7 @@ That means broken or stale connected-app config is now a startup failure, not ju
 
 ### 7. Human-facing CLI output changed
 
-Current Proteum prints a welcome banner for human-facing CLI runs, and `proteum dev` now has tracked session files plus `list` and `stop` subcommands.
+Current Proteum prints a welcome banner only for the bare `proteum build` and bare `proteum dev` commands, and `proteum dev` now has tracked session files plus `list` and `stop` subcommands.
 
 This is not an app-code migration, but it can break scripts that parse mixed stdout/stderr loosely. Prefer `--json` for automation.
 
@@ -309,7 +309,7 @@ These are worth updating even though they are not core app-code migrations.
 
 ### Use `--json` for automation
 
-Current human-facing CLI runs print a banner. For scripts, CI helpers, or editor tooling, prefer:
+Only bare `proteum build` and bare `proteum dev` runs print a banner. For scripts, CI helpers, or editor tooling, prefer:
 
 - `npx proteum explain --json`
 - `npx proteum doctor --json`

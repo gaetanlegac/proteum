@@ -46,7 +46,7 @@ Commit message: <type>[optional scope]: <description>
     - `/Users/gaetan/Desktop/Projets/unique.domains/platform/apps/website`
 - Inspect how both apps currently use the touched feature, runtime, API, compiler behavior, or generated output before proposing or implementing changes.
 - Keep the developer-facing contract synchronized when framework work changes CLI commands, profiler capabilities, or the `proteum dev` banner. Update the live surfaces together in the same pass: CLI command/help definitions, profiler panels and dev-only endpoints, banner text/examples, and the most relevant agent docs that describe them, especially `AGENTS.md`, `agents/project/AGENTS.md`, `agents/project/diagnostics.md`, and any narrower `agents/project/**/AGENTS.md` file that mentions the changed workflow.
-- Current CLI banner contract: every human-facing Proteum CLI run prints the welcome banner and includes the active Proteum installation method, while only `proteum dev` clears the interactive terminal before rendering, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI, and reports connected app names plus successful connected `/ping` checks in the ready banner.
+- Current CLI banner contract: only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. Only `proteum dev` clears the interactive terminal before rendering, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI, and reports connected app names plus successful connected `/ping` checks in the ready banner.
 - Keep core changes aligned with the explicit controller/page architecture in `agents/project/AGENTS.md`.
 - Prefer removing framework magic when the same result can be expressed with explicit contracts, generated code, or typed context.
 - Apply the pruning rules from `agents/project/optimizations.md`, especially for webpack plugins, Babel plugins, aliases, helpers, runtime services, and npm packages that are not meaningfully used by both apps.
@@ -70,8 +70,10 @@ Do not stop at static analysis for routing, controllers, generated code, SSR, cl
 - When the issue is latency, CPU, SQL cost, render cost, or memory drift, inspect `proteum perf top`, `proteum perf request`, `proteum perf compare`, or `proteum perf memory` against the running dev server before adding custom instrumentation.
 - When a framework change can affect shipped client code size, run `proteum build --prod --analyze` for static bundle artifacts or `proteum build --prod --analyze --analyze-serve --analyze-port auto` when you need a local analyzer URL.
 - For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` to mint a dev auth cookie instead of automating the login UI. Use the login UI only when login itself is the feature under test.
+- When a task needs browser execution instead of the higher-level verifier, prefer `npx proteum verify browser <path>` or direct Playwright with a disposable profile. Keep auth sourced from `npx proteum session`, not UI login or shared browser state.
 - For request-time behavior, arm traces with `proteum trace arm --capture deep`, reproduce once, then inspect `proteum trace latest` or `proteum trace show <requestId>`.
 - When the framework-facing workflow itself changed, verify the CLI surface too with `proteum verify framework-change --crosspath-port <port> --product-port <port> --website-port <port>`.
+- Only the final verifier agent should usually run browser flows. Other agents should stay on `orient`, `verify owner`, `verify request`, and command-level checks unless browser execution is the only trustworthy surface.
 - Open the real pages with Playwright.
 - Inspect browser console errors and warnings.
 - Inspect server startup and runtime errors.

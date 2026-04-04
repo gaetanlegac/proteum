@@ -111,11 +111,15 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'dev',
         category: 'Daily workflow',
         summary: 'Start the local compiler, SSR server, and hot reload loop.',
-        usage: 'proteum dev [list|stop] [--port <port>] [--session-file <path>] [--replace-existing] [--all] [--stale] [--json] [--cache|--no-cache]',
+        usage: 'proteum dev [list|stop] [--cwd <path>] [--port <port>] [--session-file <path>] [--replace-existing] [--all] [--stale] [--json] [--cache|--no-cache]',
         bestFor:
             'Day-to-day app work. This is the main entrypoint used by the current reference apps during local development.',
         examples: [
             { description: 'Start the app on its configured router port', command: 'proteum dev' },
+            {
+                description: 'Start a worktree or sibling checkout without changing your shell directory',
+                command: 'proteum dev --cwd /path/to/platform-worktree --port 3101 --replace-existing',
+            },
             { description: 'Replace the tracked dev session on another port', command: 'proteum dev --port 3101 --replace-existing' },
             {
                 description: 'Start a tracked dev session with an explicit session file for an agent task',
@@ -135,6 +139,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             },
         ],
         notes: [
+            'Use `--cwd` when the target Proteum app lives in another worktree or checkout and you do not want to `cd` first.',
             'Proteum writes a machine-readable dev session file under `var/run/proteum/dev/<port>.json` by default; override it with `--session-file` when an agent needs a stable path.',
             'Use `--replace-existing` when retries should stop the previously tracked matching session before starting a new one.',
             '`proteum dev list` inspects tracked sessions for the current app root. Add `--stale` to show only orphaned or dead sessions.',

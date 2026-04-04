@@ -13,7 +13,7 @@ import { buildDoctorResponse, type TDoctorResponse } from '@common/dev/diagnosti
 import { buildOrientationResponse, type TDiagnoseChainItem, type TDiagnoseResponse, type TOrientResponse } from '@common/dev/inspection';
 import type { TProteumManifest, TProteumManifestDiagnostic } from '@common/dev/proteumManifest';
 import type { TDevCommandRunResponse } from '@common/dev/commands';
-import type { TDevSessionStartResponse } from '@common/dev/session';
+import type { TDevSessionErrorResponse, TDevSessionStartResponse } from '@common/dev/session';
 
 type TVerifySeverity = 'error' | 'warning';
 type TVerifyStepStatus = 'failed' | 'info' | 'passed';
@@ -86,6 +86,23 @@ type TBrowserVerificationResult = {
     pageErrors: string[];
 };
 
+type TVerifyPlaywrightCookie = {
+    name: string;
+    value: string;
+    url: string;
+    expires: number;
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: 'Lax';
+};
+
+type TVerifyBrowserWorkspace = {
+    runId: string;
+    workspaceRoot: string;
+    outputDir: string;
+    profileDir: string;
+};
+
 const defaultApps = {
     crosspath: '/Users/gaetan/Desktop/Projets/crosspath/platform',
     product: '/Users/gaetan/Desktop/Projets/unique.domains/platform/apps/product',
@@ -97,8 +114,60 @@ const normalizeFilepath = (value: string) => value.replace(/\\/g, '/');
 const dedupe = <TValue>(values: TValue[]) => [...new Set(values)];
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const createLocalBaseUrl = (port: number) => `http://localhost:${port}`;
+const browserLockPattern = /lock|singleton/i;
 const getBaseUrlCandidates = (port: number) =>
     dedupe([createLocalBaseUrl(port), `http://127.0.0.1:${port}`, `http://[::1]:${port}`]);
+const createBrowserRunId = (now = new Date()) => {
+    const date = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const suffix = Math.random().toString(36).slice(2, 8);
+
+    return `${date}-${suffix}`;
+};
+
+const createBrowserWorkspace = ({
+    appRoot,
+    runId = createBrowserRunId(),
+}: {
+    appRoot: string;
+    runId?: string;
+}): TVerifyBrowserWorkspace => {
+    const workspaceRoot = path.join(appRoot, 'var', 'proteum', 'browser', runId);
+    const outputDir = path.join(workspaceRoot, 'output');
+    const profileDir = path.join(workspaceRoot, 'profile');
+
+    fs.ensureDirSync(outputDir);
+    fs.ensureDirSync(profileDir);
+
+    return {
+        runId,
+        workspaceRoot,
+        outputDir,
+        profileDir,
+    };
+};
+
+const removeBrowserLocks = (currentPath: string) => {
+    if (!fs.existsSync(currentPath)) return;
+
+    for (const dirent of fs.readdirSync(currentPath, { withFileTypes: true })) {
+        const entryPath = path.join(currentPath, dirent.name);
+
+        if (dirent.isDirectory()) {
+            removeBrowserLocks(entryPath);
+            continue;
+        }
+
+        if (browserLockPattern.test(dirent.name)) fs.removeSync(entryPath);
+    }
+};
+
+const cleanupBrowserRunLocks = async (workspaceRoot: string) => {
+    try {
+        removeBrowserLocks(workspaceRoot);
+    } catch {
+        // Best-effort cleanup for stale browser locks.
+    }
+};
 
 const getRouterPortFromManifestFile = (manifestFilepath: string) => {
     if (!fs.existsSync(manifestFilepath)) return undefined;
@@ -389,24 +458,45 @@ const renderHuman = (result: TVerifyResult) =>
         `Result\n- ok=${result.result.ok}\n- strictGlobal=${result.result.strictGlobal}\n- introducedBlockingFindings=${result.result.introducedBlockingFindings}\n- preExistingBlockingFindings=${result.result.preExistingBlockingFindings}`,
     ].join('\n');
 
+const getSessionErrorMessage = (body: TDevSessionErrorResponse | object | string | undefined, statusCode: number) => {
+    if (typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string') {
+        return body.error;
+    }
+
+    return `Session request failed with status ${statusCode}.`;
+};
+
 const requestSession = async ({ baseUrl, email, role }: { baseUrl: string; email: string; role: string }) => {
-    const response = await fetchJson<TDevSessionStartResponse>(baseUrl, '/__proteum/session/start', {
+    const response = await got(`${normalizeBaseUrl(baseUrl)}/__proteum/session/start`, {
         method: 'POST',
         json: role ? { email, role } : { email },
+        responseType: 'json',
+        throwHttpErrors: false,
+        retry: { limit: 0 },
     });
 
+    if (response.statusCode >= 400) {
+        throw new UsageError(
+            getSessionErrorMessage(response.body as TDevSessionErrorResponse | object | string | undefined, response.statusCode),
+        );
+    }
+
+    const payload = response.body as TDevSessionStartResponse;
+    const expires = Math.floor(Date.parse(payload.session.expiresAt) / 1000);
+    const secure = new URL(baseUrl).protocol === 'https:';
+
     return {
-        cookieHeader: `${response.session.cookieName}=${response.session.token}`,
+        cookieHeader: `${payload.session.cookieName}=${payload.session.token}`,
         playwrightCookies: [
             {
-                name: response.session.cookieName,
-                value: response.session.token,
-                url: baseUrl,
-                expires: Math.floor(Date.parse(response.session.expiresAt) / 1000),
+                name: payload.session.cookieName,
+                value: payload.session.token,
+                url: normalizeBaseUrl(baseUrl),
+                expires,
                 httpOnly: false,
-                secure: new URL(baseUrl).protocol === 'https:',
-                sameSite: 'Lax' as const,
-            },
+                secure,
+                sameSite: 'Lax',
+            } satisfies TVerifyPlaywrightCookie,
         ],
     };
 };
@@ -490,24 +580,6 @@ const ensureFocusedServer = async (manifest: TProteumManifest) => {
     });
 };
 
-const cleanupBrowserWorkspace = (workspaceRoot: string) => {
-    if (!fs.existsSync(workspaceRoot)) return;
-
-    const walk = (currentPath: string) => {
-        for (const dirent of fs.readdirSync(currentPath, { withFileTypes: true })) {
-            const entryPath = path.join(currentPath, dirent.name);
-            if (dirent.isDirectory()) {
-                walk(entryPath);
-                continue;
-            }
-
-            if (/lock|singleton/i.test(dirent.name)) fs.removeSync(entryPath);
-        }
-    };
-
-    walk(workspaceRoot);
-};
-
 const runBrowserVerification = async ({
     appRoot,
     baseUrl,
@@ -569,12 +641,8 @@ const runBrowserVerification = async ({
         );
     }
 
-    const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const workspaceRoot = path.join(appRoot, 'var', 'proteum', 'browser');
-    cleanupBrowserWorkspace(workspaceRoot);
-    const runRoot = path.join(workspaceRoot, runId);
-    const userDataDir = path.join(runRoot, 'profile');
-    fs.ensureDirSync(userDataDir);
+    const workspace = createBrowserWorkspace({ appRoot });
+    await cleanupBrowserRunLocks(workspace.workspaceRoot);
 
     const targetUrl = target.startsWith('http://') || target.startsWith('https://') ? target : `${baseUrl}${target}`;
     const consoleMessages: Array<{ type: string; text: string }> = [];
@@ -589,7 +657,7 @@ const runBrowserVerification = async ({
         | undefined;
 
     try {
-        browserContext = await playwright.chromium.launchPersistentContext(userDataDir, { headless: true });
+        browserContext = await playwright.chromium.launchPersistentContext(workspace.profileDir, { headless: true });
         if (playwrightCookies && playwrightCookies.length > 0) await browserContext.addCookies(playwrightCookies);
 
         const page = await browserContext.newPage();
@@ -601,11 +669,11 @@ const runBrowserVerification = async ({
         const response = await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
         await page.waitForTimeout(800);
         const title = await page.title();
-        await page.screenshot({ fullPage: true, path: path.join(runRoot, 'page.png') });
+        await page.screenshot({ fullPage: true, path: path.join(workspace.outputDir, 'page.png') });
 
         return {
-            runId,
-            workspaceRoot: runRoot,
+            runId: workspace.runId,
+            workspaceRoot: workspace.workspaceRoot,
             url: targetUrl,
             title,
             statusCode: response?.status(),

@@ -10,7 +10,7 @@ Diagnostics source of truth: project-root `diagnostics.md`.
 - Understand the real user flow and the main feature branches before writing tests.
 - Test the current controller/page runtime model, not legacy `@Route` or `api.fetch(...)` behavior.
 - Verify routing, controllers, SSR, and router plugins against a running app when behavior depends on real request handling.
-- After implementing a browser-visible feature or change, run targeted Playwright coverage or a real browser repro against a running app before finishing; this verification is required, not optional cleanup.
+- After implementing a browser-visible feature or change, prefer a real browser repro against a running app first. Add targeted Playwright coverage only when the user asks for automated coverage, when a stable regression path needs automation, or when manual/browser verification is insufficient.
 - Exercise real URLs, generated controller calls, or real browser flows instead of re-deriving framework internals in tests.
 - Locate elements with `data-testid`.
 - Add `data-testid` where needed instead of relying on brittle selectors.

@@ -349,7 +349,7 @@ proteum build --prod --analyze
 proteum build --prod --analyze --analyze-serve --analyze-port auto
 ```
 
-Every human-facing Proteum CLI run prints the welcome banner and includes the active Proteum installation method. `proteum dev` is the only command that clears the interactive terminal before rendering its live session UI, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys, and prints connected app names plus successful connected `/ping` checks in the server-ready banner.
+Only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. `proteum dev` is the only command that clears the interactive terminal before rendering its live session UI, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys, and prints connected app names plus successful connected `/ping` checks in the server-ready banner.
 
 Useful inspection commands:
 

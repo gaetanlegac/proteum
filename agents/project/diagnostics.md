@@ -13,10 +13,10 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 ## Runtime Diagnostics
 
 - For long-lived dev reproductions, start the app with `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically after the repro.
-- Human-facing Proteum CLI runs now print the welcome banner and include the active Proteum installation method, but only `npx proteum dev` clears the interactive terminal before rendering and reports connected app names plus successful connected `/ping` checks in the ready banner; keep that in mind when capturing or comparing command logs during diagnosis.
+- Only the bare `npx proteum build` and bare `npx proteum dev` commands print the welcome banner and active Proteum installation method. Any extra argument or option skips the banner. Only `npx proteum dev` clears the interactive terminal before rendering and reports connected app names plus successful connected `/ping` checks in the ready banner; keep that in mind when capturing or comparing command logs during diagnosis.
 - For ownership or repo discovery questions, start with `npx proteum orient <query>` instead of jumping straight into source searches.
 - For request-time issues in dev, start with `npx proteum diagnose <path> --port <port>` when you have a concrete failing route, page, controller path, or request target. It combines owner lookup, manifest diagnostics, contract diagnostics, matching trace data, and buffered server logs in one pass.
-- Prefer focused verification before global checks: `npx proteum verify owner <query>`, `npx proteum verify request <path>`, and only then `npx proteum verify browser <path>` when the bug is browser-visible.
+- Prefer focused verification before global checks: `npx proteum verify owner <query>`, `npx proteum verify request <path>`, and only then `npx proteum verify browser <path>` or targeted Playwright when the bug is browser-visible.
 - For connected-project failures, confirm the consumer app resolves the expected `connect.<Namespace>.source` and `connect.<Namespace>.urlInternal` values, the producer app exposes `GET /api/__proteum/connected/ping`, and the imported controller entries show `scope=connected` in `proteum explain`.
 - Use `npx proteum explain owner <query>` when you need a fast ownership graph for a route, controller path, source file, or generated artifact before reading code.
 - For performance issues or regressions in dev, use `npx proteum perf top --since <window>` to rank hot paths, `npx proteum perf request <requestId|path>` for one request waterfall plus chain attribution and SQL fingerprints, `npx proteum perf compare --baseline <window> --target <window>` for regressions, and `npx proteum perf memory --since <window>` for heap or RSS drift.
@@ -26,8 +26,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 - If existing traces are insufficient, arm `npx proteum trace arm --capture deep`, reproduce once, then inspect the new request with `npx proteum trace latest` or `npx proteum trace show <requestId>`.
 - Inspect browser console errors and warnings for frontend, SSR, hydration, and controller-call issues.
 - Inspect server startup and runtime errors.
-- For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` over driving the login UI. Use the login UI only when auth UX itself is under test.
-- For interrupted browser runs, clear stale app-local browser state under `var/proteum/browser/` and stop stale tracked dev sessions before retrying.
+- For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` over driving the login UI. Feed that auth into `npx proteum verify browser ...` or direct Playwright. Use the login UI only when auth UX itself is under test.
 
 ## Temporary Instrumentation
 
@@ -48,14 +47,16 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 ## Verification And Testing
 
 - Use the cheapest trustworthy verification that matches the failing layer.
-- After implementing a feature or behavior change, always verify it on a running app instead of stopping at static analysis or code review.
-- For compile-time or type-safety issues, start with the relevant typecheck or build command.
+- After implementing a change, verify only at the smallest trustworthy layer required by the changed surface. Do not default to a running app, project-wide typecheck, `npx proteum check`, or Playwright when a narrower static or request-level verification is enough.
+- For compile-time or type-safety issues, start with the relevant targeted typecheck or build command. Do not run them by default for unrelated runtime, copy, docs, or local refactor changes.
 - For request/runtime issues, verify through the real page, route, generated controller call, or command on a running app.
 - Start the smallest trustworthy runtime surface first: `npx proteum orient <query>`, then the relevant real URL, generated controller call, command, or `npx proteum diagnose <path> --port <port>`. Add targeted Playwright coverage only when request-level verification is insufficient or the change is browser-visible.
+- Proteum does not provide a dedicated raw browser-runtime CLI. When `npx proteum verify browser` is insufficient, use direct Playwright with a disposable profile. Do not launch raw browser automation against a shared persistent profile.
 - Focused verification should treat unrelated global diagnostics as visible but non-blocking by default. Use `--strict-global` only when the task explicitly requires broad clean-room validation.
-- For browser regressions, prefer targeted Playwright coverage and inspect failure artifacts such as screenshots, videos, `error-context.md`, and Playwright traces.
+- For browser regressions, prefer a real browser repro first and add targeted Playwright coverage only when the user asks for automated coverage, when a stable regression path needs automation, or when manual/browser verification is insufficient.
+- Only the final verifier agent should usually run browser flows. Earlier agents should stay on `orient`, `verify owner`, `verify request`, `diagnose`, and command-level checks unless browser execution is the only trustworthy reproducer.
 - Treat server startup failures, runtime errors, browser console errors or warnings, and Playwright failures as blocking unless they are clearly unrelated to the change.
-- When the touched surface can affect coding-style enforcement, run the smallest relevant project check such as `npx proteum lint` or `npx proteum check` before finishing.
+- When the touched surface can affect coding-style enforcement, run the smallest relevant static check. Do not default to `npx proteum check`; prefer a narrower lint or type check only when the changed surface or an observed issue calls for it.
 - If the task started any long-lived `proteum dev` server, stop it explicitly with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`, then confirm the remaining tracked sessions with `npx proteum dev list --json`.
 - Add `data-testid` when stable selectors are missing instead of relying on brittle text or DOM-shape selectors.
 - If an isolated test misses prerequisite state, run the smallest broader scope that reproduces the real setup.

@@ -135,7 +135,7 @@ export const renderCliOverview = async ({
                     indent: '  ',
                     nextIndent: '  ',
                 }),
-                wrapText('Every Proteum CLI invocation prints the welcome banner. `proteum dev` is the only command that clears the interactive terminal before rendering its session UI.', {
+                wrapText('Only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and active Proteum installation method. Any extra argument or option skips the banner. `proteum dev` is the only command that clears the interactive terminal before rendering its session UI.', {
                     indent: '  ',
                     nextIndent: '  ',
                 }),

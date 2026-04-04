@@ -24,7 +24,12 @@ export class CLIContext {
     }
 
     public setArgs(args: TArgsObject = {}) {
-        this.args = { workdir: process.cwd(), ...args };
+        const workdir =
+            typeof args.workdir === 'string' && args.workdir.trim().length > 0 ? args.workdir.trim() : process.cwd();
+
+        this.args = { workdir, ...args, workdir };
+        this.paths = new Paths(workdir, this.paths.core.root);
+        this.paths.applyAliases();
         this.verbose = this.args.verbose === true;
         this.debug = this.verbose;
     }

@@ -12,6 +12,8 @@ import { createCli, registeredCommands } from './runtime/commands';
 
 const formatInvocation = (argv: string[]) => ['proteum', ...argv].join(' ').trim();
 
+const sharedWelcomeBannerCommands = new Set(['build', 'dev']);
+
 const shouldRenderSharedWelcomeBanner = ({
     argv,
     helpRequestKind,
@@ -19,15 +21,12 @@ const shouldRenderSharedWelcomeBanner = ({
     argv: string[];
     helpRequestKind: 'none' | 'overview' | 'command';
 }) => {
-    if (helpRequestKind !== 'none') return true;
-    if (argv[0] !== 'dev') return true;
+    if (helpRequestKind !== 'none') return false;
+    if (argv.length !== 1) return false;
 
-    if (argv.length === 1) return false;
-
-    const action = argv[1];
-    if (action.startsWith('-')) return false;
-
-    return action === 'list' || action === 'stop';
+    const command = argv[0];
+    if (!command || !sharedWelcomeBannerCommands.has(command)) return false;
+    return true;
 };
 
 export const runCli = async (argv: string[] = process.argv.slice(2)) => {

@@ -79,6 +79,7 @@ class DevCommand extends ProteumCommand {
 
     public static usage = buildUsage('dev');
 
+    public cwd = Option.String('--cwd', { description: 'Run the dev command against another Proteum app root.' });
     public json = Option.Boolean('--json', false, { description: 'Print machine-readable dev session output.' });
     public port = Option.String('--port', { description: 'Override the router port.' });
     public cache = Option.Boolean('--cache', true, { description: 'Enable filesystem caching.' });
@@ -105,6 +106,7 @@ class DevCommand extends ProteumCommand {
             action: action || 'start',
             port: this.port ?? '',
             cache: this.cache,
+            workdir: this.cwd ?? '',
             json: this.json,
             sessionFile: this.sessionFile ?? '',
             replaceExisting: this.replaceExisting,
