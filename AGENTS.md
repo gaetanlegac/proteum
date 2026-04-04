@@ -36,11 +36,12 @@ npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
 - Before retrying a boot on the same app, changing ports, or finishing the task, stop every framework-started dev session with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`.
 - If the task changed the dev workflow itself, verify the final cleanup path with `npx proteum dev list --json` before finishing.
 - When you have finished your work, summarize in one top-level short (up to 100 characters) sentence ALL the changes you made since the beginning of the WHOLE conversation. Strictly use the Conventional Commits specification:
-```
-Commit message: <type>[optional scope]: <description>
+  ```
+  Commit message: <type>[optional scope]: <description>
 
-[optional body]
-```
+  [optional body]
+  ```
+  If the user replies exactly `commit`, use that Conventional Commit message, stage the task-related changed files with `git add` while avoiding unrelated user changes or incidental untracked files, then create the commit by running `git commit`.
 
 ## Core Changes
 
