@@ -11,6 +11,12 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 
 ## Fast Triggers
 
+- If you are working in a newly created Proteum worktree, before following the rest of these instructions:
+  - Copy `.env` from the main worktree.
+  - Run `npx proteum refresh`.
+  - Read and acknowledge the applicable `AGENTS.md` files.
+  - Run `npm i`.
+  - Run the dev server with `npx proteum run`.
 - If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it.
 - If the task is ambiguous, generated, connected, or multi-repo, start with `npx proteum orient <query>` before reading large parts of the codebase.
 - If the user reports an issue, or the agent encounters one during exploration, implementation, verification, or runtime reproduction, load and follow project-root `diagnostics.md`.
