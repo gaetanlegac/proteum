@@ -2,7 +2,7 @@ import path from 'path';
 
 // Plugons
 import { rspack } from '@rspack/core';
-import type { Root } from 'postcss';
+import type { Declaration, Root } from 'postcss';
 
 import type { App } from '../../../app';
 
@@ -10,6 +10,17 @@ const normalizePath = (value: string) => path.resolve(value).replace(/\\/g, '/')
 
 const isPathInsideDirectory = (filepath: string, directory: string) =>
     filepath === directory || filepath.startsWith(directory + '/');
+
+const VENDOR_PROPERTY_PREFIXES = ['-webkit-', '-moz-', '-ms-', '-o-'] as const;
+const getVendorlessProperty = (property: string) => {
+    for (const prefix of VENDOR_PROPERTY_PREFIXES) {
+        if (property.startsWith(prefix)) return property.slice(prefix.length);
+    }
+
+    return property;
+};
+const isVendorPrefixedProperty = (property: string) =>
+    VENDOR_PROPERTY_PREFIXES.some((prefix) => property.startsWith(prefix));
 
 const createTailwindTranspileSourcesPlugin = (app: App) => {
     const appRoot = normalizePath(app.paths.root);
@@ -50,9 +61,42 @@ const createTailwindTranspileSourcesPlugin = (app: App) => {
     };
 };
 
+const createVendorPropertyOrderPlugin = () => {
+    return {
+        postcssPlugin: 'proteum-normalize-vendor-property-order',
+        Once(root: Root) {
+            root.walkRules((rule) => {
+                const declarations = (rule.nodes || []).filter((node): node is Declaration => node.type === 'decl');
+
+                for (const declaration of declarations) {
+                    if (isVendorPrefixedProperty(declaration.prop)) continue;
+
+                    const property = declaration.prop;
+                    let nextNode = declaration.next();
+
+                    // LightningCSS canonicalizes property aliases based on source order.
+                    // Keep prefixed declarations before the standard property so target-aware
+                    // minification preserves the right output for both old and modern browsers.
+                    while (nextNode && nextNode.type === 'decl' && getVendorlessProperty(nextNode.prop) === property) {
+                        const currentNextNode = nextNode;
+                        nextNode = currentNextNode.next();
+
+                        if (!isVendorPrefixedProperty(currentNextNode.prop)) continue;
+
+                        const reorderedDeclaration = currentNextNode.clone();
+                        currentNextNode.remove();
+                        rule.insertBefore(declaration, reorderedDeclaration);
+                    }
+                }
+            });
+        },
+    };
+};
+
 module.exports = (app: App, dev: boolean, _client: boolean) => {
     const enableSourceMaps = dev;
     const tailwindTranspileSourcesPlugin = createTailwindTranspileSourcesPlugin(app);
+    const vendorPropertyOrderPlugin = createVendorPropertyOrderPlugin();
 
     return [
         // Keep CSS delivery identical in dev and prod: extract files so SSR links stylesheets in both modes.
@@ -86,9 +130,10 @@ module.exports = (app: App, dev: boolean, _client: boolean) => {
                             // process is launched from another working directory (e.g. Docker).
                             base: app.paths.root,
 
-                            // Avoid double-minifying: Webpack already runs CssMinimizerPlugin in prod.
+                            // Avoid double-minifying: Rspack already runs LightningCssMinimizerRspackPlugin in prod.
                             optimize: false,
                         }),
+                        vendorPropertyOrderPlugin,
                         ///* Tailwind V3 */require('tailwindcss'),
                         require('autoprefixer'),
                     ],

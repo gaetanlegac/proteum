@@ -83,6 +83,26 @@ const isCoreSourceModule = (module: Module) => {
 
     return modulePath.startsWith(frameworkSourceRoot + '/') || modulePath.includes('/node_modules/proteum/');
 };
+const resolveLightningCssTargets = (app: App) => {
+    const browserslistConfig = app.packageJson.browserslist;
+
+    if (typeof browserslistConfig === 'string') return browserslistConfig;
+
+    if (Array.isArray(browserslistConfig) && browserslistConfig.every((target) => typeof target === 'string'))
+        return browserslistConfig;
+
+    if (!browserslistConfig || typeof browserslistConfig !== 'object') return undefined;
+
+    for (const env of ['production', 'defaults']) {
+        const targets = browserslistConfig[env];
+
+        if (typeof targets === 'string') return targets;
+
+        if (Array.isArray(targets) && targets.every((target) => typeof target === 'string')) return targets;
+    }
+
+    return undefined;
+};
 
 /*----------------------------------
 - CONFIG
@@ -100,6 +120,7 @@ export default function createCompiler(
         (rootPath, index, list) => list.indexOf(rootPath) === index,
     );
     const transpileModuleDirectories = app.transpileModuleDirectories;
+    const lightningCssTargets = resolveLightningCssTargets(app);
     const hmrClientEntry = path.join(frameworkSourceRoot, 'client', 'dev', 'hmr.ts');
 
     const commonConfig = createCommonConfig(app, 'client', mode, outputTarget);
@@ -320,7 +341,9 @@ export default function createCompiler(
                       removeAvailableModules: true,
                       minimizer: [
                           new rspack.SwcJsMinimizerRspackPlugin({}),
-                          new rspack.LightningCssMinimizerRspackPlugin({}),
+                          new rspack.LightningCssMinimizerRspackPlugin({
+                              ...(lightningCssTargets ? { minimizerOptions: { targets: lightningCssTargets } } : {}),
+                          }),
                       ],
                       nodeEnv: 'production',
                       sideEffects: true,
