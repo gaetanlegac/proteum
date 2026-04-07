@@ -1,6 +1,6 @@
 # Proteum Core
 
-This file governs work in the Proteum framework repository itself. For downstream app rules, use `agents/project/AGENTS.md`.
+This file governs work in the Proteum framework repository itself. For downstream app rules, use `agents/project/AGENTS.md` for the standalone app-root contract, or split between `agents/project/root/AGENTS.md` and `agents/project/app-root/AGENTS.md` in a monorepo.
 Role: keep only framework-repo instructions here.
 Keep here: core-repo priorities, framework change workflow, reference-app validation, and framework-specific constraints.
 Do not put here: downstream app implementation contracts, area-specific app rules, or repeated content that belongs in `agents/project/**`.
@@ -32,7 +32,9 @@ cd <worktree path>
 npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
 ```
 - After implementing a framework feature or change, do not stop at code edits. Boot both reference apps, exercise the affected flow with Playwright or the smallest real Proteum surface, run the relevant `proteum` diagnostics or perf commands, and confirm there is no meaningful regression in runtime behavior, performance, load size, SEO output, or coding-style expectations before finishing.
-- When starting a long-lived reference app dev server for framework work, prefer `npx proteum dev --session-file <path> --replace-existing --port <port>` so the session can be listed and stopped deterministically later.
+- When starting a long-lived reference app dev server for framework work, always request elevated permissions and run `npx proteum dev` outside the sandbox. Use an explicit thread-scoped session file such as `var/run/proteum/dev/framework-<app>-<task>.json`, inspect tracked sessions plus current listeners first, for example with `npx proteum dev list --json` and `lsof -nP -iTCP -sTCP:LISTEN`, then choose a port that is not currently used before starting `npx proteum dev --session-file <path> --port <port>`.
+- Do not use `--replace-existing` unless you are restarting the exact session file started by the current thread/task. Never replace another live session that belongs to a user, another thread, or an unknown owner.
+- When a reference app uses local `file:` connected projects for the affected flow, boot every connected producer app as well, each on its own free port and thread-scoped session file, and run every one of those `proteum dev` processes with elevated permissions outside the sandbox before starting or validating the consumer app.
 - Before retrying a boot on the same app, changing ports, or finishing the task, stop every framework-started dev session with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`.
 - If the task changed the dev workflow itself, verify the final cleanup path with `npx proteum dev list --json` before finishing.
 - When you have finished your work, summarize in one top-level short (up to 100 characters) sentence ALL the changes you made since the beginning of the WHOLE conversation. Strictly use the Conventional Commits specification:
@@ -51,9 +53,9 @@ npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
     - `/Users/gaetan/Desktop/Projets/unique.domains/platform/apps/product`
     - `/Users/gaetan/Desktop/Projets/unique.domains/platform/apps/website`
 - Inspect how both apps currently use the touched feature, runtime, API, compiler behavior, or generated output before proposing or implementing changes.
-- Keep the developer-facing contract synchronized when framework work changes CLI commands, profiler capabilities, or the `proteum dev` banner. Update the live surfaces together in the same pass: CLI command/help definitions, profiler panels and dev-only endpoints, banner text/examples, and the most relevant agent docs that describe them, especially `AGENTS.md`, `agents/project/AGENTS.md`, `agents/project/diagnostics.md`, and any narrower `agents/project/**/AGENTS.md` file that mentions the changed workflow.
+- Keep the developer-facing contract synchronized when framework work changes CLI commands, profiler capabilities, or the `proteum dev` banner. Update the live surfaces together in the same pass: CLI command/help definitions, profiler panels and dev-only endpoints, banner text/examples, and the most relevant agent docs that describe them, especially `AGENTS.md`, `agents/project/AGENTS.md`, `agents/project/root/AGENTS.md`, `agents/project/app-root/AGENTS.md`, `agents/project/diagnostics.md`, and any narrower `agents/project/**/AGENTS.md` file that mentions the changed workflow.
 - Current CLI banner contract: only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. Only `proteum dev` clears the interactive terminal before rendering, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI, and reports connected app names plus successful connected `/ping` checks in the ready banner.
-- Keep core changes aligned with the explicit controller/page architecture in `agents/project/AGENTS.md`.
+- Keep core changes aligned with the explicit controller/page architecture in `agents/project/root/AGENTS.md` and its standalone composition in `agents/project/AGENTS.md`.
 - Prefer removing framework magic when the same result can be expressed with explicit contracts, generated code, or typed context.
 - Apply the pruning rules from `agents/project/optimizations.md`, especially for webpack plugins, Babel plugins, aliases, helpers, runtime services, and npm packages that are not meaningfully used by both apps.
 - Remove dead docs, flags, helper files, and compatibility branches in the same pass when safe.
@@ -71,7 +73,8 @@ npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
 
 Do not stop at static analysis for routing, controllers, generated code, SSR, client runtime, services, webpack, Babel, or emitted assets.
 
-- Run `npx proteum dev --no-cache --replace-existing --session-file var/run/proteum/dev/framework-<app>.json --port 3xxx` in both reference apps on explicit ports.
+- Run `npx proteum dev --no-cache --session-file var/run/proteum/dev/framework-<app>.json --port <free-3xxx-port>` in both reference apps on explicit free ports and with elevated permissions outside the sandbox.
+- If either reference app uses local `file:` connected projects for the affected flow, run those producer apps too on their own free ports before exercising the consumer.
 - When validating a concrete route, controller path, or failing page on a running dev server, prefer `proteum diagnose <path> --port <port>` first. Use raw `proteum trace ...` output when you need lower-level event detail beyond the diagnose summary.
 - When the issue is latency, CPU, SQL cost, render cost, or memory drift, inspect `proteum perf top`, `proteum perf request`, `proteum perf compare`, or `proteum perf memory` against the running dev server before adding custom instrumentation.
 - When a framework change can affect shipped client code size, run `proteum build --prod --analyze` for static bundle artifacts or `proteum build --prod --analyze --analyze-serve --analyze-port auto` when you need a local analyzer URL.

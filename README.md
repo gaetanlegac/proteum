@@ -336,6 +336,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum session` | Mint a dev-only auth session token and Playwright-ready cookie payload |
 | `proteum verify` | Validate framework-facing workflows across one or more running dev apps; `framework-change` is the built-in cross-reference-app check |
 | `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
+| `proteum configure agents` | Interactively configure Proteum-managed instruction symlinks for standalone or monorepo apps |
 | `proteum create` | Scaffold a page, controller, command, route, or root service inside an app |
 
 Recommended daily workflow:
@@ -385,6 +386,7 @@ Useful scaffolding commands:
 ```bash
 proteum init my-app --name "My App"
 proteum init my-app --name "My App" --dry-run --json
+proteum configure agents
 proteum create page marketing/faq --route /faq
 proteum create controller Founder/projects --method list
 proteum create service Conversion/Plans
@@ -578,6 +580,7 @@ Then use the normal workflow:
 
 ```bash
 npm install
+npx proteum configure agents
 npx proteum dev
 npx proteum check
 npx proteum build --prod

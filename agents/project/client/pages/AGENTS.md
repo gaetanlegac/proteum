@@ -5,9 +5,9 @@ Role: keep only page-file rules here.
 Keep here: `Router.page(...)` registration, SSR `setup` and `render` contracts, page payload shape, and page-local typing rules.
 Do not put here: generic component rules, server/service implementation details, or app-wide workflow already covered by broader AGENTS files.
 
-Optimization source of truth: project-root `optimizations.md`.
-Diagnostics source of truth: project-root `diagnostics.md`.
-Coding style source of truth: project-root `CODING_STYLE.md`.
+Optimization source of truth: root-level `optimizations.md`.
+Diagnostics source of truth: root-level `diagnostics.md`.
+Coding style source of truth: root-level `CODING_STYLE.md`.
 
 ## Router.page Usage
 

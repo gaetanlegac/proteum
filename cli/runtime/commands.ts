@@ -74,6 +74,24 @@ class CreateCommand extends ProteumCommand {
     }
 }
 
+class ConfigureCommand extends ProteumCommand {
+    public static paths = [['configure']];
+
+    public static usage = buildUsage('configure');
+
+    public args = Option.Rest();
+
+    public async execute() {
+        const [action = '', ...restArgs] = this.args;
+
+        assertNoLegacyArgs('configure', restArgs);
+        this.setCliArgs({
+            action,
+        });
+        await runCommandModule(() => import('../commands/configure'));
+    }
+}
+
 class DevCommand extends ProteumCommand {
     public static paths = [['dev']];
 
@@ -559,6 +577,7 @@ class VerifyCommand extends ProteumCommand {
 export const registeredCommands = {
     init: InitCommand,
     create: CreateCommand,
+    configure: ConfigureCommand,
     dev: DevCommand,
     refresh: RefreshCommand,
     build: BuildCommand,
@@ -589,6 +608,7 @@ export const createCli = (version: string) => {
     clipanion.register(Builtins.DefinitionsCommand);
     clipanion.register(InitCommand);
     clipanion.register(CreateCommand);
+    clipanion.register(ConfigureCommand);
     clipanion.register(DevCommand);
     clipanion.register(RefreshCommand);
     clipanion.register(BuildCommand);

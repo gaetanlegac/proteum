@@ -100,7 +100,7 @@ export const renderCliOverview = async ({
                         const status = command.status === 'experimental' ? ' Experimental.' : '';
 
                         return {
-                            label: command.name === 'init' ? command.usage : `proteum ${command.name}`,
+                            label: command.name === 'init' || command.name === 'configure' ? command.usage : `proteum ${command.name}`,
                             value: `${command.summary}${status}${initNote}`,
                         };
                     }),

@@ -1,10 +1,9 @@
-# Proteum Project Contract
+# Proteum Root Contract
 
-This is the canonical standalone-app contract for Proteum-based projects shipped with Proteum. Narrower `AGENTS.md` files in this folder add area-specific rules on top of this file.
-When splitting instructions across a monorepo, put the Proteum-wide rules in the monorepo-root `AGENTS.md` and keep only app-root-specific additions in each Proteum app root `AGENTS.md`.
-Role: keep only project-wide app rules here when one root `AGENTS.md` must carry both the reusable Proteum contract and the app-root addendum.
-Keep here: cross-cutting project workflow, architecture contracts, shared typing rules, and rules that apply across client, server, pages, and tests.
-Do not put here: detailed diagnostics workflow, optimization checklists, coding-style details, or narrow area-specific instructions that belong in `diagnostics.md`, `optimizations.md`, `CODING_STYLE.md`, `client/AGENTS.md`, `client/pages/AGENTS.md`, `server/routes/AGENTS.md`, `server/services/AGENTS.md`, or `tests/AGENTS.md`.
+This is the reusable Proteum-wide contract that is safe to place at the root of a monorepo above one or more Proteum apps.
+Pair this file with an app-root `AGENTS.md` inside each Proteum app when local workflow or product-context instructions depend on the current directory being the app root.
+Role: keep only reusable Proteum workflow, architecture contracts, shared typing rules, and cross-surface verification rules here.
+Do not put here: app-root bootstrap steps, local product-doc reading rules, detailed diagnostics workflow, optimization checklists, coding-style details, or narrow area-specific instructions that belong in `diagnostics.md`, `optimizations.md`, `CODING_STYLE.md`, `client/AGENTS.md`, `client/pages/AGENTS.md`, `server/routes/AGENTS.md`, `server/services/AGENTS.md`, or `tests/AGENTS.md`.
 
 Optimization source of truth: root-level `optimizations.md`.
 Diagnostics source of truth: root-level `diagnostics.md`.
@@ -12,17 +11,10 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 
 ## Fast Triggers
 
-- If you are working in a newly created Proteum worktree, before following the rest of these instructions:
-  - Copy `.env` from the main worktree.
-  - Run `npx proteum refresh`.
-  - Read and acknowledge the applicable `AGENTS.md` files.
-  - Run `npm i`.
-  - Run the dev server with the task-safe elevated-permissions launch workflow from `Task Lifecycle`, and keep it running so user can see the results by himself.
 - If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it.
 - If the task is ambiguous, generated, connected, or multi-repo, start with `npx proteum orient <query>` before reading large parts of the codebase.
 - If the user reports an issue, or the agent encounters one during exploration, implementation, verification, or runtime reproduction, load and follow root-level `diagnostics.md`.
 - If the task touches client-side files, especially `client/**` and page files, load and apply root-level `optimizations.md` only after implementation for post-implementation checking and optimization. Skip it at task start and skip it for server-only, test-only, doc-only, and non-client refactor tasks unless the user explicitly asks for optimization work.
-- If the task changes UX, copy, onboarding, pricing, product semantics, or commercial positioning, read the relevant files under `./docs/` first, especially `docs/PERSONAS.md`, `docs/PRODUCT.md`, and `docs/MARKETING.md` when they exist. If a dev server is already running, print the dev server URL.
 - If the task needs new app or artifact boilerplate, prefer `npx proteum init ...` and `npx proteum create ...` before creating files by hand. Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.
 - If you changed `schema.prisma`, do not start testing or validation yet. Ask the user to run the following command in the affected worktree directory, replacing the placeholders, and wait for the user to reply exactly `continue` before resuming validation or tests:
   ```

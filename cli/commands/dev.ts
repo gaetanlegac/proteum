@@ -21,7 +21,6 @@ import {
 // Configs
 import Compiler from '../compiler';
 import { createDevEventServer } from './devEvents';
-import { ensureProjectAgentSymlinks } from '../utils/agents';
 import { renderDevSession, renderServerReadyBanner, renderDevShutdownBanner } from '../presentation/devSession';
 import { clearInteractiveConsole } from '../presentation/welcome';
 import {
@@ -557,7 +556,6 @@ const createIndexedSourceWatching = ({
 const runDevLoop = async () => {
     devSessionStopping = false;
     clearInteractiveConsole();
-    ensureProjectAgentSymlinks({ appRoot: app.paths.root, coreRoot: cli.paths.core.root });
     await ensureDevSessionSlot();
     const proteumInstall = resolveFrameworkInstallInfo({
         appRoot: app.paths.root,

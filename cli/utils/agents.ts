@@ -12,17 +12,33 @@ import { logVerbose } from '../runtime/verbose';
 ----------------------------------*/
 
 type TProjectInstructionArgs = { coreRoot: string };
-type TEnsureProjectAgentSymlinksArgs = { appRoot: string; coreRoot: string };
+type TConfigureProjectAgentSymlinksArgs = { appRoot: string; coreRoot: string; monorepoRoot?: string };
 
 type TAgentLinkDefinition = { projectPath: string; sourcePath: string; ensureParentDir?: boolean };
+
+type TEnsureSymlinksResult = {
+    blocked: string[];
+    created: string[];
+    skipped: string[];
+    updated: string[];
+};
+
+export type TConfigureProjectAgentSymlinksResult = {
+    appRoot: string;
+    blocked: string[];
+    created: string[];
+    monorepoRoot?: string;
+    mode: 'monorepo' | 'standalone';
+    skipped: string[];
+    updated: string[];
+    updatedGitignores: string[];
+};
 
 /*----------------------------------
 - CONSTANTS
 ----------------------------------*/
 
-// Project-local instruction entrypoints mapped to their canonical shipped source files.
-const projectAgentLinkDefinitions: TAgentLinkDefinition[] = [
-    { projectPath: 'AGENTS.md', sourcePath: 'AGENTS.md' },
+const sharedAppAgentLinkDefinitions: TAgentLinkDefinition[] = [
     { projectPath: 'CODING_STYLE.md', sourcePath: 'CODING_STYLE.md' },
     { projectPath: 'diagnostics.md', sourcePath: 'diagnostics.md' },
     { projectPath: 'optimizations.md', sourcePath: 'optimizations.md' },
@@ -35,6 +51,21 @@ const projectAgentLinkDefinitions: TAgentLinkDefinition[] = [
     { projectPath: path.join('server', 'routes', 'AGENTS.md'), sourcePath: path.join('server', 'routes', 'AGENTS.md') },
     { projectPath: path.join('tests', 'e2e', 'AGENTS.md'), sourcePath: path.join('tests', 'AGENTS.md') },
 ];
+
+const standaloneAppAgentLinkDefinitions: TAgentLinkDefinition[] = [
+    { projectPath: 'AGENTS.md', sourcePath: 'AGENTS.md' },
+    ...sharedAppAgentLinkDefinitions,
+];
+
+const monorepoAppAgentLinkDefinitions: TAgentLinkDefinition[] = [
+    { projectPath: 'AGENTS.md', sourcePath: path.join('app-root', 'AGENTS.md') },
+    ...sharedAppAgentLinkDefinitions,
+];
+
+const monorepoRootAgentLinkDefinitions: TAgentLinkDefinition[] = [
+    { projectPath: 'AGENTS.md', sourcePath: path.join('root', 'AGENTS.md') },
+];
+
 const projectInstructionGitignoreBlockStart = '# Proteum-managed instruction symlinks';
 const projectInstructionGitignoreBlockEnd = '# End Proteum-managed instruction symlinks';
 
@@ -42,71 +73,118 @@ const projectInstructionGitignoreBlockEnd = '# End Proteum-managed instruction s
 - PUBLIC API
 ----------------------------------*/
 
-export function ensureProjectAgentSymlinks({ appRoot, coreRoot }: TEnsureProjectAgentSymlinksArgs) {
-    ensureSymlinks(appRoot, getProjectAgentLinkDefinitions({ coreRoot }), '[agents]');
-    ensureSymlinks(appRoot, getProjectSkillLinkDefinitions({ coreRoot }), '[skills]');
-    ensureProjectInstructionGitignoreEntries({ appRoot, coreRoot });
+export function configureProjectAgentSymlinks({
+    appRoot,
+    coreRoot,
+    monorepoRoot,
+}: TConfigureProjectAgentSymlinksArgs): TConfigureProjectAgentSymlinksResult {
+    const normalizedAppRoot = path.resolve(appRoot);
+    const normalizedMonorepoRoot = monorepoRoot ? path.resolve(monorepoRoot) : undefined;
+    const mode =
+        normalizedMonorepoRoot && normalizedMonorepoRoot !== normalizedAppRoot ? ('monorepo' as const) : ('standalone' as const);
+    const result: TConfigureProjectAgentSymlinksResult = {
+        appRoot: normalizedAppRoot,
+        blocked: [],
+        created: [],
+        mode,
+        skipped: [],
+        updated: [],
+        updatedGitignores: [],
+    };
+
+    if (mode === 'monorepo' && normalizedMonorepoRoot) {
+        result.monorepoRoot = normalizedMonorepoRoot;
+
+        const rootLinks = getRootAgentLinkDefinitions({ coreRoot });
+        const rootSymlinks = ensureSymlinks(normalizedMonorepoRoot, rootLinks, '[agents]', path.join(coreRoot, 'agents', 'project'));
+        mergeSymlinkResults(result, rootSymlinks, normalizedMonorepoRoot);
+
+        if (ensureInstructionGitignoreEntries({ rootDir: normalizedMonorepoRoot, linkDefinitions: rootLinks }))
+            result.updatedGitignores.push(path.join(normalizedMonorepoRoot, '.gitignore'));
+    }
+
+    const appLinks = getAppAgentLinkDefinitions({ coreRoot, mode });
+    const appSymlinks = ensureSymlinks(normalizedAppRoot, appLinks, '[agents]', path.join(coreRoot, 'agents', 'project'));
+    mergeSymlinkResults(result, appSymlinks, normalizedAppRoot);
+
+    if (ensureInstructionGitignoreEntries({ rootDir: normalizedAppRoot, linkDefinitions: appLinks }))
+        result.updatedGitignores.push(path.join(normalizedAppRoot, '.gitignore'));
+
+    return result;
 }
 
 export function getProjectInstructionGitignoreEntries({ coreRoot }: TProjectInstructionArgs) {
-    const entries = new Set<string>();
-
-    for (const linkDefinition of [
-        ...getProjectAgentLinkDefinitions({ coreRoot }),
-        ...getProjectSkillLinkDefinitions({ coreRoot }),
-    ]) {
-        entries.add(`/${normalizeProjectPathForGitignore(linkDefinition.projectPath)}`);
-    }
-
-    return Array.from(entries);
+    return Array.from(
+        new Set(
+            getAppAgentLinkDefinitions({ coreRoot, mode: 'standalone' }).map((linkDefinition) =>
+                `/${normalizeProjectPathForGitignore(linkDefinition.projectPath)}`,
+            ),
+        ),
+    );
 }
 
 export function renderProjectInstructionGitignoreBlock({ coreRoot }: TProjectInstructionArgs) {
-    return [
-        projectInstructionGitignoreBlockStart,
-        ...getProjectInstructionGitignoreEntries({ coreRoot }),
-        projectInstructionGitignoreBlockEnd,
-    ].join('\n');
+    return renderInstructionGitignoreBlock({ linkDefinitions: getAppAgentLinkDefinitions({ coreRoot, mode: 'standalone' }) });
 }
 
 /*----------------------------------
 - HELPERS
 ----------------------------------*/
 
-function getProjectAgentLinkDefinitions({ coreRoot }: TProjectInstructionArgs) {
+function getAppAgentLinkDefinitions({
+    coreRoot,
+    mode,
+}: TProjectInstructionArgs & { mode: 'monorepo' | 'standalone' }) {
     const agentSourceRoot = path.join(coreRoot, 'agents', 'project');
+    const sourceDefinitions = mode === 'monorepo' ? monorepoAppAgentLinkDefinitions : standaloneAppAgentLinkDefinitions;
 
-    return projectAgentLinkDefinitions.map((linkDefinition) => ({
+    return resolveAgentLinkDefinitions({
+        agentSourceRoot,
+        linkDefinitions: sourceDefinitions,
+    });
+}
+
+function getRootAgentLinkDefinitions({ coreRoot }: TProjectInstructionArgs) {
+    return resolveAgentLinkDefinitions({
+        agentSourceRoot: path.join(coreRoot, 'agents', 'project'),
+        linkDefinitions: monorepoRootAgentLinkDefinitions,
+    });
+}
+
+function resolveAgentLinkDefinitions({
+    agentSourceRoot,
+    linkDefinitions,
+}: {
+    agentSourceRoot: string;
+    linkDefinitions: TAgentLinkDefinition[];
+}) {
+    return linkDefinitions.map((linkDefinition) => ({
         ...linkDefinition,
         sourcePath: path.join(agentSourceRoot, linkDefinition.sourcePath),
     }));
 }
 
-function getProjectSkillLinkDefinitions({ coreRoot }: TProjectInstructionArgs) {
-    const frameworkSkillsRoot = path.join(coreRoot, 'skills');
-    if (!fs.existsSync(frameworkSkillsRoot)) return [];
+function renderInstructionGitignoreBlock({ linkDefinitions }: { linkDefinitions: TAgentLinkDefinition[] }) {
+    const entries = Array.from(
+        new Set(linkDefinitions.map((linkDefinition) => `/${normalizeProjectPathForGitignore(linkDefinition.projectPath)}`)),
+    );
 
-    return fs
-        .readdirSync(frameworkSkillsRoot, { withFileTypes: true })
-        .filter((dirent) => dirent.isDirectory())
-        .sort((left, right) => left.name.localeCompare(right.name))
-        .map((dirent) => ({
-            projectPath: path.join('skills', dirent.name),
-            sourcePath: path.join(frameworkSkillsRoot, dirent.name),
-            ensureParentDir: true,
-        }))
-        .filter((linkDefinition) => pathEntryExists(path.join(linkDefinition.sourcePath, 'SKILL.md')));
+    return [projectInstructionGitignoreBlockStart, ...entries, projectInstructionGitignoreBlockEnd].join('\n');
 }
 
-function ensureProjectInstructionGitignoreEntries({ appRoot, coreRoot }: TEnsureProjectAgentSymlinksArgs) {
-    const gitignoreFilepath = path.join(appRoot, '.gitignore');
-    if (!pathEntryExists(gitignoreFilepath)) return;
+function ensureInstructionGitignoreEntries({
+    rootDir,
+    linkDefinitions,
+}: {
+    rootDir: string;
+    linkDefinitions: TAgentLinkDefinition[];
+}) {
+    const gitignoreFilepath = path.join(rootDir, '.gitignore');
+    if (!pathEntryExists(gitignoreFilepath)) return false;
 
-    const managedEntries = getProjectInstructionGitignoreEntries({ coreRoot });
-    const managedNormalizedEntries = new Set(managedEntries.map(normalizeGitignoreEntry));
+    const managedEntries = new Set(linkDefinitions.map((linkDefinition) => normalizeGitignoreEntry(linkDefinition.projectPath)));
     const lines = fs.readFileSync(gitignoreFilepath, 'utf8').split(/\r?\n/);
     const filteredLines: string[] = [];
-
     let insideManagedBlock = false;
 
     for (const line of lines) {
@@ -123,41 +201,136 @@ function ensureProjectInstructionGitignoreEntries({ appRoot, coreRoot }: TEnsure
         }
 
         if (insideManagedBlock) continue;
-        if (shouldSkipLegacyManagedGitignoreLine(line, managedNormalizedEntries)) continue;
+        if (shouldSkipLegacyManagedGitignoreLine(line, managedEntries)) continue;
 
         filteredLines.push(line);
     }
 
     const baseContent = trimTrailingBlankLines(filteredLines).join('\n');
-    const managedBlock = renderProjectInstructionGitignoreBlock({ coreRoot });
+    const managedBlock = renderInstructionGitignoreBlock({ linkDefinitions });
     const nextContent = baseContent ? `${baseContent}\n\n${managedBlock}\n` : `${managedBlock}\n`;
 
-    if (nextContent === fs.readFileSync(gitignoreFilepath, 'utf8')) return;
+    if (nextContent === fs.readFileSync(gitignoreFilepath, 'utf8')) return false;
 
     fs.writeFileSync(gitignoreFilepath, nextContent);
-    logVerbose(`[agents] Updated ${path.relative(appRoot, gitignoreFilepath) || '.gitignore'} with Proteum-managed instruction ignore entries.`);
+    logVerbose(`[agents] Updated ${path.relative(rootDir, gitignoreFilepath) || '.gitignore'} with Proteum-managed instruction ignore entries.`);
+
+    return true;
 }
 
-function ensureSymlinks(appRoot: string, linkDefinitions: TAgentLinkDefinition[], logPrefix: string) {
+function ensureSymlinks(
+    rootDir: string,
+    linkDefinitions: TAgentLinkDefinition[],
+    logPrefix: string,
+    managedSourceRoot: string,
+): TEnsureSymlinksResult {
+    const result: TEnsureSymlinksResult = {
+        blocked: [],
+        created: [],
+        skipped: [],
+        updated: [],
+    };
+
     for (const linkDefinition of linkDefinitions) {
-        const projectFilepath = path.join(appRoot, linkDefinition.projectPath);
+        const projectFilepath = path.join(rootDir, linkDefinition.projectPath);
         const projectParentDir = path.dirname(projectFilepath);
+        const relativeProjectPath = path.relative(rootDir, projectFilepath) || '.';
 
         if (linkDefinition.ensureParentDir) fs.ensureDirSync(projectParentDir);
-        else if (!fs.existsSync(projectParentDir)) continue;
-
-        if (pathEntryExists(projectFilepath)) continue;
+        else if (!fs.existsSync(projectParentDir)) {
+            result.skipped.push(relativeProjectPath);
+            continue;
+        }
 
         const sourceFilepath = linkDefinition.sourcePath;
-        if (!fs.existsSync(sourceFilepath)) {
-            throw new Error(`Missing project instruction asset: ${sourceFilepath}`);
+        if (!fs.existsSync(sourceFilepath)) throw new Error(`Missing project instruction asset: ${sourceFilepath}`);
+
+        const existingState = inspectExistingPath({
+            managedSourceRoot,
+            projectFilepath,
+            sourceFilepath,
+        });
+
+        if (existingState.kind === 'match') {
+            result.skipped.push(relativeProjectPath);
+            continue;
+        }
+
+        if (existingState.kind === 'blocked') {
+            result.blocked.push(relativeProjectPath);
+            continue;
         }
 
         const symlinkTarget = path.relative(projectParentDir, sourceFilepath);
-        fs.symlinkSync(symlinkTarget, projectFilepath);
 
-        logVerbose(`${logPrefix} Created ${path.relative(appRoot, projectFilepath) || '.'} -> ${symlinkTarget}`);
+        if (existingState.kind === 'managed-different') {
+            fs.unlinkSync(projectFilepath);
+            fs.symlinkSync(symlinkTarget, projectFilepath);
+            result.updated.push(relativeProjectPath);
+            logVerbose(`${logPrefix} Updated ${relativeProjectPath} -> ${symlinkTarget}`);
+            continue;
+        }
+
+        fs.symlinkSync(symlinkTarget, projectFilepath);
+        result.created.push(relativeProjectPath);
+        logVerbose(`${logPrefix} Created ${relativeProjectPath} -> ${symlinkTarget}`);
     }
+
+    return result;
+}
+
+function inspectExistingPath({
+    managedSourceRoot,
+    projectFilepath,
+    sourceFilepath,
+}: {
+    managedSourceRoot: string;
+    projectFilepath: string;
+    sourceFilepath: string;
+}) {
+    if (!pathEntryExists(projectFilepath)) return { kind: 'missing' as const };
+
+    const stats = fs.lstatSync(projectFilepath);
+    if (!stats.isSymbolicLink()) return { kind: 'blocked' as const };
+
+    const existingTarget = resolveSymlinkTarget(projectFilepath);
+    const normalizedExistingTarget = normalizeAbsolutePath(existingTarget);
+    const normalizedSourceFilepath = normalizeAbsolutePath(sourceFilepath);
+    const normalizedManagedSourceRoot = normalizeAbsolutePath(managedSourceRoot);
+
+    if (normalizedExistingTarget === normalizedSourceFilepath) return { kind: 'match' as const };
+    if (
+        normalizedExistingTarget === normalizedManagedSourceRoot ||
+        normalizedExistingTarget.startsWith(`${normalizedManagedSourceRoot}/`)
+    )
+        return { kind: 'managed-different' as const };
+
+    return { kind: 'blocked' as const };
+}
+
+function resolveSymlinkTarget(projectFilepath: string) {
+    const projectParentDir = path.dirname(projectFilepath);
+    const rawTarget = fs.readlinkSync(projectFilepath);
+    return path.resolve(projectParentDir, rawTarget);
+}
+
+function mergeSymlinkResults(
+    result: TConfigureProjectAgentSymlinksResult,
+    next: TEnsureSymlinksResult,
+    rootDir: string,
+) {
+    result.created.push(...next.created.map((entry) => formatResultPath(rootDir, entry)));
+    result.updated.push(...next.updated.map((entry) => formatResultPath(rootDir, entry)));
+    result.skipped.push(...next.skipped.map((entry) => formatResultPath(rootDir, entry)));
+    result.blocked.push(...next.blocked.map((entry) => formatResultPath(rootDir, entry)));
+}
+
+function formatResultPath(rootDir: string, relativePath: string) {
+    return normalizeProjectPathForGitignore(path.join(rootDir, relativePath));
+}
+
+function normalizeAbsolutePath(filepath: string) {
+    return filepath.replace(/\\/g, '/');
 }
 
 function normalizeProjectPathForGitignore(projectPath: string) {

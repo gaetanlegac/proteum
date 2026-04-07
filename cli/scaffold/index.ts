@@ -5,7 +5,7 @@ import { UsageError } from 'clipanion';
 
 import cli from '..';
 import { loadApplicationIdentityConfig } from '../../common/applicationConfigLoader';
-import { ensureProjectAgentSymlinks, renderProjectInstructionGitignoreBlock } from '../utils/agents';
+import { renderProjectInstructionGitignoreBlock } from '../utils/agents';
 import { runProcess } from '../utils/runProcess';
 import {
     createClientTsconfigTemplate,
@@ -705,7 +705,6 @@ export const runInitScaffold = async () => {
     if (!result.dryRun) {
         fs.ensureDirSync(path.join(appRoot, 'client'));
         fs.ensureDirSync(path.join(appRoot, 'server'));
-        ensureProjectAgentSymlinks({ appRoot, coreRoot: cli.paths.core.root });
     }
 
     if (config.install) {
@@ -728,6 +727,7 @@ export const runInitScaffold = async () => {
               ? 'Run `npm run dev` in the new app directory.'
               : 'Run `npm install`, then `npm run dev` in the new app directory.',
     );
+    result.nextSteps.push('Run `proteum configure agents` when you want Proteum-managed instruction symlinks.');
     result.nextSteps.push('Use `proteum create page|controller|command|route|service ...` to add app artifacts.');
 
     printResult(result, createInitSummary(result, config));

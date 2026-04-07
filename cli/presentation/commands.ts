@@ -6,6 +6,7 @@ import type { TRow } from './layout';
 export const proteumCommandNames = [
     'init',
     'create',
+    'configure',
     'dev',
     'refresh',
     'build',
@@ -55,7 +56,7 @@ export const proteumCommandGroups: Array<{ title: string; names: TProteumCommand
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
     { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'trace', 'command', 'session', 'verify'] },
-    { title: 'Project scaffolding', names: ['init', 'create'] },
+    { title: 'Project scaffolding', names: ['init', 'configure', 'create'] },
 ];
 
 export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = {
@@ -104,6 +105,27 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'Page scaffolds write `client/pages/**/index.tsx` and default the route path from the logical target path unless `--route` is provided.',
             'Service scaffolds create `server/services/**/index.ts`, a typed config export under `server/config/*.ts`, and then try to register the new root service in `server/index.ts`.',
             'Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.',
+        ],
+        status: 'experimental',
+    },
+    configure: {
+        name: 'configure',
+        category: 'Project scaffolding',
+        summary: 'Interactively configure Proteum-managed instruction symlinks for a standalone app or monorepo app root.',
+        usage: 'proteum configure agents',
+        bestFor:
+            'Creating or switching the managed `AGENTS.md` instruction layout intentionally instead of having `init` or `dev` write symlinks implicitly.',
+        examples: [
+            {
+                description: 'Configure instruction symlinks for the current standalone app',
+                command: 'proteum configure agents',
+            },
+        ],
+        notes: [
+            'This command is interactive. It asks whether the current Proteum app belongs to a monorepo and, if so, which ancestor path should receive the reusable root `AGENTS.md` symlink.',
+            'Standalone mode writes the full app-root instruction set into the current Proteum app root.',
+            'Monorepo mode writes the reusable root `AGENTS.md` into the chosen monorepo root and switches the current app root `AGENTS.md` to the app-root addendum.',
+            'Existing non-managed files are never overwritten; Proteum only creates missing symlinks or updates symlinks it already manages.',
         ],
         status: 'experimental',
     },

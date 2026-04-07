@@ -3,11 +3,11 @@
 This is the canonical client-area contract for Proteum-based projects.
 Role: keep only client-area rules here.
 Keep here: client component, hook, design-system, accessibility, and client-context usage rules that apply beyond a single page.
-Do not put here: page `setup` and route-registration details, server/service rules, or generic project workflow already covered by the project-root `AGENTS.md`.
+Do not put here: page `setup` and route-registration details, server/service rules, or generic project workflow already covered by broader ancestor `AGENTS.md` files.
 
-Optimization source of truth: project-root `optimizations.md`.
-Diagnostics source of truth: project-root `diagnostics.md`.
-Coding style source of truth: project-root `CODING_STYLE.md`.
+Optimization source of truth: root-level `optimizations.md`.
+Diagnostics source of truth: root-level `diagnostics.md`.
+Coding style source of truth: root-level `CODING_STYLE.md`.
 
 ## Stack
 
@@ -39,4 +39,4 @@ Coding style source of truth: project-root `CODING_STYLE.md`.
 - Keep one component per file.
 - Load data and define handlers in the directly concerned component when that keeps ownership clearer.
 - Keep curated lists, option registries, and UI copy catalogs under `/client/catalogs/**`.
-- Follow the section-comment format from the project-root `CODING_STYLE.md`.
+- Follow the section-comment format from the root-level `CODING_STYLE.md`.

@@ -5,8 +5,8 @@ Role: keep only service-layer rules here.
 Keep here: service placement, service responsibilities, model access, query-shaping, return-type guidance, and service error-handling rules.
 Do not put here: request parsing, page/render rules, controller transport details, or broad project workflow already defined in higher-level AGENTS files.
 
-Optimization source of truth: project-root `optimizations.md`.
-Diagnostics source of truth: project-root `diagnostics.md`.
+Optimization source of truth: root-level `optimizations.md`.
+Diagnostics source of truth: root-level `diagnostics.md`.
 
 ## Placement
 
