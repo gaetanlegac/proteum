@@ -336,7 +336,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum session` | Mint a dev-only auth session token and Playwright-ready cookie payload |
 | `proteum verify` | Validate framework-facing workflows across one or more running dev apps; `framework-change` is the built-in cross-reference-app check |
 | `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
-| `proteum configure agents` | Interactively configure Proteum-managed instruction symlinks for standalone or monorepo apps |
+| `proteum configure agents` | Interactively configure Proteum-managed instruction symlinks and confirm overwrites for standalone or monorepo apps |
 | `proteum create` | Scaffold a page, controller, command, route, or root service inside an app |
 
 Recommended daily workflow:
@@ -391,6 +391,8 @@ proteum create page marketing/faq --route /faq
 proteum create controller Founder/projects --method list
 proteum create service Conversion/Plans
 ```
+
+`proteum configure agents` asks before replacing any existing non-managed instruction file or foreign symlink. If you decline, that path is left untouched.
 
 `proteum connect`, `proteum explain`, `proteum doctor`, and `proteum diagnose` share the same generated manifest and contract state. `proteum perf` uses the same dev request-trace store as the profiler `Perf` tab. For the full diagnostics and tracing model, see [docs/diagnostics.md](docs/diagnostics.md) and [docs/request-tracing.md](docs/request-tracing.md).
 

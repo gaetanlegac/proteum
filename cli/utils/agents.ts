@@ -12,13 +12,20 @@ import { logVerbose } from '../runtime/verbose';
 ----------------------------------*/
 
 type TProjectInstructionArgs = { coreRoot: string };
-type TConfigureProjectAgentSymlinksArgs = { appRoot: string; coreRoot: string; monorepoRoot?: string };
+type TConfigureProjectAgentSymlinksArgs = {
+    appRoot: string;
+    coreRoot: string;
+    dryRun?: boolean;
+    monorepoRoot?: string;
+    overwriteBlockedPaths?: string[];
+};
 
 type TAgentLinkDefinition = { projectPath: string; sourcePath: string; ensureParentDir?: boolean };
 
 type TEnsureSymlinksResult = {
     blocked: string[];
     created: string[];
+    overwritten: string[];
     skipped: string[];
     updated: string[];
 };
@@ -29,6 +36,7 @@ export type TConfigureProjectAgentSymlinksResult = {
     created: string[];
     monorepoRoot?: string;
     mode: 'monorepo' | 'standalone';
+    overwritten: string[];
     skipped: string[];
     updated: string[];
     updatedGitignores: string[];
@@ -76,10 +84,15 @@ const projectInstructionGitignoreBlockEnd = '# End Proteum-managed instruction s
 export function configureProjectAgentSymlinks({
     appRoot,
     coreRoot,
+    dryRun = false,
     monorepoRoot,
+    overwriteBlockedPaths = [],
 }: TConfigureProjectAgentSymlinksArgs): TConfigureProjectAgentSymlinksResult {
     const normalizedAppRoot = path.resolve(appRoot);
     const normalizedMonorepoRoot = monorepoRoot ? path.resolve(monorepoRoot) : undefined;
+    const normalizedOverwriteBlockedPaths = new Set(
+        overwriteBlockedPaths.map((blockedPath) => normalizeAbsolutePath(path.resolve(blockedPath))),
+    );
     const mode =
         normalizedMonorepoRoot && normalizedMonorepoRoot !== normalizedAppRoot ? ('monorepo' as const) : ('standalone' as const);
     const result: TConfigureProjectAgentSymlinksResult = {
@@ -87,6 +100,7 @@ export function configureProjectAgentSymlinks({
         blocked: [],
         created: [],
         mode,
+        overwritten: [],
         skipped: [],
         updated: [],
         updatedGitignores: [],
@@ -96,18 +110,24 @@ export function configureProjectAgentSymlinks({
         result.monorepoRoot = normalizedMonorepoRoot;
 
         const rootLinks = getRootAgentLinkDefinitions({ coreRoot });
-        const rootSymlinks = ensureSymlinks(normalizedMonorepoRoot, rootLinks, '[agents]', path.join(coreRoot, 'agents', 'project'));
+        const rootSymlinks = ensureSymlinks(normalizedMonorepoRoot, rootLinks, '[agents]', path.join(coreRoot, 'agents', 'project'), {
+            dryRun,
+            overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
+        });
         mergeSymlinkResults(result, rootSymlinks, normalizedMonorepoRoot);
 
-        if (ensureInstructionGitignoreEntries({ rootDir: normalizedMonorepoRoot, linkDefinitions: rootLinks }))
+        if (!dryRun && ensureInstructionGitignoreEntries({ rootDir: normalizedMonorepoRoot, linkDefinitions: rootLinks }))
             result.updatedGitignores.push(path.join(normalizedMonorepoRoot, '.gitignore'));
     }
 
     const appLinks = getAppAgentLinkDefinitions({ coreRoot, mode });
-    const appSymlinks = ensureSymlinks(normalizedAppRoot, appLinks, '[agents]', path.join(coreRoot, 'agents', 'project'));
+    const appSymlinks = ensureSymlinks(normalizedAppRoot, appLinks, '[agents]', path.join(coreRoot, 'agents', 'project'), {
+        dryRun,
+        overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
+    });
     mergeSymlinkResults(result, appSymlinks, normalizedAppRoot);
 
-    if (ensureInstructionGitignoreEntries({ rootDir: normalizedAppRoot, linkDefinitions: appLinks }))
+    if (!dryRun && ensureInstructionGitignoreEntries({ rootDir: normalizedAppRoot, linkDefinitions: appLinks }))
         result.updatedGitignores.push(path.join(normalizedAppRoot, '.gitignore'));
 
     return result;
@@ -223,10 +243,18 @@ function ensureSymlinks(
     linkDefinitions: TAgentLinkDefinition[],
     logPrefix: string,
     managedSourceRoot: string,
+    {
+        dryRun,
+        overwriteBlockedPaths,
+    }: {
+        dryRun: boolean;
+        overwriteBlockedPaths: Set<string>;
+    },
 ): TEnsureSymlinksResult {
     const result: TEnsureSymlinksResult = {
         blocked: [],
         created: [],
+        overwritten: [],
         skipped: [],
         updated: [],
     };
@@ -256,7 +284,8 @@ function ensureSymlinks(
             continue;
         }
 
-        if (existingState.kind === 'blocked') {
+        const normalizedProjectFilepath = normalizeAbsolutePath(projectFilepath);
+        if (existingState.kind === 'blocked' && !overwriteBlockedPaths.has(normalizedProjectFilepath)) {
             result.blocked.push(relativeProjectPath);
             continue;
         }
@@ -264,14 +293,26 @@ function ensureSymlinks(
         const symlinkTarget = path.relative(projectParentDir, sourceFilepath);
 
         if (existingState.kind === 'managed-different') {
-            fs.unlinkSync(projectFilepath);
-            fs.symlinkSync(symlinkTarget, projectFilepath);
+            if (!dryRun) {
+                fs.unlinkSync(projectFilepath);
+                fs.symlinkSync(symlinkTarget, projectFilepath);
+            }
             result.updated.push(relativeProjectPath);
             logVerbose(`${logPrefix} Updated ${relativeProjectPath} -> ${symlinkTarget}`);
             continue;
         }
 
-        fs.symlinkSync(symlinkTarget, projectFilepath);
+        if (existingState.kind === 'blocked') {
+            if (!dryRun) {
+                fs.removeSync(projectFilepath);
+                fs.symlinkSync(symlinkTarget, projectFilepath);
+            }
+            result.overwritten.push(relativeProjectPath);
+            logVerbose(`${logPrefix} Replaced ${relativeProjectPath} -> ${symlinkTarget}`);
+            continue;
+        }
+
+        if (!dryRun) fs.symlinkSync(symlinkTarget, projectFilepath);
         result.created.push(relativeProjectPath);
         logVerbose(`${logPrefix} Created ${relativeProjectPath} -> ${symlinkTarget}`);
     }
@@ -320,6 +361,7 @@ function mergeSymlinkResults(
     rootDir: string,
 ) {
     result.created.push(...next.created.map((entry) => formatResultPath(rootDir, entry)));
+    result.overwritten.push(...next.overwritten.map((entry) => formatResultPath(rootDir, entry)));
     result.updated.push(...next.updated.map((entry) => formatResultPath(rootDir, entry)));
     result.skipped.push(...next.skipped.map((entry) => formatResultPath(rootDir, entry)));
     result.blocked.push(...next.blocked.map((entry) => formatResultPath(rootDir, entry)));
