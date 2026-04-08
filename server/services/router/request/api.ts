@@ -107,7 +107,7 @@ export default class ApiClientRequest extends RequestService implements ApiClien
             throw new Error(
                 `Proteum connected boundary mismatch: "${connected.namespace}" is not registered on ${this.request.router.app.identity.identifier}. ` +
                     `Likely fix: declare connect.${connected.namespace} in proteum.config.ts for the consumer app or stop using that connected controller accessor here. ` +
-                    `Re-check both SSR and client navigation if this fetcher is used from a page setup or render path.`,
+                    `Re-check both SSR and client navigation if this fetcher is used from a page data or render path.`,
             );
         }
 

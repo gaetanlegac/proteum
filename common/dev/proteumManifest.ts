@@ -87,7 +87,7 @@ export type TProteumManifestRoute = {
     invalidOptionKeys: string[];
     reservedOptionKeys: string[];
     optionsRaw?: string;
-    hasSetup: boolean;
+    hasData: boolean;
     chunkId?: string;
     chunkFilepath?: string;
     scope: TProteumManifestScope;
@@ -102,7 +102,7 @@ export type TProteumManifestLayout = {
 };
 
 export type TProteumManifest = {
-    version: 9;
+    version: 10;
     app: {
         root: string;
         coreRoot: string;
@@ -126,8 +126,8 @@ export type TProteumManifest = {
         };
     };
     conventions: {
-        routeSetupOptionKeys: string[];
-        reservedRouteSetupKeys: string[];
+        routeOptionKeys: string[];
+        reservedRouteOptionKeys: string[];
     };
     env: {
         source: string;

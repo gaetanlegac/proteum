@@ -27,7 +27,7 @@ export class CLIContext {
         const workdir =
             typeof args.workdir === 'string' && args.workdir.trim().length > 0 ? args.workdir.trim() : process.cwd();
 
-        this.args = { workdir, ...args, workdir };
+        this.args = { ...args, workdir };
         this.paths = new Paths(workdir, this.paths.core.root);
         this.paths.applyAliases();
         this.verbose = this.args.verbose === true;

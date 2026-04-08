@@ -222,6 +222,7 @@ export default class ServerRouter<
             const methodName = match ? match[2] : '<anonymous>';*/
 
             const contextData = context.getStore() || { channelType: 'master' };
+            if (contextData.silentLogs) return;
 
             const requestPrefix =
                 contextData.channelType === 'request'
@@ -273,21 +274,18 @@ export default class ServerRouter<
 
     public async renderStatic(url: string, options: TRouteOptions['static'], rendered?: any) {
         // Wildcard: tell that the newly rendered pages should be cached
-        if (url === '*' || !url) return;
+        if (url === '*' || !url) throw new Error(`Unable to cache a dynamic or empty URL.`);
 
-        if (!rendered) {
-            console.log('[router] renderStatic: url', url);
-
+        if (rendered === undefined) {
             const fullUrl = this.url(url, {}, true);
             const response = await got(fullUrl, {
                 method: 'GET',
-                headers: { Accept: 'text/html', bypasscache: '1' },
+                headers: { Accept: 'text/html', bypasscache: '1', 'x-proteum-static-warmup': '1' },
                 throwHttpErrors: false,
             });
 
             if (response.statusCode !== 200) {
-                console.error('[router] renderStatic: page returned code', response.statusCode, fullUrl);
-                return;
+                throw new Error(`Static render returned ${response.statusCode} for ${fullUrl}`);
             }
 
             rendered = response.body;
@@ -302,16 +300,49 @@ export default class ServerRouter<
 
     private initStaticRoutes() {
         this.clearStaticRoutesRefreshInterval();
+        const staticEntries: Array<{ routePath: string; url: string; options: TRouteOptions['static'] }> = [];
+        const seenStaticUrls = new Set<string>();
 
         for (const route of this.routes) {
+            if (route.method !== 'GET' || route.options.accept !== 'html') continue;
+
             if (!route.options.static) continue;
 
             // Add to static pages
             // Should be a GET oage that don't take any parameter
             for (const url of route.options.static.urls) {
-                this.renderStatic(url, route.options.static);
+                if (!url || url === '*' || seenStaticUrls.has(url)) continue;
+
+                staticEntries.push({
+                    routePath: route.path || '(unknown route)',
+                    url,
+                    options: route.options.static,
+                });
+                seenStaticUrls.add(url);
             }
         }
+
+        void (async () => {
+            const warmedUrls: string[] = [];
+            let failedCount = 0;
+
+            for (const entry of staticEntries) {
+                try {
+                    await this.renderStatic(entry.url, entry.options);
+                    warmedUrls.push(entry.url);
+                } catch (error) {
+                    failedCount += 1;
+                    console.error('[router] Static warmup failed', entry.url, `route=${entry.routePath}`, error);
+                }
+            }
+
+            console.log(
+                '[router] Static warmup finished',
+                `warmed=${warmedUrls.length}`,
+                `failed=${failedCount}`,
+                `urls=${warmedUrls.length > 0 ? warmedUrls.join(', ') : 'none'}`,
+            );
+        })();
 
         // Every hours, refresh static pages
         this.staticRoutesRefreshInterval = setInterval(
@@ -328,7 +359,9 @@ export default class ServerRouter<
         for (const pageUrl in this.cache) {
             const page = this.cache[pageUrl];
             if (page.expire && page.expire < Date.now()) {
-                this.renderStatic(pageUrl, page.options);
+                void this.renderStatic(pageUrl, page.options).catch((error) => {
+                    console.error('[router] Static refresh failed', pageUrl, error);
+                });
             }
         }
     }
@@ -383,7 +416,7 @@ export default class ServerRouter<
     ----------------------------------*/
 
     public page(...args: TRegisterPageArgs<any, TRouteOptions>) {
-        const { path, options, setup, renderer, layout } = getRegisterPageArgs(...args);
+        const { path, options, data, renderer, layout } = getRegisterPageArgs(...args);
 
         const { regex, keys } = buildRegex(path);
 
@@ -392,10 +425,10 @@ export default class ServerRouter<
             path,
             regex,
             keys,
+            data,
             controller: (context: TRouterContext<this>) => new Page(route, renderer, context, layout),
             options: this.buildRouteOptions({
                 accept: 'html', // Les pages retournent forcémment du html
-                setup,
                 ...options,
             }),
         };
@@ -756,6 +789,7 @@ export default class ServerRouter<
                     // This is for debugging
                     channelType: 'request',
                     channelId: request.id,
+                    silentLogs: request.headers['x-proteum-static-warmup'] === '1',
                     method: request.method,
                     path: request.path,
                     connectedNamespace: request.headers[profilerConnectedNamespaceHeader] || undefined,
@@ -940,8 +974,6 @@ export default class ServerRouter<
         });
 
     private async resolvedRoute(route: TMatchedRoute, response: ServerResponse<this>, timeStart: number) {
-        route = await response.resolveRouteOptions(route);
-
         this.app.container.Trace.record(
             response.request.id,
             'resolve.route-match',
@@ -984,7 +1016,9 @@ export default class ServerRouter<
                     staticUrl,
                     route.options.static,
                     staticUrl === response.request.path ? response.data : undefined,
-                );
+                ).catch((error) => {
+                    console.error('[router] Static cache write failed', staticUrl, error);
+                });
             }
         }
 

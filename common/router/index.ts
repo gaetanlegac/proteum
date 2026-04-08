@@ -18,7 +18,7 @@ import type { TAuthCheckInput, TAuthTrackingContext } from '@server/services/aut
 import type { TAppArrowFunction } from '@common/app';
 
 // Specfic
-import type { default as Page, TFrontRenderer, TPageSetup } from './response/page';
+import type { default as Page, TFrontRenderer, TPageDataProvider } from './response/page';
 
 /*----------------------------------
 - TYPES: ROUTES
@@ -40,6 +40,7 @@ type TRouteBase<RouterContext = unknown, TResult = any> = {
 
     // Execute
     schema?: zod.ZodSchema;
+    data?: TPageDataProvider | null;
     controller: TRouteController<RouterContext, TResult>;
     options: TRouteOptions;
 };
@@ -76,7 +77,6 @@ export type TRouteOptions = {
     id?: string;
     filepath?: string;
     sourceLocation?: { line: number; column: number };
-    setup?: TPageSetup;
 
     // Indexing
     bodyId?: string;

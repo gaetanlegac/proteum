@@ -8,17 +8,28 @@ import type { Thing } from 'schema-dts';
 
 // Core libs
 import type { ClientContext } from '@/client/context';
-import { ClientOrServerRouter, TErrorRoute, TPageErrorRoute, TPageRoute, TRoute } from '@common/router';
+import { ClientOrServerRouter, TErrorRoute, TPageErrorRoute, TPageRoute, TRoute, TRouteOptions } from '@common/router';
 import type { TFetcher, TFetcherList } from '@common/router/request/api';
-import { splitRouteSetupResult } from '@common/router/pageSetup';
+import { validatePageDataResult } from '@common/router/pageData';
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
-export type TPageSetupContext = ClientContext;
+export type TPageDataContext = ClientContext;
 
 export type TPageRenderContext = With<ClientContext, 'page'>;
+
+type TPageResponseContext = {
+    route: { options: Partial<TRouteOptions> };
+    request: {
+        url: string;
+        data: TObjetDonnees;
+        api: {
+            fetchSync(fetchers: TFetcherList, alreadyLoadedData: {}): Promise<TObjetDonnees>;
+        };
+    };
+};
 
 export type TResolvedPageData<TProvidedData extends {} = {}> = {
     [Property in keyof TProvidedData]: TProvidedData[Property] extends TFetcher<infer TData>
@@ -26,9 +37,9 @@ export type TResolvedPageData<TProvidedData extends {} = {}> = {
         : Awaited<TProvidedData[Property]>;
 };
 
-// The function that prepares route config and SSR data before rendering.
-export type TPageSetup<TProvidedData extends {} = {}> = (
-    context: TPageSetupContext & {
+// The function that prepares SSR data before rendering.
+export type TPageDataProvider<TProvidedData extends {} = {}> = (
+    context: TPageDataContext & {
         // URL query parameters
         // TODO: typings
         data: { [key: string]: string | number };
@@ -36,7 +47,7 @@ export type TPageSetup<TProvidedData extends {} = {}> = (
 ) => TProvidedData;
 
 export type TDataProvider<TProvidedData extends {} = TFetcherList> = (
-    context: TPageSetupContext & { data: { [key: string]: PrimitiveValue } },
+    context: TPageDataContext & { data: { [key: string]: PrimitiveValue } },
 ) => TProvidedData;
 
 // The function that renders routes
@@ -68,7 +79,7 @@ const debug = false;
 export default abstract class PageResponse<
     TRouter extends ClientOrServerRouter = ClientOrServerRouter,
     TRouteLike extends TRoute | TErrorRoute = TPageRoute | TPageErrorRoute,
-    TContext extends TPageRenderContext = TPageRenderContext,
+    TContext extends TPageResponseContext = TPageResponseContext,
 > {
     // Metadata
     public chunkId?: string;
@@ -100,18 +111,19 @@ export default abstract class PageResponse<
         this.url = context.request.url;
     }
 
-    private resolveSetup() {
-        const setup = this.route.options.setup;
-        if (!setup) return { options: {}, data: {} };
+    private resolveDataProviderResult() {
+        const dataProvider = 'data' in this.route ? this.route.data : undefined;
+        if (!dataProvider) return {};
 
-        const setupContext = { ...this.context, data: this.context.request.data } as Parameters<typeof setup>[0];
+        const dataContext = { ...this.context, data: this.context.request.data } as unknown as Parameters<
+            typeof dataProvider
+        >[0];
 
-        return splitRouteSetupResult(setup(setupContext) || {});
+        return validatePageDataResult(this.route, dataProvider(dataContext));
     }
 
     private createFetchers() {
-        const { options, data } = this.resolveSetup();
-        this.route.options = { ...this.route.options, ...options };
+        const data = this.resolveDataProviderResult();
         this.chunkId = this.route.options.id;
 
         return data as TFetcherList;
@@ -126,7 +138,7 @@ export default abstract class PageResponse<
             const layoutContext = {
                 ...this.context,
                 data: this.context.request.data,
-            } as Parameters<typeof this.layout.data>[0];
+            } as unknown as Parameters<typeof this.layout.data>[0];
             const fetchers = this.layout.data(layoutContext);
             this.fetchers = { ...this.fetchers, ...fetchers };
         }

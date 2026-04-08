@@ -28,7 +28,7 @@ import type { TRegisterPageArgs, TSsrUnresolvedRoute } from '@common/router/cont
 import { getLayout } from '@common/router/layouts';
 import { getRegisterPageArgs, buildRegex } from '@common/router/register';
 import { TFetcherList } from '@common/router/request/api';
-import type { TFrontRenderer, TPageSetup } from '@common/router/response/page';
+import type { TFrontRenderer, TPageDataProvider } from '@common/router/response/page';
 
 import App from '@client/app/component';
 import type ClientApplication from '@client/app';
@@ -243,30 +243,13 @@ export default class ClientRouter<
 
     public page<TProvidedData extends {} = {}>(
         path: string,
-        renderer: TFrontRenderer<TProvidedData>,
-    ): TClientPageRoute<this>;
-
-    public page<TProvidedData extends {} = {}>(
-        path: string,
-        setup: TPageSetup<TProvidedData>,
-        renderer: TFrontRenderer<TProvidedData>,
-    ): TClientPageRoute<this>;
-
-    public page<TProvidedData extends {} = {}>(
-        path: string,
         options: Partial<TRouteOptions>,
-        renderer: TFrontRenderer<TProvidedData>,
-    ): TClientPageRoute<this>;
-
-    public page<TProvidedData extends {} = {}>(
-        path: string,
-        options: Partial<TRouteOptions>,
-        setup: TPageSetup<TProvidedData>,
+        data: TPageDataProvider<TProvidedData> | null,
         renderer: TFrontRenderer<TProvidedData>,
     ): TClientPageRoute<this>;
 
     public page(...args: TRegisterPageArgs<any, TRouteOptions>): TClientPageRoute<this> {
-        const { path, options, setup, renderer, layout } = getRegisterPageArgs(...args);
+        const { path, options, data, renderer, layout } = getRegisterPageArgs(...args);
 
         // Page ids are injected by the generated route wrapper modules.
         const id = options.id;
@@ -279,7 +262,8 @@ export default class ClientRouter<
             path,
             regex,
             keys,
-            options: { ...defaultOptions, setup, ...options },
+            data,
+            options: { ...defaultOptions, ...options },
             controller: (context) => new ClientPage(route, renderer, context as any, layout),
         };
 
@@ -406,7 +390,7 @@ export default class ClientRouter<
 
         const response = await this.createResponse(route, request, apiData);
 
-        ReactDOM.hydrate(<App context={response.context as AppPropsContext} />, document.body, () => {
+        ReactDOM.hydrate(<App context={response.context as unknown as AppPropsContext} />, document.body, () => {
             console.log(`Render complete`);
             withProfiler((runtime) => runtime.markInitialHydrated({ chunkId: response.chunkId, title: response.title }));
 

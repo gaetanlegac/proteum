@@ -26,7 +26,7 @@ Proteum combines:
 
 ## Core Principles
 
-- **Server-first by default.** Put data loading in the page setup function and keep client code focused on UI.
+- **Server-first by default.** Put data loading in the page data function and keep client code focused on UI.
 - **Explicit request entrypoints.** Controllers are classes. Request access is explicit through `this.request`.
 - **Local validation.** Validate handler input inside the handler with `this.input(schema)`.
 - **Deterministic generation.** Proteum owns `.proteum/` and regenerates it from source.
@@ -71,7 +71,7 @@ Important files:
 - `process.env` / optional `.env`: `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, any app-chosen variables referenced by `proteum.config.ts`, and `TRACE_*` environment variables loaded by the app
 - `server/config/*.ts`: plain typed config exports consumed by the explicit app bootstrap
 - `server/index.ts`: default-exported `Application` subclass that instantiates root services and router plugins
-- `client/pages/**`: SSR page entrypoints registered through `Router.page(...)`
+- `client/pages/**`: SSR page entrypoints registered through `Router.page(path, options, data, render)`
 - `server/controllers/**`: request handlers that extend `Controller`
 - `commands/**`: dev-only internal commands that extend `Commands`
 - `server/services/**`: business logic that extends `Service`
@@ -194,9 +194,11 @@ import Router from '@/client/router';
 
 Router.page(
   '/',
+  {
+    auth: false,
+    layout: false,
+  },
   ({ Plans, Stats }) => ({
-    _auth: false,
-    _layout: false,
     plans: Plans.getPlans(),
     stats: Stats.general(),
   }),
@@ -209,9 +211,10 @@ Router.page(
 What happens here:
 
 - the first argument is the route path
-- the optional setup function runs on the server for SSR data loading
-- keys prefixed with `_` become route options such as `_auth`, `_layout`, `_static`, or `_redirectLogged`
-- every other returned key becomes page data
+- the second argument is the explicit route-options object
+- the third argument is the page data function or `null`
+- route behavior such as `auth`, `layout`, `static`, or `redirectLogged` lives in the options object
+- every key returned from the data function becomes page data
 - the renderer receives the resolved data and the generated controller/service context
 
 ## Example: Controller
@@ -518,7 +521,7 @@ If you are an LLM or automation agent, start here:
 4. Read `.proteum/manifest.json` or run `proteum explain --json`.
 5. Inspect `server/controllers/**` for request entrypoints.
 6. Inspect `server/services/**` for business logic.
-7. Inspect `client/pages/**` for SSR routes and page setup contracts.
+7. Inspect `client/pages/**` for SSR routes and page data contracts.
 8. If the task touches a protected route or controller in dev and login UX is not the feature under test, use `proteum session <email> --role <role>` before Playwright or direct HTTP calls.
 
 For implementation rules in a real Proteum app, treat the local `AGENTS.md` files plus `proteum explain`, `proteum doctor`, `proteum diagnose`, `proteum perf`, and `proteum trace` as the task contract. This README is the framework overview, not the project-local instruction layer.

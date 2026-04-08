@@ -4,7 +4,7 @@ import path from 'path';
 import app from '../../app';
 import cli from '../..';
 import { inspectProteumEnv } from '../../../common/env/proteumEnv';
-import { reservedRouteSetupKeys, routeSetupOptionKeys } from '../../../common/router/pageSetup';
+import { reservedRouteOptionKeys, routeOptionKeys } from '../../../common/router/pageData';
 import { getProjectInstructionGitignoreEntries } from '../../utils/agents';
 import {
     TProteumManifest,
@@ -303,7 +303,7 @@ export const writeCurrentProteumManifest = ({
         });
 
     const manifest: TProteumManifest = {
-        version: 9,
+        version: 10,
         app: {
             root: normalizeAbsolutePath(app.paths.root),
             coreRoot: normalizeAbsolutePath(cli.paths.core.root),
@@ -338,8 +338,8 @@ export const writeCurrentProteumManifest = ({
             },
         },
         conventions: {
-            routeSetupOptionKeys: [...routeSetupOptionKeys],
-            reservedRouteSetupKeys: [...reservedRouteSetupKeys],
+            routeOptionKeys: [...routeOptionKeys],
+            reservedRouteOptionKeys: [...reservedRouteOptionKeys],
         },
         env: {
             source: 'process.env',

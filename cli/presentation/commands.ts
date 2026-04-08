@@ -7,6 +7,7 @@ export const proteumCommandNames = [
     'init',
     'create',
     'configure',
+    'migrate',
     'dev',
     'refresh',
     'build',
@@ -56,7 +57,7 @@ export const proteumCommandGroups: Array<{ title: string; names: TProteumCommand
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
     { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'trace', 'command', 'session', 'verify'] },
-    { title: 'Project scaffolding', names: ['init', 'configure', 'create'] },
+    { title: 'Project scaffolding', names: ['init', 'configure', 'create', 'migrate'] },
 ];
 
 export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = {
@@ -127,6 +128,31 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'Monorepo mode writes the reusable root `AGENTS.md` into the chosen monorepo root and switches the current app root `AGENTS.md` to the app-root addendum.',
             'If a target path already contains a non-managed file or foreign symlink, the interactive flow asks whether to overwrite it with the Proteum-managed symlink.',
             'Declined non-managed paths are left untouched; Proteum still creates missing symlinks and updates symlinks it already manages.',
+        ],
+        status: 'experimental',
+    },
+    migrate: {
+        name: 'migrate',
+        category: 'Project scaffolding',
+        summary: 'Rewrite legacy page registrations to the explicit Router.page(path, options, data, render) contract.',
+        usage: 'proteum migrate page-contract [--cwd <path>] [--dry-run] [--json]',
+        bestFor:
+            'Upgrading existing Proteum apps to the single explicit page contract without hand-editing every `client/pages/**` file.',
+        examples: [
+            { description: 'Rewrite the current app in place', command: 'proteum migrate page-contract' },
+            {
+                description: 'Preview the migration without writing files',
+                command: 'proteum migrate page-contract --dry-run --json',
+            },
+            {
+                description: 'Migrate another app root from the current shell',
+                command: 'proteum migrate page-contract --cwd /path/to/app',
+            },
+        ],
+        notes: [
+            'This migration rewrites supported legacy Router.page signatures to the explicit 4-argument form.',
+            'If a page data function cannot be analyzed safely, Proteum leaves the file unchanged and reports a manual-fix location.',
+            'Run `proteum typecheck` and `proteum build --strict` after the rewrite.',
         ],
         status: 'experimental',
     },

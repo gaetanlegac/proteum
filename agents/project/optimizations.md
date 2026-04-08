@@ -22,12 +22,11 @@ When tradeoffs exist inside optimization work, optimize in this order:
 
 ## SSR And Page Size
 
-- SSR page data belongs in page `setup`, not in `api.fetch(...)`.
-- Prefer `Router.page(path, setup, render)` for normal SSR pages.
-- `setup` returns one flat object.
-- `_`-prefixed keys are route options. Every other key is SSR data and should be consumed from `render`.
-- If a page needs route data, return it from `setup` and read it in `render`.
-- Controller fetchers and promises returned from `setup` resolve before render.
+- SSR page data belongs in the explicit `Router.page(path, options, data, render)` `data` function, not in `api.fetch(...)`.
+- `options` carries route behavior. `data` returns one flat object or is `null` when the page has no SSR data loader.
+- Route-option keys and `_`-prefixed route-option aliases are forbidden in page data and must live in `options`.
+- If a page needs route data, return it from `data` and read it in `render`.
+- Controller fetchers and promises returned from `data` resolve before render.
 - Never use `api.fetch(...)` in page files for SSR loading.
 - Synchronous or SSR data calls must return only the strictly necessary data for the current render path to minimize SSR payload size.
 - If an existing controller or data method returns a broader shape than the SSR path needs, create a dedicated proxy controller method with a narrower typed contract instead of reusing the oversized payload.

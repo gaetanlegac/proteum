@@ -136,14 +136,14 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 
 - Proteum scans page files for top-level `Router.page(...)` and `Router.error(...)` calls.
 - File path controls chunk identity and layout discovery; route path comes from the explicit `Router.page(...)` string.
-- Supported page signatures are `Router.page(path, render)`, `Router.page(path, setup, render)`, `Router.page(path, options, render)`, and `Router.page(path, options, setup, render)`.
-- For new work, prefer `Router.page(path, setup, render)` or `Router.page(path, options, setup, render)`.
-- `setup` returns one flat object. Reserved keys like `_auth`, `_layout`, `_static`, and `_redirectLogged` are route options; all other keys are SSR data.
-- Controller fetchers and promises returned from `setup` resolve before render.
-- `render` consumes resolved setup data and uses generated controller methods from render args or `@/client/context`.
-- Use `api.reload(...)` or `api.set(...)` only when intentionally mutating active page setup state.
+- The only supported page signature is `Router.page(path, options, data, render)`.
+- `options` is always required. `data` is the only nullable argument and must be `null` when the page has no SSR data loader.
+- `data` returns one flat object. Route-option keys such as `auth`, `layout`, `static`, and `_static` are forbidden in page data and must live in `options`.
+- Controller fetchers and promises returned from `data` resolve before render.
+- `render` consumes resolved page data and uses generated controller methods from render args or `@/client/context`.
+- Use `api.reload(...)` or `api.set(...)` only when intentionally mutating active page data state.
 - Error pages use `Router.error(code, options, render)` in `client/pages/_messages/**`.
-- Prefer `proteum create page ...` for new page boilerplate, then review the explicit route path and setup payload.
+- Prefer `proteum create page ...` for new page boilerplate, then review the explicit route path, options object, and data payload.
 
 ### Manual Routes
 

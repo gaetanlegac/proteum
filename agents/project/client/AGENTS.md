@@ -3,7 +3,7 @@
 This is the canonical client-area contract for Proteum-based projects.
 Role: keep only client-area rules here.
 Keep here: client component, hook, design-system, accessibility, and client-context usage rules that apply beyond a single page.
-Do not put here: page `setup` and route-registration details, server/service rules, or generic project workflow already covered by broader ancestor `AGENTS.md` files.
+Do not put here: page `data` and route-registration details, server/service rules, or generic project workflow already covered by broader ancestor `AGENTS.md` files.
 
 Optimization source of truth: root-level `optimizations.md`.
 Diagnostics source of truth: root-level `diagnostics.md`.

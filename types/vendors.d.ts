@@ -3,6 +3,18 @@ declare module 'accepts' {
     export default accepts;
 }
 
+declare module '@babel/generator' {
+    const generate: any;
+    export default generate;
+}
+
+declare module '@babel/traverse' {
+    export type Binding = any;
+    export type NodePath<T = any> = any;
+    const traverse: any;
+    export default traverse;
+}
+
 declare module 'bytes' {
     const bytes: (value: string | number) => number;
     export default bytes;

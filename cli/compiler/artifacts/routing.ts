@@ -59,7 +59,7 @@ const buildClientRouteManifestEntry = (filepath: string): TProteumManifestRoute 
         invalidOptionKeys: definition.invalidOptionKeys,
         reservedOptionKeys: definition.reservedOptionKeys,
         optionsRaw: definition.optionsRaw,
-        hasSetup: definition.hasSetup,
+        hasData: definition.hasData,
         chunkId: pageChunk.chunkId,
         chunkFilepath: normalizePath(pageChunk.filepath),
         scope: 'app',
@@ -83,7 +83,7 @@ const buildServerRouteManifestEntries = (filepath: string) =>
         invalidOptionKeys: definition.invalidOptionKeys,
         reservedOptionKeys: definition.reservedOptionKeys,
         optionsRaw: definition.optionsRaw,
-        hasSetup: definition.hasSetup,
+        hasData: definition.hasData,
         scope: 'app',
     }));
 

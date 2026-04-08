@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import ts from 'typescript';
 
-import { getRouteSetupOptionKey } from '../../../common/router/pageSetup';
+import { getRouteOptionKey } from '../../../common/router/pageData';
 import writeIfChanged from '../writeIfChanged';
 
 type TRouteSide = 'client' | 'server';
@@ -33,7 +33,7 @@ export type TIndexedRouteDefinition = {
     invalidOptionKeys: string[];
     reservedOptionKeys: string[];
     optionsRaw?: string;
-    hasSetup: boolean;
+    hasData: boolean;
 };
 
 type TGeneratedClientRouteModuleOptions = { chunkId: string };
@@ -206,7 +206,7 @@ const getRouteOptionMetadata = (node: ts.ObjectLiteralExpression | undefined) =>
 
     for (const optionKey of optionKeys) {
         try {
-            const normalizedOptionKey = getRouteSetupOptionKey(optionKey);
+            const normalizedOptionKey = getRouteOptionKey(optionKey);
 
             if (normalizedOptionKey) {
                 normalizedOptionKeys.push(normalizedOptionKey);
@@ -438,29 +438,33 @@ const buildDestructuring = (importedServices: TImportedService[]) => {
 const getClientRouteSignature = (sourceFile: ts.SourceFile, definition: TRouteDefinition) => {
     const [, ...routeArgs] = [...definition.args];
 
-    if (routeArgs.length === 1) {
-        return { hasSetup: false, renderArg: routeArgs[0] };
-    }
-
-    if (routeArgs.length === 2) {
-        if (ts.isObjectLiteralExpression(routeArgs[0])) {
-            return { hasSetup: false, optionsArg: routeArgs[0], renderArg: routeArgs[1] };
+    if (definition.methodName === 'error') {
+        if (routeArgs.length === 2) {
+            return {
+                hasData: false,
+                optionsExpression: routeArgs[0],
+                optionsArg: ts.isObjectLiteralExpression(routeArgs[0]) ? routeArgs[0] : undefined,
+                renderArg: routeArgs[1],
+            };
         }
 
-        return { hasSetup: true, setupArg: routeArgs[0], renderArg: routeArgs[1] };
+        throw new Error(
+            `Unsupported client error route signature in ${sourceFile.fileName}. Expected Router.error(code, options, render).`,
+        );
     }
 
-    if (routeArgs.length === 3 && ts.isObjectLiteralExpression(routeArgs[0])) {
+    if (routeArgs.length === 3) {
         return {
-            hasSetup: true,
-            optionsArg: routeArgs[0],
-            setupArg: routeArgs[1],
+            hasData: routeArgs[1].kind !== ts.SyntaxKind.NullKeyword,
+            optionsExpression: routeArgs[0],
+            optionsArg: ts.isObjectLiteralExpression(routeArgs[0]) ? routeArgs[0] : undefined,
+            dataArg: routeArgs[1],
             renderArg: routeArgs[2],
         };
     }
 
     throw new Error(
-        `Unsupported client route signature in ${sourceFile.fileName}. Expected Router.page/error with 2-4 arguments.`,
+        `Unsupported client page route signature in ${sourceFile.fileName}. Expected Router.page(path, options, data, render).`,
     );
 };
 
@@ -469,30 +473,23 @@ const buildClientRegisterArgs = (
     definition: TRouteDefinition,
     clientRoute: TGeneratedClientRouteModuleOptions,
 ) => {
-    const { optionsArg, setupArg, renderArg } = getClientRouteSignature(sourceFile, definition);
+    const { optionsExpression, renderArg } = getClientRouteSignature(sourceFile, definition);
     const sourceLocation = getNodeLocation(sourceFile, definition.callExpression);
     const injectedOptions = buildInjectedRouteMetadata(sourceFile.fileName, sourceLocation, [
         `id: ${JSON.stringify(clientRoute.chunkId)}`,
     ]);
 
-    if (!optionsArg && !setupArg) {
-        return [injectedOptions, getNodeText(sourceFile, renderArg)];
-    }
-
-    if (optionsArg && !setupArg) {
+    if (definition.methodName === 'error') {
         return [
-            `{ ...(${getNodeText(sourceFile, optionsArg)}), ...${injectedOptions} }`,
+            `{ ...(${getNodeText(sourceFile, optionsExpression)}), ...${injectedOptions} }`,
             getNodeText(sourceFile, renderArg),
         ];
     }
 
-    if (!optionsArg && setupArg) {
-        return [injectedOptions, getNodeText(sourceFile, setupArg), getNodeText(sourceFile, renderArg)];
-    }
-
+    const { dataArg } = getClientRouteSignature(sourceFile, definition);
     return [
-        `{ ...(${getNodeText(sourceFile, optionsArg!)}), ...${injectedOptions} }`,
-        getNodeText(sourceFile, setupArg!),
+        `{ ...(${getNodeText(sourceFile, optionsExpression)}), ...${injectedOptions} }`,
+        getNodeText(sourceFile, dataArg!),
         getNodeText(sourceFile, renderArg),
     ];
 };
@@ -604,10 +601,8 @@ export const indexRouteDefinitions = ({ side, sourceFilepath }: { side: TRouteSi
                       normalizedOptionKeys: optionMetadata.normalizedOptionKeys,
                       invalidOptionKeys: optionMetadata.invalidOptionKeys,
                       reservedOptionKeys: optionMetadata.reservedOptionKeys,
-                      optionsRaw: clientSignature.optionsArg
-                          ? getNodeText(sourceFile, clientSignature.optionsArg)
-                          : undefined,
-                      hasSetup: clientSignature.hasSetup,
+                      optionsRaw: getNodeText(sourceFile, clientSignature.optionsExpression),
+                      hasData: false,
                   }
                 : {
                       methodName: definition.methodName,
@@ -627,10 +622,8 @@ export const indexRouteDefinitions = ({ side, sourceFilepath }: { side: TRouteSi
                       normalizedOptionKeys: optionMetadata.normalizedOptionKeys,
                       invalidOptionKeys: optionMetadata.invalidOptionKeys,
                       reservedOptionKeys: optionMetadata.reservedOptionKeys,
-                      optionsRaw: clientSignature.optionsArg
-                          ? getNodeText(sourceFile, clientSignature.optionsArg)
-                          : undefined,
-                      hasSetup: clientSignature.hasSetup,
+                      optionsRaw: getNodeText(sourceFile, clientSignature.optionsExpression),
+                      hasData: clientSignature.hasData,
                   };
         }
 
@@ -659,7 +652,7 @@ export const indexRouteDefinitions = ({ side, sourceFilepath }: { side: TRouteSi
             invalidOptionKeys: optionMetadata.invalidOptionKeys,
             reservedOptionKeys: optionMetadata.reservedOptionKeys,
             optionsRaw: optionsArg ? getNodeText(sourceFile, optionsArg) : undefined,
-            hasSetup: false,
+            hasData: false,
         };
     });
 };

@@ -9,6 +9,7 @@ export type TDevConsoleLogLevel = 'silly' | 'log' | 'info' | 'warn' | 'error';
 export type TDevConsoleLogChannel = {
     channelType: 'cron' | 'master' | 'request' | 'socket';
     channelId?: string;
+    silentLogs?: boolean;
     method?: string;
     path?: string;
     user?: string;

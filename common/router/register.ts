@@ -11,65 +11,29 @@ import type { TRegisterPageArgs } from './contracts';
 
 // types
 import type { TRouteOptions } from '.';
-import type { TFrontRenderer, TPageSetup } from './response/page';
+import type { TPageDataProvider } from './response/page';
 
 /*----------------------------------
 - UTILS
 ----------------------------------*/
 
 export const getRegisterPageArgs = (...args: TRegisterPageArgs<any, TRouteOptions>) => {
-    let path: string;
-    let options: Partial<TRouteOptions> = {};
-    let setup: TPageSetup | undefined;
-    let renderer: TFrontRenderer;
+    const [path, options, data, renderer] = args;
 
-    if (args.length === 2) {
-        [path, renderer] = args;
-    } else if (args.length === 3) {
-        const [pathArg, optionsOrSetupArg, rendererArg] = args;
-        path = pathArg;
-        renderer = rendererArg;
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+        throw new Error(`Router.page(${JSON.stringify(path)}) requires an explicit options object as its second argument.`);
+    }
 
-        if (typeof optionsOrSetupArg === 'function') setup = optionsOrSetupArg;
-        else options = optionsOrSetupArg;
-    } else {
-        const [pathArg, optionsArg, setupArg, rendererArg] = args;
-        path = pathArg;
-        options = optionsArg;
-        setup = setupArg;
-        renderer = rendererArg;
+    if (data !== null && typeof data !== 'function') {
+        throw new Error(
+            `Router.page(${JSON.stringify(path)}) requires a data function or null as its third argument.`,
+        );
     }
 
     // Automatic layout form the nearest _layout folder using static options only.
     const layout = getLayout(path, options);
 
-    return { path, options, setup, renderer, layout };
-};
-
-export const getRegisterPageOptions = (...args: TRegisterPageArgs<any, TRouteOptions>) => {
-    let path: string;
-    let options: Partial<TRouteOptions> = {};
-    let setup: TPageSetup | undefined;
-    let renderer: TFrontRenderer;
-
-    if (args.length === 2) {
-        [path, renderer] = args;
-    } else if (args.length === 3) {
-        const [pathArg, optionsOrSetupArg, rendererArg] = args;
-        path = pathArg;
-        renderer = rendererArg;
-
-        if (typeof optionsOrSetupArg === 'function') setup = optionsOrSetupArg;
-        else options = optionsOrSetupArg;
-    } else {
-        const [pathArg, optionsArg, setupArg, rendererArg] = args;
-        path = pathArg;
-        options = optionsArg;
-        setup = setupArg;
-        renderer = rendererArg;
-    }
-
-    return { path, options, setup, renderer };
+    return { path, options, data: data as TPageDataProvider | null, renderer, layout };
 };
 
 export const buildRegex = (path: string) => {

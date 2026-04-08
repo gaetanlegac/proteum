@@ -358,7 +358,7 @@ const createRouteEntry = (manifest: TProteumManifest, route: TProteumManifestRou
             `${route.kind} ${route.methodName}`,
             ...(route.path ? [`path=${route.path}`] : []),
             ...(route.chunkId ? [`chunk=${route.chunkId}`] : []),
-            `setup=${route.hasSetup ? 'yes' : 'no'}`,
+            `data=${route.hasData ? 'yes' : 'no'}`,
         ],
         kind: 'route',
         label: route.path || route.pathRaw || route.chunkId || route.filepath,

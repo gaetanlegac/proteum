@@ -1166,7 +1166,6 @@ const traceEventDepths: Record<TTraceEventType, number> = {
     'resolve.not-found': 1,
     'controller.start': 2,
     'controller.result': 2,
-    'setup.options': 3,
     'context.create': 3,
     'page.data': 3,
     'ssr.payload': 3,
@@ -3801,7 +3800,7 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
     }
 
     if (panel === 'controller') {
-        const controllerEvents = findTraceEvents(primaryTrace, ['controller.start', 'controller.result', 'setup.options', 'context.create']);
+        const controllerEvents = findTraceEvents(primaryTrace, ['controller.start', 'controller.result', 'context.create']);
         const controllerFlowChart = buildHorizontalBarChartOptions({
             color: profilerChartTheme.indigo,
             entries: buildCountEntries(controllerEvents.map((event) => event.type.replace(/\./g, ' '))),

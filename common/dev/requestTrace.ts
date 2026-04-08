@@ -28,7 +28,6 @@ export const traceEventTypes = [
     'resolve.not-found',
     'controller.start',
     'controller.result',
-    'setup.options',
     'context.create',
     'page.data',
     'ssr.payload',

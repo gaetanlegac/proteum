@@ -26,9 +26,11 @@ export const createPageTemplate = ({
 
 Router.page(
     ${JSON.stringify(routePath)},
+    {
+        auth: false,
+        layout: false,
+    },
     () => ({
-        _auth: false,
-        _layout: false,
         heading: ${JSON.stringify(heading)},
         message: ${JSON.stringify(message)},
     }),

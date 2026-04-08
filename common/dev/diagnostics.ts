@@ -72,11 +72,11 @@ const formatRouteTarget = (route: TProteumManifestRoute) => {
 
 const formatRouteItem = (manifest: TProteumManifest, route: TProteumManifestRoute) => {
     const chunk = route.chunkId ? ` chunk=${route.chunkId}` : '';
-    const setup = route.hasSetup ? ' setup=yes' : ' setup=no';
+    const data = route.hasData ? ' data=yes' : ' data=no';
     const options = route.normalizedOptionKeys.length > 0 ? ` options=${route.normalizedOptionKeys.join(',')}` : '';
     const resolution = route.targetResolution !== 'literal' ? ` resolution=${route.targetResolution}` : '';
 
-    return `${route.kind} ${route.methodName} ${formatRouteTarget(route)} [${route.scope}]${chunk}${setup}${options}${resolution} source=${formatManifestFilepath(manifest, route.filepath)}${formatManifestLocation(route.sourceLocation.line, route.sourceLocation.column)}`;
+    return `${route.kind} ${route.methodName} ${formatRouteTarget(route)} [${route.scope}]${chunk}${data}${options}${resolution} source=${formatManifestFilepath(manifest, route.filepath)}${formatManifestLocation(route.sourceLocation.line, route.sourceLocation.column)}`;
 };
 
 const formatLayoutItem = (manifest: TProteumManifest, layout: TProteumManifestLayout) =>
@@ -155,8 +155,8 @@ export const buildExplainBlocks = (manifest: TProteumManifest, sectionNames: TEx
             blocks.push({
                 title: 'Conventions',
                 items: [
-                    `routeSetupOptionKeys=${manifest.conventions.routeSetupOptionKeys.join(', ')}`,
-                    `reservedRouteSetupKeys=${manifest.conventions.reservedRouteSetupKeys.join(', ')}`,
+                    `routeOptionKeys=${manifest.conventions.routeOptionKeys.join(', ')}`,
+                    `reservedRouteOptionKeys=${manifest.conventions.reservedRouteOptionKeys.join(', ')}`,
                 ],
             });
             continue;

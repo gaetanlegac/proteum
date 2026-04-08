@@ -17,7 +17,6 @@ import ServerRequest from '@server/services/router/request';
 import { TMatchedRoute, TRoute, TAnyRoute } from '@common/router';
 import { NotFound, Forbidden, Anomaly } from '@common/errors';
 import BaseResponse, { TResponseData } from '@common/router/response';
-import { splitRouteSetupResult } from '@common/router/pageSetup';
 import Page from './page';
 import createControllers from '@generated/common/controllers';
 import type { TControllers } from '@generated/common/controllers';
@@ -219,32 +218,6 @@ export default class ServerResponse<
     /*----------------------------------
     - INTERNAL
     ----------------------------------*/
-
-    public async resolveRouteOptions(
-        route: TMatchedRoute<TRouterContext<TRouter>>,
-    ): Promise<TMatchedRoute<TRouterContext<TRouter>>> {
-        const setup = route.options.setup;
-        if (!setup) return route;
-
-        const requestContext = await this.createContext(route);
-        const { options } = splitRouteSetupResult(((setup as any)({ ...requestContext, data: this.request.data }) as {}) || {});
-
-        this.app.container.Trace.record(
-            this.request.id,
-            'setup.options',
-            {
-                optionKeys: Object.keys(options),
-                source: {
-                    filepath: route.options.filepath || '',
-                    line: route.options.sourceLocation?.line || 0,
-                    column: route.options.sourceLocation?.column || 0,
-                },
-            },
-            'resolve',
-        );
-
-        return { ...route, options: { ...route.options, ...options } };
-    }
 
     // Start controller services
     private async createContext(route: TAnyRoute<TRouterContext<TRouter>>): Promise<TRequestContext> {

@@ -92,6 +92,29 @@ class ConfigureCommand extends ProteumCommand {
     }
 }
 
+class MigrateCommand extends ProteumCommand {
+    public static paths = [['migrate']];
+
+    public static usage = buildUsage('migrate');
+
+    public cwd = Option.String('--cwd', { description: 'Run the migration against another Proteum app root.' });
+    public dryRun = Option.Boolean('--dry-run', false, { description: 'Print the rewrite plan without writing files.' });
+    public json = Option.Boolean('--json', false, { description: 'Print machine-readable migration output.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [action = ''] = this.args;
+
+        this.setCliArgs({
+            action,
+            workdir: this.cwd ?? '',
+            dryRun: this.dryRun,
+            json: this.json,
+        });
+        await runCommandModule(() => import('../commands/migrate'));
+    }
+}
+
 class DevCommand extends ProteumCommand {
     public static paths = [['dev']];
 
@@ -578,6 +601,7 @@ export const registeredCommands = {
     init: InitCommand,
     create: CreateCommand,
     configure: ConfigureCommand,
+    migrate: MigrateCommand,
     dev: DevCommand,
     refresh: RefreshCommand,
     build: BuildCommand,
@@ -609,6 +633,7 @@ export const createCli = (version: string) => {
     clipanion.register(InitCommand);
     clipanion.register(CreateCommand);
     clipanion.register(ConfigureCommand);
+    clipanion.register(MigrateCommand);
     clipanion.register(DevCommand);
     clipanion.register(RefreshCommand);
     clipanion.register(BuildCommand);
