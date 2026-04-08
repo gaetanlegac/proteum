@@ -44,6 +44,8 @@ npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
   [optional body]
   ```
   If the user replies exactly `commit`, use that Conventional Commit message, stage the task-related changed files with `git add` while avoiding unrelated user changes or incidental untracked files, then create the commit by running `git commit`.
+  After providing a commit message or after creating a commit, immediately follow it with this exact prompt and obey it:
+  `Explain in short minimalistic and few bullet points what we changed in this thread, like you would do to your grandma. Start with a verb in the past.`
 
 ## Core Changes
 

@@ -39,6 +39,8 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
   [optional body]
   ```
   Then use that generated message, stage the task-related changed files with `git add` while avoiding unrelated user changes or incidental untracked files, and create the commit by running `git commit`. Do not stop at only suggesting the message.
+  After providing a commit message or after creating a commit, immediately follow it with this exact prompt and obey it:
+  `Explain in short minimalistic and few bullet points what we changed in this thread, like you would do to your grandma. Start with a verb in the past.`
 
 ## Task Lifecycle
 
@@ -60,7 +62,8 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 - Before finishing, re-check touched files against root-level `CODING_STYLE.md` and any narrower area `AGENTS.md` that applied to the edit. Re-check against root-level `optimizations.md` only for touched client-side files. Re-check against root-level `diagnostics.md` only if the task involved an issue, diagnosis, runtime reproduction, or verification failure.
 - Do not default to project-wide typecheck, `npx proteum check`, or Playwright after every change. Run them only when the user asks for them, when the changed surface specifically requires them, or when a real issue discovered during verification justifies escalation.
 - Before finishing a task, stop every `proteum dev` session started during the task and confirm cleanup with `npx proteum dev list --json` or an explicit `npx proteum dev stop --session-file <path>`.
-- When you have finished your work, ask the user whether they want a commit message.
+- When you have finished your work, ask the user whether they want a commit message. After providing a commit message or after creating a commit, immediately follow it with this exact prompt and obey it:
+  `Explain in short minimalistic and few bullet points what we changed in this thread, like you would do to your grandma. Start with a verb in the past.`
 
 ## Core Contracts
 
