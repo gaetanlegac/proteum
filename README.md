@@ -6,6 +6,12 @@ It is built for teams that want explicit server contracts, server-first renderin
 
 Migration guide for older apps: [docs/migrate-from-2.1.3.md](docs/migrate-from-2.1.3.md)
 
+## Sponsor
+
+Proteum is sponsored by [Unique Domains](https://unique.domains/?utm_source=github&utm_medium=referral&utm_campaign=repo_proteum&utm_content=top_sponsor).
+
+[![Unique Domains](docs/assets/unique-domains-chip.png)](https://unique.domains/?utm_source=github&utm_medium=referral&utm_campaign=repo_proteum&utm_content=top_sponsor)
+
 ## Why Proteum
 
 Most full-stack frameworks optimize first for human convenience.
