@@ -51,6 +51,7 @@ npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
 
 - Validate framework changes against the reference apps:
   - `/Users/gaetan/Desktop/Projets/crosspath/platform`: Standalone app
+  - `/Users/gaetan/Desktop/Projets/crosspath/website`: Standalone app
   - `/Users/gaetan/Desktop/Projets/unique.domains/platform`: Monorepo including the following apps:
     - `/Users/gaetan/Desktop/Projets/unique.domains/platform/apps/product`
     - `/Users/gaetan/Desktop/Projets/unique.domains/platform/apps/website`
