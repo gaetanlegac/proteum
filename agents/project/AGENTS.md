@@ -17,12 +17,12 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
   - Run `npx proteum refresh`.
   - Read and acknowledge the applicable `AGENTS.md` files.
   - Run `npm i`.
-  - Run the dev server with the task-safe elevated-permissions launch workflow from `Task Lifecycle`, and keep it running so user can see the results by himself.
+  - Run the dev server with the task-safe elevated-permissions launch workflow from `Task Lifecycle`, keep it running so user can see the results by himself, and print the live server URL as a clickable Markdown link.
 - If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it.
 - If the task is ambiguous, generated, connected, or multi-repo, start with `npx proteum orient <query>` before reading large parts of the codebase.
 - If the user reports an issue, or the agent encounters one during exploration, implementation, verification, or runtime reproduction, load and follow root-level `diagnostics.md`.
 - If the task touches client-side files, especially `client/**` and page files, load and apply root-level `optimizations.md` only after implementation for post-implementation checking and optimization. Skip it at task start and skip it for server-only, test-only, doc-only, and non-client refactor tasks unless the user explicitly asks for optimization work.
-- If the task changes UX, copy, onboarding, pricing, product semantics, or commercial positioning, read the relevant files under `./docs/` first, especially `docs/PERSONAS.md`, `docs/PRODUCT.md`, and `docs/MARKETING.md` when they exist. If a dev server is already running, print the dev server URL.
+- If the task changes UX, copy, onboarding, pricing, product semantics, or commercial positioning, read the relevant files under `./docs/` first, especially `docs/PERSONAS.md`, `docs/PRODUCT.md`, and `docs/MARKETING.md` when they exist. If a dev server is already running, print the live dev server URL as a clickable Markdown link.
 - If the task needs new app or artifact boilerplate, prefer `npx proteum init ...` and `npx proteum create ...` before creating files by hand. Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.
 - If you changed `schema.prisma`, do not start testing or validation yet. Ask the user to run the following command in the affected worktree directory, replacing the placeholders, and wait for the user to reply exactly `continue` before resuming validation or tests:
   ```
@@ -51,7 +51,7 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 ### During Implementation
 
 - After running `npx proteum create ...`, adapt the generated code to the real feature instead of leaving placeholder logic in place.
-- When starting a long-lived dev server for an agent task, always request elevated permissions and run `npx proteum dev` outside the sandbox. Use an explicit task/thread-scoped session file such as `var/run/proteum/dev/agents/<task>.json`, inspect `npx proteum dev list --json` plus current listeners first, for example with `lsof -nP -iTCP -sTCP:LISTEN`, then choose a port that is not currently used before starting `npx proteum dev --session-file <path> --port <port>`.
+- When starting a long-lived dev server for an agent task, always request elevated permissions and run `npx proteum dev` outside the sandbox. Use an explicit task/thread-scoped session file such as `var/run/proteum/dev/agents/<task>.json`, inspect `npx proteum dev list --json` plus current listeners first, for example with `lsof -nP -iTCP -sTCP:LISTEN`, then choose a port that is not currently used before starting `npx proteum dev --session-file <path> --port <port>`. After the server is ready, print the live server URL as a clickable Markdown link.
 - Use `--replace-existing` only when restarting the exact session file started by the current thread/task. Never replace another live session that belongs to a user, another thread, or an unknown owner.
 - If the current app depends on local `file:` connected projects, boot every connected producer app too, each with its own task-scoped session file and free port, and run every one of those `proteum dev` processes with elevated permissions outside the sandbox before starting or verifying the consumer app.
 - For raw browser automation, use `npx proteum verify browser` when it matches the task, or direct Playwright with a disposable profile when lower-level control is required. Bootstrap protected browser state through `npx proteum session`.
