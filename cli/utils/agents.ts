@@ -42,6 +42,11 @@ export type TConfigureProjectAgentSymlinksResult = {
     updatedGitignores: string[];
 };
 
+export type TProjectAgentFileInspection = {
+    existing: string[];
+    missing: string[];
+};
+
 /*----------------------------------
 - CONSTANTS
 ----------------------------------*/
@@ -145,6 +150,37 @@ export function getProjectInstructionGitignoreEntries({ coreRoot }: TProjectInst
 
 export function renderProjectInstructionGitignoreBlock({ coreRoot }: TProjectInstructionArgs) {
     return renderInstructionGitignoreBlock({ linkDefinitions: getAppAgentLinkDefinitions({ coreRoot, mode: 'standalone' }) });
+}
+
+export function inspectProjectAgentFiles({ appRoot }: { appRoot: string }): TProjectAgentFileInspection {
+    const normalizedAppRoot = path.resolve(appRoot);
+    const expectedAgentPaths = Array.from(
+        new Set(
+            standaloneAppAgentLinkDefinitions
+                .map((linkDefinition) => linkDefinition.projectPath)
+                .filter((projectPath) => projectPath.endsWith('AGENTS.md')),
+        ),
+    );
+    const result: TProjectAgentFileInspection = {
+        existing: [],
+        missing: [],
+    };
+
+    for (const projectPath of expectedAgentPaths) {
+        const absolutePath = path.join(normalizedAppRoot, projectPath);
+        const parentPath = path.dirname(absolutePath);
+
+        if (projectPath !== 'AGENTS.md' && !fs.existsSync(parentPath)) continue;
+
+        if (fs.existsSync(absolutePath)) {
+            result.existing.push(projectPath);
+            continue;
+        }
+
+        result.missing.push(projectPath);
+    }
+
+    return result;
 }
 
 /*----------------------------------

@@ -139,6 +139,10 @@ export const renderCliOverview = async ({
                     indent: '  ',
                     nextIndent: '  ',
                 }),
+                wrapText('When the app root is missing `AGENTS.md`, the interactive `proteum dev` start offers to launch `proteum configure agents` before the dev loop begins.', {
+                    indent: '  ',
+                    nextIndent: '  ',
+                }),
                 wrapText('Legacy single-dash flags and positional booleans remain accepted for older app scripts, but new docs should prefer modern long flags.', {
                     indent: '  ',
                     nextIndent: '  ',

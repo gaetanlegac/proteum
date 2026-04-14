@@ -7,6 +7,8 @@ import path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import fs from 'fs-extra';
 import type { FSWatcher } from 'fs';
+import prompts from 'prompts';
+import { UsageError } from 'clipanion';
 
 // Cor elibs
 import cli from '..';
@@ -23,6 +25,7 @@ import Compiler from '../compiler';
 import { createDevEventServer } from './devEvents';
 import { renderDevSession, renderServerReadyBanner, renderDevShutdownBanner } from '../presentation/devSession';
 import { clearInteractiveConsole } from '../presentation/welcome';
+import { renderWarning } from '../presentation/ink';
 import {
     createDevSessionRecord,
     inspectDevSessionFile,
@@ -37,6 +40,8 @@ import {
 } from '../runtime/devSessions';
 import { resolveFrameworkInstallInfo } from '../paths';
 import { logVerbose } from '../runtime/verbose';
+import { inspectProjectAgentFiles } from '../utils/agents';
+import { runConfigureAgentsWizard } from './configure';
 
 // Core
 import { app, App } from '../app';
@@ -136,6 +141,45 @@ const createIgnoredWatchMatcher = (outputPaths: string[]) => (watchPath: string)
     if (shouldIgnoreNodeModulesWatchPath(normalizedWatchPath)) return true;
 
     return ignoredWatchPathPatterns.test(normalizedWatchPath);
+};
+
+const promptToConfigureAgentsIfMissing = async () => {
+    if (cli.args.json === true) return;
+    if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+
+    const inspection = inspectProjectAgentFiles({ appRoot: app.paths.root });
+    if (!inspection.missing.includes('AGENTS.md')) return;
+
+    console.info(await renderWarning('Proteum could not find the app-root `AGENTS.md` instruction file.'));
+    console.info(
+        [
+            'Missing standard AGENTS files:',
+            ...inspection.missing.map((entry) => `- ${entry}`),
+            '',
+            'Run `proteum configure agents` now before starting the dev server?',
+        ].join('\n'),
+    );
+
+    const response = await prompts(
+        {
+            type: 'confirm',
+            name: 'value',
+            message: 'Run the configure-agents wizard now?',
+            initial: true,
+        },
+        {
+            onCancel: () => {
+                throw new UsageError('Cancelled `proteum dev`.');
+            },
+        },
+    );
+
+    if (response.value !== true) return;
+
+    await runConfigureAgentsWizard({
+        appRoot: app.paths.root,
+        coreRoot: cli.paths.core.root,
+    });
 };
 
 const getDevAppName = (app: App) =>
@@ -731,5 +775,6 @@ export const run = async () => {
         return;
     }
 
+    await promptToConfigureAgentsIfMissing();
     await runDevLoop();
 };

@@ -359,7 +359,7 @@ proteum build --prod --analyze
 proteum build --prod --analyze --analyze-serve --analyze-port auto
 ```
 
-Only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. `proteum dev` is the only command that clears the interactive terminal before rendering its live session UI, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys, and prints connected app names plus successful connected `/ping` checks in the server-ready banner.
+Only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. `proteum dev` is the only command that clears the interactive terminal before rendering its live session UI, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys, and prints connected app names plus successful connected `/ping` checks in the server-ready banner. When the app root is missing `AGENTS.md`, the interactive `proteum dev` start offers to launch `proteum configure agents` before the dev loop begins.
 
 Useful inspection commands:
 
@@ -402,6 +402,8 @@ proteum create service Conversion/Plans
 ```
 
 `proteum configure agents` asks before replacing any existing non-managed instruction file or foreign symlink. If you decline, that path is left untouched.
+
+Bare interactive `proteum dev` reuses that same wizard when the app root is missing `AGENTS.md`; declining the prompt continues the dev start without writing files.
 
 `proteum connect`, `proteum explain`, `proteum doctor`, and `proteum diagnose` share the same generated manifest and contract state. `proteum perf` uses the same dev request-trace store as the profiler `Perf` tab. For the full diagnostics and tracing model, see [docs/diagnostics.md](docs/diagnostics.md) and [docs/request-tracing.md](docs/request-tracing.md).
 

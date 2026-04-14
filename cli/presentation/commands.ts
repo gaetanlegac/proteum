@@ -190,6 +190,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         notes: [
             'Use `--cwd` when the target Proteum app lives in another worktree or checkout and you do not want to `cd` first.',
             'Proteum writes a machine-readable dev session file under `var/run/proteum/dev/<port>.json` by default; override it with `--session-file` when an agent needs a stable path.',
+            'Before the interactive dev loop starts, Proteum offers to launch `proteum configure agents` when the app root is missing `AGENTS.md`.',
             'Use `--replace-existing` when retries should stop the previously tracked matching session before starting a new one.',
             '`proteum dev list` inspects tracked sessions for the current app root. Add `--stale` to show only orphaned or dead sessions.',
             '`proteum dev stop` targets the current session file by default. Add `--all` to stop every tracked session for the current app root.',

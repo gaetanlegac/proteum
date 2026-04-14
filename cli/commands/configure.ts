@@ -155,7 +155,16 @@ const renderConfigureResultSections = (result: TConfigureProjectAgentSymlinksRes
 export const run = async (): Promise<void> => {
     if (cli.args.action !== 'agents') throw new UsageError('Usage: `proteum configure agents`');
 
-    const appRoot = resolveCanonicalPath(cli.paths.appRoot);
+    await runConfigureAgentsWizard();
+};
+
+export const runConfigureAgentsWizard = async ({
+    appRoot = resolveCanonicalPath(cli.paths.appRoot),
+    coreRoot = cli.paths.core.root,
+}: {
+    appRoot?: string;
+    coreRoot?: string;
+} = {}) => {
     assertProteumAppRoot(appRoot);
 
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -197,7 +206,7 @@ export const run = async (): Promise<void> => {
 
     const preview = configureProjectAgentSymlinks({
         appRoot,
-        coreRoot: cli.paths.core.root,
+        coreRoot,
         dryRun: true,
         monorepoRoot,
     });
@@ -214,7 +223,7 @@ export const run = async (): Promise<void> => {
 
     const result = configureProjectAgentSymlinks({
         appRoot,
-        coreRoot: cli.paths.core.root,
+        coreRoot,
         monorepoRoot,
         overwriteBlockedPaths,
     });
