@@ -22,6 +22,7 @@ import {
 
 // Configs
 import Compiler from '../compiler';
+import { regex } from '../compiler/common';
 import { createDevEventServer } from './devEvents';
 import { renderDevSession, renderServerReadyBanner, renderDevShutdownBanner } from '../presentation/devSession';
 import { clearInteractiveConsole } from '../presentation/welcome';
@@ -525,10 +526,66 @@ function normalizeWatchPath(watchPath: string) {
     return path.resolve(watchPath).replace(/\\/g, '/').replace(/\/$/, '');
 }
 
-const indexedSourceWatchRules: { compilerName: 'server'; root: () => string; relativePathPattern: RegExp }[] = [
-    { compilerName: 'server', root: () => app.paths.root, relativePathPattern: /^commands(?:\/|$)/ },
-    { compilerName: 'server', root: () => cli.paths.core.root, relativePathPattern: /^commands(?:\/|$)/ },
-];
+type TIndexedSourceWatchEvent = 'change' | 'rename';
+type TIndexedSourceWatchCompilerName = 'server' | 'client';
+type TIndexedSourceWatchInvalidateTarget = 'all' | TIndexedSourceWatchCompilerName;
+type TIndexedSourceWatchRule = {
+    compilerName: TIndexedSourceWatchCompilerName;
+    rootPath: string;
+    relativePathPattern: RegExp;
+    eventTypes: TIndexedSourceWatchEvent[];
+    invalidateTarget: TIndexedSourceWatchInvalidateTarget;
+};
+type TNamedWatching = { compiler: { name?: string }; invalidate: () => void };
+type TMultiWatchingLike = TDevWatching & { watchings?: TNamedWatching[] };
+
+const resolveIndexedSourceWatchRules = (): TIndexedSourceWatchRule[] => {
+    const transpileWatchRoots = app.transpileModuleDirectories
+        .map((rootPath) => {
+            try {
+                return fs.realpathSync(rootPath);
+            } catch {
+                return rootPath;
+            }
+        })
+        .map(normalizeWatchPath)
+        .filter((rootPath, index, list) => list.indexOf(rootPath) === index);
+
+    return [
+        {
+            compilerName: 'server',
+            rootPath: app.paths.root,
+            relativePathPattern: /^commands(?:\/|$)/,
+            eventTypes: ['rename'],
+            invalidateTarget: 'all',
+        },
+        {
+            compilerName: 'server',
+            rootPath: cli.paths.core.root,
+            relativePathPattern: /^commands(?:\/|$)/,
+            eventTypes: ['rename'],
+            invalidateTarget: 'all',
+        },
+        ...transpileWatchRoots.map(
+            (rootPath): TIndexedSourceWatchRule => ({
+                compilerName: 'server',
+                rootPath,
+                relativePathPattern: regex.scripts,
+                eventTypes: ['change', 'rename'],
+                invalidateTarget: 'server',
+            }),
+        ),
+    ];
+};
+
+const findCompilerWatching = (
+    watching: TDevWatching,
+    compilerName: TIndexedSourceWatchCompilerName,
+): TNamedWatching | undefined => {
+    const childWatchings = (watching as TMultiWatchingLike).watchings;
+
+    return childWatchings?.find((childWatching) => childWatching.compiler.name === compilerName);
+};
 
 const closeFsWatcher = async (watcher: FSWatcher) => {
     await new Promise<void>((resolve) => {
@@ -545,7 +602,9 @@ const createIndexedSourceWatching = ({
     watching: TDevWatching;
 }): TIndexedSourceWatching => {
     const watchers: FSWatcher[] = [];
-    const pendingChanges = new Map<'server', Set<string>>();
+    const pendingChanges = new Map<TIndexedSourceWatchCompilerName, Set<string>>();
+    const pendingInvalidateTargets = new Set<TIndexedSourceWatchInvalidateTarget>();
+    const recentQueuedChanges = new Map<string, number>();
     let invalidateTimer: NodeJS.Timeout | undefined;
 
     const flushInvalidate = () => {
@@ -556,31 +615,77 @@ const createIndexedSourceWatching = ({
         }
 
         pendingChanges.clear();
-        logVerbose('Indexed source files changed. Invalidating the dev compiler to refresh generated artifacts.');
-        watching.invalidate();
+
+        if (pendingInvalidateTargets.has('all')) {
+            pendingInvalidateTargets.clear();
+            logVerbose('Indexed source files changed. Invalidating the dev compiler to refresh generated artifacts.');
+            watching.invalidate();
+            return;
+        }
+
+        const invalidateTargets = [...pendingInvalidateTargets].filter(
+            (invalidateTarget): invalidateTarget is TIndexedSourceWatchCompilerName => invalidateTarget !== 'all',
+        );
+        pendingInvalidateTargets.clear();
+
+        if (invalidateTargets.length === 0) return;
+
+        logVerbose('Transpiled source files changed. Invalidating the server compiler to refresh mutable package code.');
+        for (const invalidateTarget of invalidateTargets) {
+            const compilerWatching = findCompilerWatching(watching, invalidateTarget);
+
+            if (!compilerWatching) {
+                watching.invalidate();
+                return;
+            }
+
+            compilerWatching.invalidate();
+        }
     };
 
-    const queueInvalidate = (compilerName: 'server', filepath: string) => {
+    const queueInvalidate = ({
+        compilerName,
+        filepath,
+        invalidateTarget,
+    }: {
+        compilerName: TIndexedSourceWatchCompilerName;
+        filepath: string;
+        invalidateTarget: TIndexedSourceWatchInvalidateTarget;
+    }) => {
         const normalizedFilepath = normalizeWatchPath(filepath);
+        const queueKey = `${invalidateTarget}:${compilerName}:${normalizedFilepath}`;
+        const queuedAt = recentQueuedChanges.get(queueKey);
+
+        if (queuedAt !== undefined && Date.now() - queuedAt < 250) return;
+
+        recentQueuedChanges.set(queueKey, Date.now());
         const changedFiles = pendingChanges.get(compilerName) || new Set<string>();
 
         changedFiles.add(normalizedFilepath);
         pendingChanges.set(compilerName, changedFiles);
+        pendingInvalidateTargets.add(invalidateTarget);
 
         if (invalidateTimer) return;
         invalidateTimer = setTimeout(flushInvalidate, 40);
     };
 
-    for (const watchRule of indexedSourceWatchRules) {
-        const rootPath = watchRule.root();
+    for (const watchRule of resolveIndexedSourceWatchRules()) {
+        const rootPath = watchRule.rootPath;
+        if (!fs.existsSync(rootPath)) continue;
 
         watchers.push(
             fs.watch(rootPath, { recursive: true }, (eventType, filename) => {
                 const relativePath = typeof filename === 'string' ? filename.replace(/\\/g, '/').replace(/^\.\//, '') : '';
-                if (relativePath && !watchRule.relativePathPattern.test(relativePath)) return;
-                if (eventType !== 'rename' && relativePath) return;
+                const normalizedEventType: TIndexedSourceWatchEvent = eventType === 'change' ? 'change' : 'rename';
 
-                queueInvalidate(watchRule.compilerName, relativePath ? path.join(rootPath, relativePath) : rootPath);
+                if (relativePath && !watchRule.relativePathPattern.test(relativePath)) return;
+                if (!watchRule.eventTypes.includes(normalizedEventType) && relativePath) return;
+
+                queueInvalidate({
+                    compilerName: watchRule.compilerName,
+                    filepath: relativePath ? path.join(rootPath, relativePath) : rootPath,
+                    invalidateTarget: watchRule.invalidateTarget,
+                });
             }),
         );
     }

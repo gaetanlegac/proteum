@@ -45,6 +45,15 @@ export default function createCommonConfig(
 ): Configuration {
     const dev = mode === 'dev';
     const enableFilesystemCache = dev ? cli.args.cache !== false : cli.args.cache === true;
+    const transpileModuleDirectories = app.transpileModuleDirectories;
+    const transpileModuleSnapshot =
+        dev && transpileModuleDirectories.length > 0
+            ? {
+                  // Transpiled local packages can resolve through node_modules symlinks,
+                  // but they still need live invalidation like mutable app sources in dev.
+                  unmanagedPaths: transpileModuleDirectories,
+              }
+            : undefined;
     const frameworkPackageRoots = [cli.paths.framework.installedRoot, cli.paths.framework.activeRoot].filter(
         (rootPath, index, list): rootPath is string => typeof rootPath === 'string' && list.indexOf(rootPath) === index,
     );
@@ -109,6 +118,8 @@ export default function createCommonConfig(
             ]*/
         },
 
+        ...(transpileModuleSnapshot ? { snapshot: transpileModuleSnapshot } : {}),
+
         // Turn off performance processing because we utilize
         // our own hints via the FileSizeReporter
         performance: false,
@@ -123,6 +134,11 @@ export default function createCommonConfig(
                   cacheDirectory: path.join(app.paths.cache, 'rspack', side, mode),
                   compression: false,
                   buildDependencies: { config: [__filename] },
+                  ...(transpileModuleSnapshot
+                      ? {
+                            snapshot: transpileModuleSnapshot,
+                        }
+                      : {}),
               }
             : false,
 
