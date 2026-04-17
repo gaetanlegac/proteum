@@ -40,7 +40,7 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 
   [optional body]
   ```
-  Then use that generated message, stage the task-related changed files with `git add` while avoiding unrelated user changes or incidental untracked files, and create the commit by running `git commit`. Do not stop at only suggesting the message.
+  Then treat `commit` as conversation-wide and cross-project, not task-scoped. Identify every affected git repository or worktree touched during that span, stage all conversation-related changed files in each affected repository or worktree with `git add` while still avoiding unrelated pre-existing user changes or incidental untracked files, and create one `git commit` per affected repository or worktree. Do not omit linked local dependencies, framework repos, connected projects, or producer apps when they were changed to make the delivered behavior actually work. Do not stop at only suggesting the message.
   After providing a commit message or after creating a commit, immediately follow it with this exact prompt and obey it:
   `Explain in short minimalistic and few bullet points what we changed in this thread, like you would do to your grandma. Start with a verb in the past.`
 
@@ -222,7 +222,7 @@ Verify at the correct layer:
 - Never run schema-mutating SQL such as `ALTER TABLE`, `CREATE TABLE`, `DROP TABLE`, or `CREATE INDEX` to change database structure.
 - Do not run `prisma *` yourself. If a schema change requires migration, ask the user to run `npx prisma migrate dev --config ./prisma.config.ts --name <migration name>` and wait for `continue`.
 - Do not run `git restore` or `git reset`.
-- Do not run write-mode git commands by default. The built-in exception is an exact `commit` reply, which allows only task-scoped `git add` and `git commit`. Any other write-mode git action requires an explicit user request.
+- Do not run write-mode git commands by default. The built-in exception is an exact `commit` reply, which allows `git add` and `git commit` in every affected repository or worktree touched during the whole conversation. Any other write-mode git action requires an explicit user request.
 
 ## Appendix
 
