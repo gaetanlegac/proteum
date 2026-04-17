@@ -42,6 +42,24 @@ type TRequestTraceCallContext = {
     label: string;
     origin: TTraceCallOrigin;
 };
+type THeaderValue = string | string[] | undefined;
+
+const readHeader = (headers: Record<string, THeaderValue>, name: string): string | null => {
+    const exact = headers[name];
+    const alternate = exact === undefined ? headers[name.toLowerCase()] : exact;
+    const value = alternate === undefined ? headers[name.toUpperCase()] : alternate;
+
+    if (Array.isArray(value)) {
+        const firstValue = value.find((entry) => typeof entry === 'string' && entry.trim());
+        return typeof firstValue === 'string' ? firstValue.trim() : null;
+    }
+
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+};
+
+const resolveRequestIp = (req: express.Request): string | undefined => {
+    return readHeader(req.headers as Record<string, THeaderValue>, 'cf-connecting-ip') || req.ip;
+};
 
 /*----------------------------------
 - CONTEXTE
@@ -108,7 +126,7 @@ export default class ServerRequest<TRouter extends TAnyRouter = TAnyRouter> exte
         this.domain = res.req.hostname;
         this.cookies = res.req.cookies;
 
-        this.ip = res.req.ip;
+        this.ip = resolveRequestIp(res.req);
 
         this.data = data || {};
     }
