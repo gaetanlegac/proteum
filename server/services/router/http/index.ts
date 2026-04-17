@@ -510,7 +510,7 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
     private registerDevTraceRoutes(routes: express.Express) {
         if (!__DEV__ || this.app.env.profile !== 'dev') return;
 
-        if (this.app.container.Trace.isEnabled()) {
+        if (this.app.container.Trace.isDevTraceEnabled()) {
             routes.get('/__proteum/trace/requests', (req, res) => {
                 const rawLimit = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
                 const parsedLimit = typeof rawLimit === 'string' ? Number.parseInt(rawLimit, 10) : NaN;

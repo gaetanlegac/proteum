@@ -10,7 +10,7 @@ import Bowser from 'bowser';
 
 // Core
 import BaseRequest from '@common/router/request';
-import type { TTraceCallOrigin } from '@common/dev/requestTrace';
+import type { TRequestProfiling, TTraceCallOrigin } from '@common/dev/requestTrace';
 
 // Specific
 import type { HttpMethod, HttpHeaders } from '..';
@@ -74,6 +74,7 @@ export default class ServerRequest<TRouter extends TAnyRouter = TAnyRouter> exte
     // Services
     public api: ApiClient;
     public traceCall?: TRequestTraceCallContext;
+    public profiling!: TRequestProfiling;
 
     /*----------------------------------
     - INITIALISATION

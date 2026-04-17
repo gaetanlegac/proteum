@@ -16,6 +16,9 @@ import {
     type TTraceSqlQueryCallerOrigin,
     type TTraceSqlQueryKind,
     type TTraceSummaryValue,
+    type TRequestProfiling,
+    type TRequestProfilingApiCall,
+    type TRequestProfilingSqlQuery,
     type TRequestTrace,
     type TTraceMemorySnapshot,
     type TRequestTraceListItem,
@@ -24,6 +27,7 @@ import type { TProteumManifest } from '@common/dev/proteumManifest';
 
 export type Config = {
     enable: boolean;
+    profilerEnable: boolean;
     requestsLimit: number;
     eventsLimit: number;
     capture: TTraceCaptureMode;
@@ -32,6 +36,12 @@ export type Config = {
 
 type TTraceInspectable = object | PrimitiveValue | bigint | symbol | null | undefined | (() => void);
 type TTraceDetails = { [key: string]: TTraceInspectable };
+type TSerializeJsonValueOptions = { redactSensitive: boolean };
+type TActiveRequestRecord = {
+    profiling: TRequestProfiling;
+    trace?: TRequestTrace;
+    capture?: TTraceCaptureMode;
+};
 
 const capturePriority: Record<TTraceCaptureMode, number> = { summary: 0, resolve: 1, deep: 2 };
 const sensitiveKeyPattern =
@@ -50,8 +60,13 @@ const isSensitiveKeyPath = (keyPath: string[]) => sensitiveKeyPattern.test(keyPa
 const summarizeString = (value: string) =>
     value.length <= maxStringLength ? value : `${value.slice(0, maxStringLength)}…`;
 
-const serializeJsonValue = (value: unknown, keyPath: string[], seen: WeakSet<object>): unknown => {
-    if (isSensitiveKeyPath(keyPath)) return `[redacted: Sensitive key ${keyPath[keyPath.length - 1] || 'value'}]`;
+const serializeJsonValue = (
+    value: unknown,
+    keyPath: string[],
+    seen: WeakSet<object>,
+    { redactSensitive }: TSerializeJsonValueOptions,
+): unknown => {
+    if (redactSensitive && isSensitiveKeyPath(keyPath)) return `[redacted: Sensitive key ${keyPath[keyPath.length - 1] || 'value'}]`;
     if (value === undefined || value === null) return value;
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
     if (typeof value === 'bigint') return `${value.toString()}n`;
@@ -61,11 +76,14 @@ const serializeJsonValue = (value: unknown, keyPath: string[], seen: WeakSet<obj
     if (value instanceof Date) return value.toISOString();
     if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack };
     if (Buffer.isBuffer(value)) return `[Buffer ${value.byteLength} bytes]`;
-    if (value instanceof Map) return Array.from(value.entries()).map(([entryKey, entryValue], index) =>
-        serializeJsonValue([entryKey, entryValue], [...keyPath, `[${index}]`], seen),
-    );
+    if (value instanceof Map)
+        return Array.from(value.entries()).map(([entryKey, entryValue], index) =>
+            serializeJsonValue([entryKey, entryValue], [...keyPath, `[${index}]`], seen, { redactSensitive }),
+        );
     if (value instanceof Set) {
-        return Array.from(value.values()).map((entryValue, index) => serializeJsonValue(entryValue, [...keyPath, `[${index}]`], seen));
+        return Array.from(value.values()).map((entryValue, index) =>
+            serializeJsonValue(entryValue, [...keyPath, `[${index}]`], seen, { redactSensitive }),
+        );
     }
 
     if (typeof value !== 'object') return String(value);
@@ -74,19 +92,22 @@ const serializeJsonValue = (value: unknown, keyPath: string[], seen: WeakSet<obj
     seen.add(value);
 
     if (Array.isArray(value)) {
-        return value.map((item, index) => serializeJsonValue(item, [...keyPath, `[${index}]`], seen));
+        return value.map((item, index) => serializeJsonValue(item, [...keyPath, `[${index}]`], seen, { redactSensitive }));
     }
 
     const serialized: Record<string, unknown> = {};
     for (const [entryKey, entryValue] of Object.entries(value)) {
-        const nextValue = serializeJsonValue(entryValue, [...keyPath, entryKey], seen);
+        const nextValue = serializeJsonValue(entryValue, [...keyPath, entryKey], seen, { redactSensitive });
         if (nextValue !== undefined) serialized[entryKey] = nextValue;
     }
 
     return serialized;
 };
 
-const serializeCaptureValue = (value: TTraceInspectable, key: string) => serializeJsonValue(value, [key], new WeakSet<object>());
+const serializeCaptureValue = (value: TTraceInspectable, key: string) =>
+    serializeJsonValue(value, [key], new WeakSet<object>(), { redactSensitive: true });
+const serializeRawCaptureValue = (value: TTraceInspectable, key: string) =>
+    serializeJsonValue(value, [key], new WeakSet<object>(), { redactSensitive: false });
 
 const summarizeError = (error: Error): TTraceSummaryValue => ({
     kind: 'error',
@@ -181,7 +202,7 @@ const snapshotMemory = (): TTraceMemorySnapshot => {
 };
 
 export default class Trace {
-    private requests = new Map<string, TRequestTrace>();
+    private requests = new Map<string, TActiveRequestRecord>();
     private order: string[] = [];
     private armedCapture?: TTraceCaptureMode;
     private manifestCache?: {
@@ -202,8 +223,16 @@ export default class Trace {
         private config: Config,
     ) {}
 
-    public isEnabled() {
+    public isDevTraceEnabled() {
         return __DEV__ && this.config.enable && this.container.Environment.profile === 'dev';
+    }
+
+    public isProfilingEnabled() {
+        return this.config.profilerEnable;
+    }
+
+    public shouldInstrumentRequests() {
+        return this.isDevTraceEnabled() || this.isProfilingEnabled();
     }
 
     private getContextChannel() {
@@ -270,8 +299,8 @@ export default class Trace {
         return undefined;
     }
 
-    private createSqlFingerprint(query: string) {
-        const normalized = query
+    private normalizeSqlQuery(query: string) {
+        return query
             .replace(sqlCommentPattern, ' ')
             .replace(sqlLineCommentPattern, ' ')
             .replace(/'([^']|'')*'/g, '?')
@@ -280,10 +309,41 @@ export default class Trace {
             .replace(/\s+/g, ' ')
             .trim()
             .toUpperCase();
+    }
+
+    private createSqlFingerprint(query: string) {
+        const normalized = this.normalizeSqlQuery(query);
 
         if (!normalized) return undefined;
 
         return createHash('sha1').update(normalized).digest('hex').slice(0, 12);
+    }
+
+    private createProfiling(input: {
+        enabled: boolean;
+        id: string;
+        method: string;
+        path: string;
+        url: string;
+        profilerOrigin?: string;
+        profilerParentRequestId?: string;
+    }): TRequestProfiling {
+        return {
+            enabled: input.enabled,
+            requestId: input.id,
+            method: input.method,
+            path: input.path,
+            url: input.url,
+            startedAt: nowIso(),
+            profilerOrigin: input.profilerOrigin,
+            profilerParentRequestId: input.profilerParentRequestId,
+            apiCalls: [],
+            sqlQueries: [],
+        };
+    }
+
+    private getRecord(requestId: string) {
+        return this.requests.get(requestId);
     }
 
     public armNextRequest(capture: string) {
@@ -306,46 +366,72 @@ export default class Trace {
         profilerOrigin?: string;
         profilerParentRequestId?: string;
     }) {
-        if (!this.isEnabled()) return;
-
-        const capture = this.armedCapture ?? this.config.capture;
-        this.armedCapture = undefined;
-
-        const trace: TRequestTrace = {
+        const profilingEnabled = this.shouldInstrumentRequests();
+        const profiling = this.createProfiling({
+            enabled: profilingEnabled,
             id: input.id,
             method: input.method,
             path: input.path,
             url: input.url,
-            capture,
-            profilerSessionId: input.profilerSessionId,
             profilerOrigin: input.profilerOrigin,
             profilerParentRequestId: input.profilerParentRequestId,
-            startedAt: nowIso(),
-            droppedEvents: 0,
-            requestDataJson: serializeCaptureValue(input.data, 'requestData'),
-            calls: [],
-            sqlQueries: [],
-            events: [],
-        };
+        });
+        if (!profilingEnabled) return profiling;
 
-        this.requests.set(trace.id, trace);
-        this.activeMeasurements.set(trace.id, { cpu: process.cpuUsage(), memory: snapshotMemory() });
-        this.order.push(trace.id);
-        this.trimRequestBuffer();
+        const traceEnabled = this.isDevTraceEnabled();
+        const capture = traceEnabled ? this.armedCapture ?? this.config.capture : undefined;
+        this.armedCapture = undefined;
 
-        this.record(trace.id, 'request.start', { method: input.method, path: input.path, url: input.url, headers: input.headers, data: input.data });
+        const trace =
+            traceEnabled
+                ? ({
+                      id: input.id,
+                      method: input.method,
+                      path: input.path,
+                      url: input.url,
+                      capture: capture as TTraceCaptureMode,
+                      profilerSessionId: input.profilerSessionId,
+                      profilerOrigin: input.profilerOrigin,
+                      profilerParentRequestId: input.profilerParentRequestId,
+                      startedAt: profiling.startedAt,
+                      droppedEvents: 0,
+                      requestDataJson: serializeCaptureValue(input.data, 'requestData'),
+                      calls: [],
+                      sqlQueries: [],
+                      events: [],
+                  } satisfies TRequestTrace)
+                : undefined;
+
+        this.requests.set(input.id, {
+            profiling,
+            trace,
+            capture,
+        });
+        this.activeMeasurements.set(input.id, { cpu: process.cpuUsage(), memory: snapshotMemory() });
+
+        if (trace) {
+            this.order.push(input.id);
+            this.trimRequestBuffer();
+            this.record(input.id, 'request.start', { method: input.method, path: input.path, url: input.url, headers: input.headers, data: input.data });
+        }
+
+        return profiling;
     }
 
     public setRequestUser(requestId: string, user?: string) {
-        const trace = this.requests.get(requestId);
-        if (!trace) return;
+        const record = this.getRecord(requestId);
+        if (!record) return;
 
+        record.profiling.user = user;
+        if (!record.trace) return;
+
+        const trace = record.trace;
         trace.user = user;
         if (user) this.record(requestId, 'request.user', { user });
     }
 
     public getCapture(requestId: string) {
-        return this.requests.get(requestId)?.capture;
+        return this.getRecord(requestId)?.capture;
     }
 
     public shouldCapture(requestId: string, minimumCapture: TTraceCaptureMode) {
@@ -356,7 +442,8 @@ export default class Trace {
     }
 
     public record(requestId: string, type: TTraceEventType, details: TTraceDetails, minimumCapture: TTraceCaptureMode = 'summary') {
-        const trace = this.requests.get(requestId);
+        const record = this.getRecord(requestId);
+        const trace = record?.trace;
         if (!trace || !this.shouldCapture(requestId, minimumCapture)) return;
 
         if (trace.events.length >= this.config.eventsLimit) {
@@ -376,28 +463,41 @@ export default class Trace {
     }
 
     public finishRequest(requestId: string, output: { statusCode: number; user?: string; errorMessage?: string }) {
-        const trace = this.requests.get(requestId);
+        const record = this.getRecord(requestId);
+        if (!record) return;
+
+        const { profiling, trace } = record;
+        if (output.user) profiling.user = output.user;
+        profiling.statusCode = output.statusCode;
+        profiling.errorMessage = output.errorMessage;
+
+        const measurement = this.activeMeasurements.get(requestId);
+        if (measurement) {
+            this.activeMeasurements.delete(requestId);
+
+            if (trace) {
+                const cpu = process.cpuUsage(measurement.cpu);
+                trace.performance = {
+                    cpu: {
+                        systemMicros: cpu.system,
+                        userMicros: cpu.user,
+                    },
+                    memory: {
+                        after: snapshotMemory(),
+                        before: measurement.memory,
+                    },
+                };
+            }
+        }
+
+        profiling.finishedAt = nowIso();
+        profiling.durationMs = Math.max(0, Date.parse(profiling.finishedAt) - Date.parse(profiling.startedAt));
+
         if (!trace) return;
 
         if (output.user) trace.user = output.user;
         trace.statusCode = output.statusCode;
         trace.errorMessage = output.errorMessage;
-        const measurement = this.activeMeasurements.get(requestId);
-        if (measurement) {
-            const cpu = process.cpuUsage(measurement.cpu);
-            trace.performance = {
-                cpu: {
-                    systemMicros: cpu.system,
-                    userMicros: cpu.user,
-                },
-                memory: {
-                    after: snapshotMemory(),
-                    before: measurement.memory,
-                },
-            };
-            this.activeMeasurements.delete(requestId);
-        }
-
         this.record(
             requestId,
             'request.finish',
@@ -405,8 +505,8 @@ export default class Trace {
             'summary',
         );
 
-        trace.finishedAt = nowIso();
-        trace.durationMs = Math.max(0, Date.parse(trace.finishedAt) - Date.parse(trace.startedAt));
+        trace.finishedAt = profiling.finishedAt;
+        trace.durationMs = profiling.durationMs;
 
         if (this.config.persistOnError && trace.statusCode >= 500) {
             trace.persistedFilepath = this.exportRequest(requestId);
@@ -433,13 +533,37 @@ export default class Trace {
             requestData?: TTraceInspectable;
         },
     ) {
-        const trace = this.requests.get(requestId);
-        if (!trace) return undefined;
+        const record = this.getRecord(requestId);
+        if (!record) return undefined;
         const channel = this.getContextChannel();
         const inferredServiceLabel = input.serviceLabel || channel?.serviceLabel || this.inferServiceLabelFromStack(new Error().stack);
+        const callIndex = record.profiling.apiCalls.length;
+        const startedAt = nowIso();
+        const callId = `${requestId}:call:${callIndex}`;
+
+        const profilingCall: TRequestProfilingApiCall = {
+            id: callId,
+            origin: input.origin,
+            label: input.label,
+            method: input.method || '',
+            path: input.path || '',
+            fetcherId: input.fetcherId,
+            connectedProjectNamespace: input.connectedProjectNamespace,
+            connectedControllerAccessor: input.connectedControllerAccessor,
+            ownerLabel: input.ownerLabel || channel?.ownerLabel,
+            ownerFilepath: input.ownerFilepath || channel?.ownerFilepath,
+            serviceLabel: inferredServiceLabel,
+            startedAt,
+            requestBodyJson: input.requestData !== undefined ? serializeRawCaptureValue(input.requestData, 'requestData') : undefined,
+        };
+
+        record.profiling.apiCalls.push(profilingCall);
+
+        const trace = record.trace;
+        if (!trace) return callId;
 
         const call: TTraceCall = {
-            id: `${requestId}:call:${trace.calls.length}`,
+            id: callId,
             parentId: input.parentId,
             origin: input.origin,
             label: input.label,
@@ -453,7 +577,7 @@ export default class Trace {
             serviceLabel: inferredServiceLabel,
             cacheKey: input.cacheKey || channel?.cacheKey,
             cachePhase: input.cachePhase || channel?.cachePhase,
-            startedAt: nowIso(),
+            startedAt,
             requestDataKeys: input.requestDataKeys || [],
             requestData: input.requestData !== undefined ? summarizeCaptureValue(input.requestData, trace.capture, 'requestData') : undefined,
             requestDataJson: input.requestData !== undefined ? serializeCaptureValue(input.requestData, 'requestData') : undefined,
@@ -461,7 +585,7 @@ export default class Trace {
         };
 
         trace.calls.push(call);
-        return call.id;
+        return callId;
     }
 
     public finishCall(
@@ -476,12 +600,24 @@ export default class Trace {
     ) {
         if (!callId) return;
 
-        const trace = this.requests.get(requestId);
-        const call = trace?.calls.find((candidate) => candidate.id === callId);
-        if (!trace || !call) return;
+        const record = this.getRecord(requestId);
+        const profilingCall = record?.profiling.apiCalls.find((candidate) => candidate.id === callId);
+        if (!record || !profilingCall) return;
 
-        call.finishedAt = nowIso();
-        call.durationMs = Math.max(0, Date.parse(call.finishedAt) - Date.parse(call.startedAt));
+        profilingCall.finishedAt = nowIso();
+        profilingCall.durationMs = Math.max(0, Date.parse(profilingCall.finishedAt) - Date.parse(profilingCall.startedAt));
+        profilingCall.statusCode = output.statusCode;
+        profilingCall.errorMessage = output.errorMessage;
+        profilingCall.responseBodyJson = output.result !== undefined ? serializeRawCaptureValue(output.result, 'result') : undefined;
+
+        const trace = record.trace;
+        if (!trace) return;
+
+        const call = trace.calls.find((candidate) => candidate.id === callId);
+        if (!call) return;
+
+        call.finishedAt = profilingCall.finishedAt;
+        call.durationMs = profilingCall.durationMs;
         call.statusCode = output.statusCode;
         call.errorMessage = output.errorMessage;
         call.resultKeys = output.resultKeys || [];
@@ -490,7 +626,7 @@ export default class Trace {
     }
 
     public setRequestResult(requestId: string, result: TTraceInspectable) {
-        const trace = this.requests.get(requestId);
+        const trace = this.getRecord(requestId)?.trace;
         if (!trace) return;
 
         trace.resultJson = serializeCaptureValue(result, 'result');
@@ -520,8 +656,8 @@ export default class Trace {
             target?: string;
         },
     ) {
-        const trace = this.requests.get(requestId);
-        if (!trace) return;
+        const record = this.getRecord(requestId);
+        if (!record) return;
         const channel = this.getContextChannel();
 
         const durationMs = Math.max(0, input.durationMs || 0);
@@ -530,10 +666,11 @@ export default class Trace {
         const startedAt =
             Number.isFinite(finishedAtMs) && durationMs > 0 ? new Date(finishedAtMs - durationMs).toISOString() : finishedAt;
         const fingerprint = this.createSqlFingerprint(input.query);
+        const normalizedQuery = this.normalizeSqlQuery(input.query) || undefined;
         const inferredServiceLabel = input.serviceLabel || channel?.serviceLabel || this.inferServiceLabelFromStack(new Error().stack);
 
-        const sqlQuery: TTraceSqlQuery = {
-            id: `${requestId}:sql:${trace.sqlQueries.length}`,
+        const profilingQuery: TRequestProfilingSqlQuery = {
+            id: `${requestId}:sql:${record.profiling.sqlQueries.length}`,
             callerCallId: input.callerCallId,
             callerFetcherId: input.callerFetcherId,
             callerLabel: input.callerLabel,
@@ -546,6 +683,37 @@ export default class Trace {
             model: input.model,
             operation: input.operation,
             fingerprint,
+            normalizedQuery,
+            ownerLabel: input.ownerLabel || channel?.ownerLabel,
+            ownerFilepath: input.ownerFilepath || channel?.ownerFilepath,
+            serviceLabel: inferredServiceLabel,
+            connectedNamespace: input.connectedNamespace || channel?.connectedNamespace,
+            paramsJson: input.paramsJson,
+            paramsText: input.paramsText,
+            query: input.query.trim(),
+            startedAt,
+            target: input.target,
+        };
+
+        record.profiling.sqlQueries.push(profilingQuery);
+        const trace = record.trace;
+        if (!trace) return;
+
+        const sqlQuery: TTraceSqlQuery = {
+            id: profilingQuery.id,
+            callerCallId: input.callerCallId,
+            callerFetcherId: input.callerFetcherId,
+            callerLabel: input.callerLabel,
+            callerMethod: input.callerMethod || '',
+            callerOrigin: input.callerOrigin || 'request',
+            callerPath: input.callerPath || '',
+            durationMs,
+            finishedAt,
+            kind: input.kind,
+            model: input.model,
+            operation: input.operation,
+            fingerprint,
+            normalizedQuery,
             ownerLabel: input.ownerLabel || channel?.ownerLabel,
             ownerFilepath: input.ownerFilepath || channel?.ownerFilepath,
             serviceLabel: inferredServiceLabel,
@@ -564,7 +732,7 @@ export default class Trace {
         return [...this.order]
             .reverse()
             .slice(0, limit)
-            .map((requestId) => this.requests.get(requestId))
+            .map((requestId) => this.getRecord(requestId)?.trace)
             .filter((trace): trace is TRequestTrace => trace !== undefined)
             .map((trace) => ({
                 id: trace.id,
@@ -593,21 +761,25 @@ export default class Trace {
         return [...this.order]
             .reverse()
             .slice(0, Math.max(1, limit))
-            .map((requestId) => this.requests.get(requestId))
+            .map((requestId) => this.getRecord(requestId)?.trace)
             .filter((trace): trace is TRequestTrace => trace !== undefined);
     }
 
     public getLatestRequest() {
         const latestRequestId = this.order[this.order.length - 1];
-        return latestRequestId ? this.requests.get(latestRequestId) : undefined;
+        return latestRequestId ? this.getRecord(latestRequestId)?.trace : undefined;
     }
 
     public getRequest(requestId: string) {
-        return this.requests.get(requestId);
+        return this.getRecord(requestId)?.trace;
+    }
+
+    public getProfiling(requestId: string) {
+        return this.getRecord(requestId)?.profiling;
     }
 
     public exportRequest(requestId: string, filepath?: string) {
-        const trace = this.requests.get(requestId);
+        const trace = this.getRecord(requestId)?.trace;
         if (!trace) throw new Error(`Trace ${requestId} was not found.`);
 
         const outputFilepath =
@@ -620,6 +792,15 @@ export default class Trace {
         trace.persistedFilepath = outputFilepath;
 
         return outputFilepath;
+    }
+
+    public releaseRequest(requestId: string) {
+        const record = this.getRecord(requestId);
+        if (!record) return;
+        if (record.trace) return;
+
+        this.requests.delete(requestId);
+        this.activeMeasurements.delete(requestId);
     }
 
     private trimRequestBuffer() {

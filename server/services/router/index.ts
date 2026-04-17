@@ -132,7 +132,13 @@ export type Config<
 // Set it as a function, so when we instanciate the services, we can callthis.router to pass the router instance in roiuter services
 type TRouterServicesList = { [serviceName: string]: AnyRouterService };
 
-export type Hooks = {};
+export type Hooks = {
+    request: { args: [request: ServerRequest<TServerRouter>] };
+    'request.finished': { args: [request: ServerRequest<TServerRouter>] };
+    resolve: { args: [request: ServerRequest<TServerRouter>] };
+    resolved: { args: [route: TMatchedRoute, request: ServerRequest<TServerRouter>, response: ServerResponse<TServerRouter>] };
+    render: { args: [page: Page<TServerRouter>] };
+};
 
 export type TControllerDefinition = {
     path?: string;
@@ -607,6 +613,32 @@ export default class ServerRouter<
     /*----------------------------------
     - RESOLUTION
     ----------------------------------*/
+    private async finalizeRequest(
+        request: ServerRequest<this>,
+        output: {
+            statusCode: number;
+            user?: string;
+            errorMessage?: string;
+        },
+    ) {
+        this.app.container.Trace.finishRequest(request.id, output);
+
+        try {
+            await this.runHook('request.finished', request);
+        } catch (error) {
+            const typedError =
+                error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown request.finished hook error');
+
+            try {
+                await this.app.runHook('error', typedError, request);
+            } catch (hookError) {
+                console.error('request.finished hook error', typedError, 'Error hook failure', hookError);
+            }
+        } finally {
+            this.app.container.Trace.releaseRequest(request.id);
+        }
+    }
+
     public async middleware(req: express.Request, res: express.Response) {
         // Create request
         let requestId = uuid();
@@ -629,7 +661,7 @@ export default class ServerRouter<
             this,
         );
 
-        this.app.container.Trace.startRequest({
+        request.profiling = this.app.container.Trace.startRequest({
             id: request.id,
             method: request.method,
             path: request.path,
@@ -640,7 +672,7 @@ export default class ServerRouter<
             profilerOrigin: request.headers[profilerOriginHeader] || undefined,
             profilerParentRequestId: request.headers[profilerParentRequestIdHeader] || undefined,
         });
-        if (this.app.container.Trace.isEnabled()) res.setHeader(profilerTraceRequestIdHeader, request.id);
+        if (this.app.container.Trace.isDevTraceEnabled()) res.setHeader(profilerTraceRequestIdHeader, request.id);
         if (cachedPage) {
             this.app.container.Trace.record(
                 request.id,
@@ -659,7 +691,7 @@ export default class ServerRouter<
             // Bulk API Requests
             if (request.path === '/api' && typeof request.data.fetchers === 'object') {
                 await this.resolveApiBatch(request.data.fetchers, request);
-                this.app.container.Trace.finishRequest(request.id, {
+                await this.finalizeRequest(request, {
                     statusCode: request.res.statusCode || 200,
                     user: request.user?.email,
                 });
@@ -696,7 +728,7 @@ export default class ServerRouter<
                         },
                         'summary',
                     );
-                    this.app.container.Trace.finishRequest(request.id, {
+                    await this.finalizeRequest(request, {
                         statusCode: response.statusCode,
                         user: request.user?.email,
                     });
@@ -715,7 +747,7 @@ export default class ServerRouter<
                     'summary',
                 );
                 res.send(cachedPage.rendered);
-                this.app.container.Trace.finishRequest(request.id, {
+                await this.finalizeRequest(request, {
                     statusCode: response.statusCode,
                     user: request.user?.email,
                 });
@@ -739,19 +771,19 @@ export default class ServerRouter<
                 'summary',
             );
             res.send(response.data);
-            this.app.container.Trace.finishRequest(request.id, {
+            await this.finalizeRequest(request, {
                 statusCode: response.statusCode,
                 user: request.user?.email,
             });
         } else if (response.data !== 'true') {
-            this.app.container.Trace.finishRequest(request.id, {
+            await this.finalizeRequest(request, {
                 statusCode: res.statusCode || response.statusCode,
                 user: request.user?.email,
                 errorMessage: "Can't return data from the controller since response has already been sent via express.",
             });
             throw new Error("Can't return data from the controller since response has already been sent via express.");
         } else {
-            this.app.container.Trace.finishRequest(request.id, {
+            await this.finalizeRequest(request, {
                 statusCode: res.statusCode || response.statusCode,
                 user: request.user?.email,
             });

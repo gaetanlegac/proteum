@@ -114,6 +114,7 @@ export type TTraceSqlQuery = {
     model?: string;
     operation: string;
     fingerprint?: string;
+    normalizedQuery?: string;
     ownerLabel?: string;
     ownerFilepath?: string;
     serviceLabel?: string;
@@ -167,6 +168,71 @@ export type TRequestTrace = {
     calls: TTraceCall[];
     sqlQueries: TTraceSqlQuery[];
     events: TTraceEvent[];
+};
+
+export type TRequestProfilingApiCall = {
+    id: string;
+    origin: TTraceCallOrigin;
+    label: string;
+    method: string;
+    path: string;
+    fetcherId?: string;
+    connectedProjectNamespace?: string;
+    connectedControllerAccessor?: string;
+    ownerLabel?: string;
+    ownerFilepath?: string;
+    serviceLabel?: string;
+    startedAt: string;
+    finishedAt?: string;
+    durationMs?: number;
+    statusCode?: number;
+    errorMessage?: string;
+    requestBodyJson?: unknown;
+    responseBodyJson?: unknown;
+};
+
+export type TRequestProfilingSqlQuery = {
+    id: string;
+    callerCallId?: string;
+    callerFetcherId?: string;
+    callerLabel?: string;
+    callerMethod: string;
+    callerOrigin: TTraceSqlQueryCallerOrigin;
+    callerPath: string;
+    durationMs: number;
+    finishedAt: string;
+    kind: TTraceSqlQueryKind;
+    model?: string;
+    operation: string;
+    fingerprint?: string;
+    normalizedQuery?: string;
+    ownerLabel?: string;
+    ownerFilepath?: string;
+    serviceLabel?: string;
+    connectedNamespace?: string;
+    paramsJson?: unknown;
+    paramsText?: string;
+    query: string;
+    startedAt: string;
+    target?: string;
+};
+
+export type TRequestProfiling = {
+    enabled: boolean;
+    requestId: string;
+    method: string;
+    path: string;
+    url: string;
+    startedAt: string;
+    finishedAt?: string;
+    durationMs?: number;
+    statusCode?: number;
+    user?: string;
+    errorMessage?: string;
+    profilerOrigin?: string;
+    profilerParentRequestId?: string;
+    apiCalls: TRequestProfilingApiCall[];
+    sqlQueries: TRequestProfilingSqlQuery[];
 };
 
 export type TRequestTraceListItem = Omit<TRequestTrace, 'events' | 'calls' | 'sqlQueries'> & {

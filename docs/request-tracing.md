@@ -1,13 +1,18 @@
 # Request Tracing
 
-Proteum ships with a dev-only in-memory request trace buffer so routing, controller execution, SSR, API, Prisma SQL, render behavior, and request-time performance can be inspected without attaching a debugger or scattering temporary logs through the runtime.
+Proteum ships with one request-instrumentation system with two runtime shapes:
+
+- retained dev traces for `proteum trace`, `proteum perf`, the dev-only HTTP endpoints, and the bottom profiler
+- reduced request-local profiling for `request.profiling` and the router `request.finished` hook
+
+The same API and SQL instrumentation feeds both shapes. Dev trace keeps the in-memory buffer and event timeline. Reduced profiling keeps only the finalized request/API/SQL snapshot and releases it after the `request.finished` hook runs.
 
 ## Scope
 
-- tracing is available only when the app runs with `profile: dev`
+- retained dev tracing is available only when the app runs with `profile: dev`
 - traces are exposed through `proteum trace`, `proteum perf`, and the dev-only `__proteum/trace` and `__proteum/perf` HTTP endpoints
 - `proteum diagnose` is a separate composite surface that reads the same framework diagnostics plus one matching request trace and buffered server logs; see [diagnostics.md](diagnostics.md)
-- production requests are not traced by this feature
+- `ENABLE_PROFILER=true` enables reduced request-local profiling in any environment, including production
 
 ## Main Commands
 
@@ -77,6 +82,13 @@ Depending on capture mode, traces can include:
 - normalized request errors
 - additive owner, service, cache, and connected-boundary metadata propagated from route/controller resolution into downstream calls and SQL
 
+Reduced request-local profiling keeps the finalized request summary plus API and SQL rows only:
+
+- `request.profiling` exists before the router `request` hook runs
+- `request.profiling.apiCalls` and `request.profiling.sqlQueries` start empty and are populated during request handling
+- the router `request.finished` hook receives that same object after status, duration, API calls, and SQL queries are finalized
+- when only reduced profiling is enabled, finished requests are released immediately after `request.finished` instead of being retained in the global trace buffer
+
 ## SQL Tracing
 
 Prisma query tracing covers both ORM operations and raw queries.
@@ -140,6 +152,7 @@ export TRACE_REQUESTS_LIMIT=200
 export TRACE_EVENTS_LIMIT=800
 export TRACE_CAPTURE=resolve
 export TRACE_PERSIST_ON_ERROR=true
+export ENABLE_PROFILER=true
 ```
 
 Notes:
@@ -150,6 +163,7 @@ Notes:
 - `eventsLimit` defaults to `800`
 - `proteum dev` removes auto-persisted crash traces from `var/traces/` when the dev session stops
 - explicit `proteum trace export` files under `var/traces/exports/` are left in place
+- `ENABLE_PROFILER` reuses the same request instrumentation path but skips the retained global buffer and event timeline when dev trace is otherwise off
 
 ## Memory Model
 

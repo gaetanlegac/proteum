@@ -36,6 +36,7 @@ export type TProteumEnvConfig = {
     connectedProjects: Record<string, TProteumConnectedProjectEnvConfig>;
     trace: {
         enable: boolean;
+        profilerEnable: boolean;
         requestsLimit: number;
         eventsLimit: number;
         capture: TProteumTraceCapture;
@@ -65,7 +66,7 @@ const isProvidedEnvValue = (value: string | undefined) => typeof value === 'stri
 
 const buildRequiredEnvVariableDefinitions = (_connectedProjects: TConnectedProjectsConfig) => [...baseRequiredProteumEnvVariableDefinitions];
 
-const buildOptionalEnvKeys = (_connectedProjects: TConnectedProjectsConfig) => [] as string[];
+const buildOptionalEnvKeys = (_connectedProjects: TConnectedProjectsConfig) => ['ENABLE_PROFILER'] as string[];
 
 const formatRequiredEnvVariableStatus = (variable: TProteumRequiredEnvVariable) =>
     `- ${variable.key} possibleValues=${variable.possibleValues.join(' | ')} provided=${variable.provided ? 'yes' : 'no'}`;
@@ -269,8 +270,8 @@ export const loadOptionalProteumDotenv = (appDir: string) => {
 };
 
 export const getLoadedProteumEnvVariableKeys = (connectedProjects: TConnectedProjectsConfig = {}) => {
-    const requiredKeys = new Set(buildRequiredEnvVariableDefinitions(connectedProjects).map((definition) => definition.key));
-    const optionalKeys = new Set(buildOptionalEnvKeys(connectedProjects));
+    const requiredKeys = new Set<string>(buildRequiredEnvVariableDefinitions(connectedProjects).map((definition) => definition.key));
+    const optionalKeys = new Set<string>(buildOptionalEnvKeys(connectedProjects));
 
     return Object.keys(process.env)
         .filter(
@@ -338,6 +339,11 @@ export const parseProteumEnvConfig = ({
         value: process.env.TRACE_ENABLE,
         context,
     });
+    const profilerEnable = parseBooleanEnvValue({
+        key: 'ENABLE_PROFILER',
+        value: process.env.ENABLE_PROFILER,
+        context,
+    });
     const tracePersistOnError = parseBooleanEnvValue({
         key: 'TRACE_PERSIST_ON_ERROR',
         value: process.env.TRACE_PERSIST_ON_ERROR,
@@ -387,6 +393,7 @@ export const parseProteumEnvConfig = ({
         connectedProjects: resolvedConnectedProjects,
         trace: {
             enable: traceEnable ?? profile === 'dev',
+            profilerEnable: profilerEnable ?? false,
             requestsLimit:
                 traceRequestsLimit === undefined || traceRequestsLimit === ''
                     ? 200

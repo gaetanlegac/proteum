@@ -46,6 +46,12 @@ type TPrismaExtensionOperation = {
     query: (args: unknown) => Promise<unknown>;
 };
 
+declare global {
+    interface BigInt {
+        toJSON: () => number | string;
+    }
+}
+
 /*----------------------------------
 - HELPERS
 ----------------------------------*/
@@ -173,20 +179,17 @@ export default class ModelsManager extends Service<Config, Hooks, Application, A
                 'DATABASE_URL is required before starting the Models service. Prisma 7 no longer auto-loads runtime env files.',
             );
 
-        const shouldTraceQueries = this.app.container.Trace.isEnabled();
-        const prismaClient = shouldTraceQueries
-            ? new PrismaClient({
-                  adapter: createMariaDbAdapter(databaseUrl),
-                  log: [{ emit: 'event', level: 'query' }],
-              })
-            : new PrismaClient({
-                  adapter: createMariaDbAdapter(databaseUrl),
-              });
-
-        if (!shouldTraceQueries) {
-            this.client = prismaClient;
+        if (!this.app.container.Trace.shouldInstrumentRequests()) {
+            this.client = new PrismaClient({
+                adapter: createMariaDbAdapter(databaseUrl),
+            });
             return;
         }
+
+        const prismaClient = new PrismaClient({
+            adapter: createMariaDbAdapter(databaseUrl),
+            log: [{ emit: 'event', level: 'query' }],
+        });
 
         prismaClient.$on('query', (event: TPrismaQueryEvent) => this.traceQuery(event));
 

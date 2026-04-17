@@ -88,6 +88,7 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 - Root services are public class fields instantiated with `new ServiceClass(this, config, this)`.
 - Typed root-service config lives in `server/config/*.ts` via `Services.config(ServiceClass, { ... })`.
 - Router plugins are instantiated explicitly inside the `Router` config `plugins` object.
+- Router plugins can subscribe to `request` and `request.finished`; `request.profiling` exists before `request` runs and carries the finalized request/API/SQL snapshot by `request.finished`.
 - Root business services live in `server/services/<Feature>/index.ts`.
 - Root-service config lives in `server/config/*.ts` when the service needs config.
 - Business logic lives in classes that extend `Service` and use `this.services`, `this.models`, and `this.app`.
@@ -231,7 +232,7 @@ Proteum reads:
 - `package.json`
 - `identity.config.ts` for app identity via `Application.identity({ ... })`
 - `proteum.config.ts` for compiler setup via `Application.setup({ transpile, connect })`
-- `process.env` via `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, any app-chosen connected-project values referenced by `proteum.config.ts`, and `TRACE_*`
+- `process.env` via `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, any app-chosen connected-project values referenced by `proteum.config.ts`, `TRACE_*`, and `ENABLE_PROFILER`
 - `server/config/*.ts`
 - `server/index.ts`
 - `commands/**/*.ts`
@@ -291,6 +292,6 @@ Prefer scaffold commands before hand-writing boilerplate:
 Edit these only when required, and keep changes minimal and explicit:
 
 - `tsconfig*.json`
-- `PORT`, `ENV_*`, `URL`, and `TRACE_*` env setup
+- `PORT`, `ENV_*`, `URL`, `TRACE_*`, and `ENABLE_PROFILER` env setup
 - Prisma-generated files
 - symbolic links

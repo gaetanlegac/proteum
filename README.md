@@ -107,6 +107,7 @@ Optional trace env vars:
 - `TRACE_EVENTS_LIMIT`
 - `TRACE_CAPTURE`
 - `TRACE_PERSIST_ON_ERROR`
+- `ENABLE_PROFILER`
 
 Optional `proteum.config.ts` fields:
 
@@ -472,6 +473,7 @@ Default behavior:
 - payloads are summarized, long strings are truncated, and sensitive fields such as cookies, passwords, and tokens are redacted
 - `TRACE_PERSIST_ON_ERROR` can export crashing requests under `var/traces/`
 - `proteum dev` removes auto-persisted crash traces from `var/traces/` when the dev session stops
+- `ENABLE_PROFILER=true` reuses the same instrumentation path to populate `request.profiling` and the router `request.finished` hook with a reduced request/API/SQL snapshot in any environment, without retaining finished requests in the global trace buffer unless dev trace is also enabled
 
 Trace env example:
 
@@ -481,6 +483,7 @@ export TRACE_REQUESTS_LIMIT=200
 export TRACE_EVENTS_LIMIT=800
 export TRACE_CAPTURE=resolve
 export TRACE_PERSIST_ON_ERROR=true
+export ENABLE_PROFILER=true
 ```
 
 Capture modes:
@@ -508,7 +511,7 @@ Proteum answers those questions with explicit artifacts:
 
 - `identity.config.ts` for app identity
 - `proteum.config.ts` for compiler and connected-project setup
-- `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, app-chosen connected-project config values, and `TRACE_*` env vars for the environment surface
+- `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, app-chosen connected-project config values, `TRACE_*`, and `ENABLE_PROFILER` env vars for the environment surface
 - `server/index.ts` for the explicit root service graph
 - `.proteum/manifest.json` for machine-readable app structure
 - `proteum explain --json` for structured framework introspection
@@ -524,7 +527,7 @@ Proteum answers those questions with explicit artifacts:
 If you are an LLM or automation agent, start here:
 
 1. Read `identity.config.ts` and `proteum.config.ts`.
-2. Read `PORT`, the relevant `ENV_*`, `URL`, `URL_INTERNAL`, any env values referenced by `proteum.config.ts`, and `TRACE_*` env vars, or run `proteum explain env`.
+2. Read `PORT`, the relevant `ENV_*`, `URL`, `URL_INTERNAL`, any env values referenced by `proteum.config.ts`, plus `TRACE_*` and `ENABLE_PROFILER`, or run `proteum explain env`.
 3. Inspect `server/index.ts` and `server/config/*.ts` for the explicit app bootstrap.
 4. Read `.proteum/manifest.json` or run `proteum explain --json`.
 5. Inspect `server/controllers/**` for request entrypoints.
