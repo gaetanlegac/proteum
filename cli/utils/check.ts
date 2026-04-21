@@ -2,10 +2,11 @@ import fs from 'fs';
 import path from 'path';
 
 import cli from '..';
-import Compiler from '../compiler';
 import { runProcess } from './runProcess';
 
-const tsconfigPaths = ['client/tsconfig.json', 'server/tsconfig.json', 'commands/tsconfig.json'];
+const appConfigPaths = ['identity.config.ts', 'proteum.config.ts'];
+const appTsconfigPaths = ['client/tsconfig.json', 'server/tsconfig.json', 'commands/tsconfig.json'];
+const frameworkTsconfigPaths = ['client/app.tsconfig.json', 'server/app.tsconfig.json', 'cli/tsconfig.json'];
 const eslintConfigPaths = ['eslint.config.mjs', 'eslint.config.js', 'eslint.config.cjs'];
 
 const resolveInstalledBinary = (packageName: string, binName: string) => cli.paths.resolveBinary(packageName, binName);
@@ -14,6 +15,28 @@ const resolveExistingAppPaths = (paths: string[]) =>
     paths
         .map((relativePath) => ({ relativePath, absolutePath: path.join(cli.paths.appRoot, relativePath) }))
         .filter(({ absolutePath }) => fs.existsSync(absolutePath));
+
+const isFrameworkCheckout = () => {
+    let packageJson: { name?: unknown } | undefined;
+
+    try {
+        packageJson = JSON.parse(fs.readFileSync(path.join(cli.paths.appRoot, 'package.json'), 'utf8'));
+    } catch {}
+
+    return packageJson?.name === 'proteum' && fs.existsSync(path.join(cli.paths.appRoot, 'cli', 'bin.js'));
+};
+
+const resolveTypecheckProjects = () => {
+    const appProjects = resolveExistingAppPaths(appTsconfigPaths);
+    if (appProjects.length > 0) return appProjects;
+
+    if (isFrameworkCheckout()) return resolveExistingAppPaths(frameworkTsconfigPaths);
+
+    return [];
+};
+
+export const hasAppConfig = () =>
+    appConfigPaths.every((relativePath) => fs.existsSync(path.join(cli.paths.appRoot, relativePath)));
 
 const getTypecheckEnv = () => {
     const existingNodeOptions = process.env.NODE_OPTIONS ?? '';
@@ -26,16 +49,21 @@ const getTypecheckEnv = () => {
 };
 
 export const refreshGeneratedTypings = async () => {
+    const { default: Compiler } = await import('../compiler');
     const compiler = new Compiler('dev');
 
     await compiler.refreshGeneratedTypings();
 };
 
 export const runAppTypecheck = async () => {
-    const existingProjects = resolveExistingAppPaths(tsconfigPaths);
+    const existingProjects = resolveTypecheckProjects();
 
     if (existingProjects.length === 0)
-        throw new Error(`No TypeScript app projects found. Expected one of: ${tsconfigPaths.join(', ')}.`);
+        throw new Error(
+            `No TypeScript projects found. Expected one of: ${[...appTsconfigPaths, ...frameworkTsconfigPaths].join(
+                ', ',
+            )}.`,
+        );
 
     const tsc = resolveInstalledBinary('typescript', 'tsc');
 

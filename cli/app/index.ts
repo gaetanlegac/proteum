@@ -36,6 +36,12 @@ const parseRouterPortOverride = (rawPort: string | boolean | string[] | undefine
 
 const normalizeModulePath = (value: string) => value.replace(/\\/g, '/').replace(/\/$/, '');
 
+const resolveSideTsconfig = (appRoot: string, side: TAppSide) => {
+    const candidates = [path.join(appRoot, side, 'tsconfig.json'), path.join(appRoot, side, 'app.tsconfig.json')];
+
+    return candidates.find((candidate) => fs.existsSync(candidate));
+};
+
 const resolveTranspileModuleDirectories = ({
     moduleNames,
     resolvePackageRoot,
@@ -183,17 +189,21 @@ export class App {
     ----------------------------------*/
 
     public aliases = {
-        client: new TsAlias({
-            rootDir: this.paths.root + '/client',
-            modulesDir: [cli.paths.framework.appNodeModulesRoot, cli.paths.framework.frameworkNodeModulesRoot],
-            debug: false,
-        }),
-        server: new TsAlias({
-            rootDir: this.paths.root + '/server',
-            modulesDir: [cli.paths.framework.appNodeModulesRoot, cli.paths.framework.frameworkNodeModulesRoot],
-            debug: false,
-        }),
+        client: this.createSideAliases('client'),
+        server: this.createSideAliases('server'),
     };
+
+    private createSideAliases(side: TAppSide) {
+        const tsconfigFilepath = resolveSideTsconfig(this.paths.root, side);
+
+        if (!tsconfigFilepath) return new TsAlias({ aliases: [] });
+
+        return new TsAlias({
+            rootDir: tsconfigFilepath,
+            modulesDir: [cli.paths.framework.appNodeModulesRoot, cli.paths.framework.frameworkNodeModulesRoot],
+            debug: false,
+        });
+    }
 
     private loadPkg() {
         return fs.readJSONSync(this.paths.root + '/package.json');

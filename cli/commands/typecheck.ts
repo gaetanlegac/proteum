@@ -1,5 +1,5 @@
 import cli from '..';
-import { refreshGeneratedTypings, runAppTypecheck } from '../utils/check';
+import { hasAppConfig, refreshGeneratedTypings, runAppTypecheck } from '../utils/check';
 import { renderRows } from '../presentation/layout';
 import { renderStep, renderSuccess, renderTitle } from '../presentation/ink';
 
@@ -23,8 +23,12 @@ export const run = async (): Promise<void> => {
             renderRows([{ label: 'app', value: cli.paths.appRoot === process.cwd() ? '.' : cli.paths.appRoot }]),
         ].join('\n\n'),
     );
-    console.info(await renderStep('[1/2]', 'Refreshing generated typings.'));
-    await refreshGeneratedTypings();
+    if (hasAppConfig()) {
+        console.info(await renderStep('[1/2]', 'Refreshing generated typings.'));
+        await refreshGeneratedTypings();
+    } else {
+        console.info(await renderStep('[1/2]', 'Skipping generated typings: no Proteum app config found.'));
+    }
     console.info(await renderStep('[2/2]', 'Running TypeScript typechecking.'));
     await runAppTypecheck();
     console.info(await renderSuccess('Typecheck passed.'));
