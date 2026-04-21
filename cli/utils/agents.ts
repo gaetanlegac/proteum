@@ -61,7 +61,7 @@ const managedInstructionStubIntro = 'This file is managed by `proteum configure 
 const newProteumWorktreeBootstrapBlock = [
     '## New Proteum Worktree Bootstrap',
     '',
-    'When starting work in a newly created Proteum worktree, immediately copy the .env file and run:',
+    'When starting work in a newly created Proteum worktree, immediately copy the `.env` file from the main worktree, change it to use a different free port by updating `PORT`, `URL`, and `URL_INTERNAL`, and run:',
     '',
     '```',
     'npx proteum configure agents',
