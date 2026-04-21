@@ -14,6 +14,7 @@ export const proteumCommandNames = [
     'typecheck',
     'lint',
     'check',
+    'e2e',
     'connect',
     'doctor',
     'explain',
@@ -55,7 +56,7 @@ export const proteumRecommendedFlow: TRow[] = [
 
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
-    { title: 'Quality gates', names: ['typecheck', 'lint', 'check'] },
+    { title: 'Quality gates', names: ['typecheck', 'lint', 'check', 'e2e'] },
     { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'trace', 'command', 'session', 'verify'] },
     { title: 'Project scaffolding', names: ['init', 'configure', 'create', 'migrate'] },
 ];
@@ -112,22 +113,22 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
     configure: {
         name: 'configure',
         category: 'Project scaffolding',
-        summary: 'Interactively configure Proteum-managed instruction symlinks for a standalone app or monorepo app root.',
+        summary: 'Interactively configure Proteum-managed instruction stubs for a standalone app or monorepo app root.',
         usage: 'proteum configure agents',
         bestFor:
-            'Creating or switching the managed `AGENTS.md` instruction layout intentionally instead of having `init` or `dev` write symlinks implicitly.',
+            'Creating or switching the managed `AGENTS.md` instruction layout intentionally instead of having `init` or `dev` write instruction files implicitly.',
         examples: [
             {
-                description: 'Configure instruction symlinks for the current standalone app',
+                description: 'Configure instruction stubs for the current standalone app',
                 command: 'proteum configure agents',
             },
         ],
         notes: [
-            'This command is interactive. It asks whether the current Proteum app belongs to a monorepo and, if so, which ancestor path should receive the reusable root `AGENTS.md` symlink.',
+            'This command is interactive. It asks whether the current Proteum app belongs to a monorepo and, if so, which ancestor path should receive the reusable root `AGENTS.md` stub.',
             'Standalone mode writes the full app-root instruction set into the current Proteum app root.',
             'Monorepo mode writes the reusable root `AGENTS.md` into the chosen monorepo root and switches the current app root `AGENTS.md` to the app-root addendum.',
-            'If a target path already contains a non-managed file or foreign symlink, the interactive flow asks whether to overwrite it with the Proteum-managed symlink.',
-            'Declined non-managed paths are left untouched; Proteum still creates missing symlinks and updates symlinks it already manages.',
+            'If a target path already contains a non-managed file or foreign symlink, the interactive flow asks whether to overwrite it with the Proteum-managed stub.',
+            'Declined non-managed paths are left untouched; Proteum still creates missing stubs and updates stubs or symlinks it already manages.',
         ],
         status: 'experimental',
     },
@@ -275,6 +276,35 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         examples: [{ description: 'Run the full default validation pipeline', command: 'proteum check' }],
         notes: ['This command executes refresh, typecheck, then lint in that order.'],
         status: 'stable',
+    },
+    e2e: {
+        name: 'e2e',
+        category: 'Quality gates',
+        summary: 'Run app Playwright tests with Proteum-managed E2E environment values.',
+        usage:
+            'proteum e2e [--cwd <path>] [--port <port>|--url <url>] [--session-email <email>] [--session-role <role>] [--env KEY=value] [--env-file <path>] [--grep <text>] [--project <name>] [specs...]',
+        bestFor:
+            'Running targeted or full Playwright suites without shell-leading environment assignments for base URLs, auth tokens, or per-run values.',
+        examples: [
+            {
+                description: 'Run the full suite against a local dev server',
+                command: 'proteum e2e --port 3101',
+            },
+            {
+                description: 'Run one spec with a dev auth token minted internally',
+                command: 'proteum e2e --port 3101 --session-email admin@example.com --session-role ADMIN tests/e2e/features/admin.spec.ts',
+            },
+            {
+                description: 'Load extra dotenv values before Playwright starts',
+                command: 'proteum e2e --url http://localhost:3101 --env-file .proteum/e2e.env --grep smoke',
+            },
+        ],
+        notes: [
+            '`proteum e2e` spawns Playwright with `E2E_BASE_URL`, optional `E2E_PORT`, optional `E2E_AUTH_TOKEN`, and any `--env`/`--env-file` values in the child process environment.',
+            'Common Playwright flags are exposed directly: `--config`, `--debug`, `--grep`, `--headed`, `--list`, `--project`, `--reporter`, `--retries`, `--timeout`, `--ui`, and `--workers`.',
+            'The shell command itself stays `proteum e2e ...`, so Codex does not need to run `FOO=bar npx playwright test ...`.',
+        ],
+        status: 'experimental',
     },
     connect: {
         name: 'connect',

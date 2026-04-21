@@ -12,7 +12,7 @@ import { logVerbose } from '../runtime/verbose';
 ----------------------------------*/
 
 type TProjectInstructionArgs = { coreRoot: string };
-type TConfigureProjectAgentSymlinksArgs = {
+type TConfigureProjectAgentInstructionsArgs = {
     appRoot: string;
     coreRoot: string;
     dryRun?: boolean;
@@ -20,9 +20,14 @@ type TConfigureProjectAgentSymlinksArgs = {
     overwriteBlockedPaths?: string[];
 };
 
-type TAgentLinkDefinition = { projectPath: string; sourcePath: string; ensureParentDir?: boolean };
+type TAgentInstructionDefinition = {
+    includeWorktreeBootstrap?: boolean;
+    projectPath: string;
+    sourcePath: string;
+    ensureParentDir?: boolean;
+};
 
-type TEnsureSymlinksResult = {
+type TEnsureInstructionStubsResult = {
     blocked: string[];
     created: string[];
     overwritten: string[];
@@ -30,7 +35,7 @@ type TEnsureSymlinksResult = {
     updated: string[];
 };
 
-export type TConfigureProjectAgentSymlinksResult = {
+export type TConfigureProjectAgentInstructionsResult = {
     appRoot: string;
     blocked: string[];
     created: string[];
@@ -51,7 +56,24 @@ export type TProjectAgentFileInspection = {
 - CONSTANTS
 ----------------------------------*/
 
-const sharedAppAgentLinkDefinitions: TAgentLinkDefinition[] = [
+const managedInstructionStubHeader = '# Proteum Managed Instructions';
+const managedInstructionStubIntro = 'This file is managed by `proteum configure agents`.';
+const newProteumWorktreeBootstrapBlock = [
+    '## New Proteum Worktree Bootstrap',
+    '',
+    'When starting work in a newly created Proteum worktree, immediately copy the .env file and run:',
+    '',
+    '```',
+    'npx proteum configure agents',
+    'npm i',
+    'npx prisma generate',
+    'npx proteum refresh',
+    '```',
+    '',
+    'Run it before reading project-specific AGENTS files or making code changes. If the command is interactive, answer according to the current repository layout, then continue by reading the generated AGENTS.md files.',
+];
+
+const sharedAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'CODING_STYLE.md', sourcePath: 'CODING_STYLE.md' },
     { projectPath: 'diagnostics.md', sourcePath: 'diagnostics.md' },
     { projectPath: 'optimizations.md', sourcePath: 'optimizations.md' },
@@ -65,34 +87,36 @@ const sharedAppAgentLinkDefinitions: TAgentLinkDefinition[] = [
     { projectPath: path.join('tests', 'e2e', 'AGENTS.md'), sourcePath: path.join('tests', 'AGENTS.md') },
 ];
 
-const standaloneAppAgentLinkDefinitions: TAgentLinkDefinition[] = [
-    { projectPath: 'AGENTS.md', sourcePath: 'AGENTS.md' },
-    ...sharedAppAgentLinkDefinitions,
+const standaloneAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
+    { projectPath: 'AGENTS.md', sourcePath: 'AGENTS.md', includeWorktreeBootstrap: true },
+    ...sharedAppAgentInstructionDefinitions,
 ];
 
-const monorepoAppAgentLinkDefinitions: TAgentLinkDefinition[] = [
+const monorepoAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'AGENTS.md', sourcePath: path.join('app-root', 'AGENTS.md') },
-    ...sharedAppAgentLinkDefinitions,
+    ...sharedAppAgentInstructionDefinitions,
 ];
 
-const monorepoRootAgentLinkDefinitions: TAgentLinkDefinition[] = [
-    { projectPath: 'AGENTS.md', sourcePath: path.join('root', 'AGENTS.md') },
+const monorepoRootAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
+    { projectPath: 'AGENTS.md', sourcePath: path.join('root', 'AGENTS.md'), includeWorktreeBootstrap: true },
 ];
 
-const projectInstructionGitignoreBlockStart = '# Proteum-managed instruction symlinks';
-const projectInstructionGitignoreBlockEnd = '# End Proteum-managed instruction symlinks';
+const legacyProjectInstructionGitignoreBlockStart = '# Proteum-managed instruction symlinks';
+const legacyProjectInstructionGitignoreBlockEnd = '# End Proteum-managed instruction symlinks';
+const projectInstructionGitignoreBlockStart = '# Proteum-managed instruction files';
+const projectInstructionGitignoreBlockEnd = '# End Proteum-managed instruction files';
 
 /*----------------------------------
 - PUBLIC API
 ----------------------------------*/
 
-export function configureProjectAgentSymlinks({
+export function configureProjectAgentInstructions({
     appRoot,
     coreRoot,
     dryRun = false,
     monorepoRoot,
     overwriteBlockedPaths = [],
-}: TConfigureProjectAgentSymlinksArgs): TConfigureProjectAgentSymlinksResult {
+}: TConfigureProjectAgentInstructionsArgs): TConfigureProjectAgentInstructionsResult {
     const normalizedAppRoot = path.resolve(appRoot);
     const normalizedMonorepoRoot = monorepoRoot ? path.resolve(monorepoRoot) : undefined;
     const normalizedOverwriteBlockedPaths = new Set(
@@ -100,7 +124,7 @@ export function configureProjectAgentSymlinks({
     );
     const mode =
         normalizedMonorepoRoot && normalizedMonorepoRoot !== normalizedAppRoot ? ('monorepo' as const) : ('standalone' as const);
-    const result: TConfigureProjectAgentSymlinksResult = {
+    const result: TConfigureProjectAgentInstructionsResult = {
         appRoot: normalizedAppRoot,
         blocked: [],
         created: [],
@@ -114,50 +138,66 @@ export function configureProjectAgentSymlinks({
     if (mode === 'monorepo' && normalizedMonorepoRoot) {
         result.monorepoRoot = normalizedMonorepoRoot;
 
-        const rootLinks = getRootAgentLinkDefinitions({ coreRoot });
-        const rootSymlinks = ensureSymlinks(normalizedMonorepoRoot, rootLinks, '[agents]', path.join(coreRoot, 'agents', 'project'), {
-            dryRun,
-            overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
-        });
-        mergeSymlinkResults(result, rootSymlinks, normalizedMonorepoRoot);
+        const rootInstructions = getRootAgentInstructionDefinitions({ coreRoot });
+        const rootStubs = ensureInstructionStubs(
+            normalizedMonorepoRoot,
+            rootInstructions,
+            '[agents]',
+            path.join(coreRoot, 'agents', 'project'),
+            {
+                dryRun,
+                overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
+            },
+        );
+        mergeInstructionResults(result, rootStubs, normalizedMonorepoRoot);
 
-        if (!dryRun && ensureInstructionGitignoreEntries({ rootDir: normalizedMonorepoRoot, linkDefinitions: rootLinks }))
+        if (!dryRun && ensureInstructionGitignoreEntries({ rootDir: normalizedMonorepoRoot, instructionDefinitions: rootInstructions }))
             result.updatedGitignores.push(path.join(normalizedMonorepoRoot, '.gitignore'));
     }
 
-    const appLinks = getAppAgentLinkDefinitions({ coreRoot, mode });
-    const appSymlinks = ensureSymlinks(normalizedAppRoot, appLinks, '[agents]', path.join(coreRoot, 'agents', 'project'), {
-        dryRun,
-        overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
-    });
-    mergeSymlinkResults(result, appSymlinks, normalizedAppRoot);
+    const appInstructions = getAppAgentInstructionDefinitions({ coreRoot, mode });
+    const appStubs = ensureInstructionStubs(
+        normalizedAppRoot,
+        appInstructions,
+        '[agents]',
+        path.join(coreRoot, 'agents', 'project'),
+        {
+            dryRun,
+            overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
+        },
+    );
+    mergeInstructionResults(result, appStubs, normalizedAppRoot);
 
-    if (!dryRun && ensureInstructionGitignoreEntries({ rootDir: normalizedAppRoot, linkDefinitions: appLinks }))
+    if (!dryRun && ensureInstructionGitignoreEntries({ rootDir: normalizedAppRoot, instructionDefinitions: appInstructions }))
         result.updatedGitignores.push(path.join(normalizedAppRoot, '.gitignore'));
 
     return result;
 }
 
+export const configureProjectAgentSymlinks = configureProjectAgentInstructions;
+
 export function getProjectInstructionGitignoreEntries({ coreRoot }: TProjectInstructionArgs) {
     return Array.from(
         new Set(
-            getAppAgentLinkDefinitions({ coreRoot, mode: 'standalone' }).map((linkDefinition) =>
-                `/${normalizeProjectPathForGitignore(linkDefinition.projectPath)}`,
+            getAppAgentInstructionDefinitions({ coreRoot, mode: 'standalone' }).map((instructionDefinition) =>
+                `/${normalizeProjectPathForGitignore(instructionDefinition.projectPath)}`,
             ),
         ),
     );
 }
 
 export function renderProjectInstructionGitignoreBlock({ coreRoot }: TProjectInstructionArgs) {
-    return renderInstructionGitignoreBlock({ linkDefinitions: getAppAgentLinkDefinitions({ coreRoot, mode: 'standalone' }) });
+    return renderInstructionGitignoreBlock({
+        instructionDefinitions: getAppAgentInstructionDefinitions({ coreRoot, mode: 'standalone' }),
+    });
 }
 
 export function inspectProjectAgentFiles({ appRoot }: { appRoot: string }): TProjectAgentFileInspection {
     const normalizedAppRoot = path.resolve(appRoot);
     const expectedAgentPaths = Array.from(
         new Set(
-            standaloneAppAgentLinkDefinitions
-                .map((linkDefinition) => linkDefinition.projectPath)
+            standaloneAppAgentInstructionDefinitions
+                .map((instructionDefinition) => instructionDefinition.projectPath)
                 .filter((projectPath) => projectPath.endsWith('AGENTS.md')),
         ),
     );
@@ -187,42 +227,47 @@ export function inspectProjectAgentFiles({ appRoot }: { appRoot: string }): TPro
 - HELPERS
 ----------------------------------*/
 
-function getAppAgentLinkDefinitions({
+function getAppAgentInstructionDefinitions({
     coreRoot,
     mode,
 }: TProjectInstructionArgs & { mode: 'monorepo' | 'standalone' }) {
     const agentSourceRoot = path.join(coreRoot, 'agents', 'project');
-    const sourceDefinitions = mode === 'monorepo' ? monorepoAppAgentLinkDefinitions : standaloneAppAgentLinkDefinitions;
+    const sourceDefinitions =
+        mode === 'monorepo' ? monorepoAppAgentInstructionDefinitions : standaloneAppAgentInstructionDefinitions;
 
-    return resolveAgentLinkDefinitions({
+    return resolveAgentInstructionDefinitions({
         agentSourceRoot,
-        linkDefinitions: sourceDefinitions,
+        instructionDefinitions: sourceDefinitions,
     });
 }
 
-function getRootAgentLinkDefinitions({ coreRoot }: TProjectInstructionArgs) {
-    return resolveAgentLinkDefinitions({
+function getRootAgentInstructionDefinitions({ coreRoot }: TProjectInstructionArgs) {
+    return resolveAgentInstructionDefinitions({
         agentSourceRoot: path.join(coreRoot, 'agents', 'project'),
-        linkDefinitions: monorepoRootAgentLinkDefinitions,
+        instructionDefinitions: monorepoRootAgentInstructionDefinitions,
     });
 }
 
-function resolveAgentLinkDefinitions({
+function resolveAgentInstructionDefinitions({
     agentSourceRoot,
-    linkDefinitions,
+    instructionDefinitions,
 }: {
     agentSourceRoot: string;
-    linkDefinitions: TAgentLinkDefinition[];
+    instructionDefinitions: TAgentInstructionDefinition[];
 }) {
-    return linkDefinitions.map((linkDefinition) => ({
-        ...linkDefinition,
-        sourcePath: path.join(agentSourceRoot, linkDefinition.sourcePath),
+    return instructionDefinitions.map((instructionDefinition) => ({
+        ...instructionDefinition,
+        sourcePath: path.join(agentSourceRoot, instructionDefinition.sourcePath),
     }));
 }
 
-function renderInstructionGitignoreBlock({ linkDefinitions }: { linkDefinitions: TAgentLinkDefinition[] }) {
+function renderInstructionGitignoreBlock({ instructionDefinitions }: { instructionDefinitions: TAgentInstructionDefinition[] }) {
     const entries = Array.from(
-        new Set(linkDefinitions.map((linkDefinition) => `/${normalizeProjectPathForGitignore(linkDefinition.projectPath)}`)),
+        new Set(
+            instructionDefinitions.map(
+                (instructionDefinition) => `/${normalizeProjectPathForGitignore(instructionDefinition.projectPath)}`,
+            ),
+        ),
     );
 
     return [projectInstructionGitignoreBlockStart, ...entries, projectInstructionGitignoreBlockEnd].join('\n');
@@ -230,15 +275,17 @@ function renderInstructionGitignoreBlock({ linkDefinitions }: { linkDefinitions:
 
 function ensureInstructionGitignoreEntries({
     rootDir,
-    linkDefinitions,
+    instructionDefinitions,
 }: {
     rootDir: string;
-    linkDefinitions: TAgentLinkDefinition[];
+    instructionDefinitions: TAgentInstructionDefinition[];
 }) {
     const gitignoreFilepath = path.join(rootDir, '.gitignore');
     if (!pathEntryExists(gitignoreFilepath)) return false;
 
-    const managedEntries = new Set(linkDefinitions.map((linkDefinition) => normalizeGitignoreEntry(linkDefinition.projectPath)));
+    const managedEntries = new Set(
+        instructionDefinitions.map((instructionDefinition) => normalizeGitignoreEntry(instructionDefinition.projectPath)),
+    );
     const lines = fs.readFileSync(gitignoreFilepath, 'utf8').split(/\r?\n/);
     const filteredLines: string[] = [];
     let insideManagedBlock = false;
@@ -246,12 +293,12 @@ function ensureInstructionGitignoreEntries({
     for (const line of lines) {
         const trimmedLine = line.trim();
 
-        if (trimmedLine === projectInstructionGitignoreBlockStart) {
+        if (trimmedLine === projectInstructionGitignoreBlockStart || trimmedLine === legacyProjectInstructionGitignoreBlockStart) {
             insideManagedBlock = true;
             continue;
         }
 
-        if (trimmedLine === projectInstructionGitignoreBlockEnd) {
+        if (trimmedLine === projectInstructionGitignoreBlockEnd || trimmedLine === legacyProjectInstructionGitignoreBlockEnd) {
             insideManagedBlock = false;
             continue;
         }
@@ -263,7 +310,7 @@ function ensureInstructionGitignoreEntries({
     }
 
     const baseContent = trimTrailingBlankLines(filteredLines).join('\n');
-    const managedBlock = renderInstructionGitignoreBlock({ linkDefinitions });
+    const managedBlock = renderInstructionGitignoreBlock({ instructionDefinitions });
     const nextContent = baseContent ? `${baseContent}\n\n${managedBlock}\n` : `${managedBlock}\n`;
 
     if (nextContent === fs.readFileSync(gitignoreFilepath, 'utf8')) return false;
@@ -274,9 +321,9 @@ function ensureInstructionGitignoreEntries({
     return true;
 }
 
-function ensureSymlinks(
+function ensureInstructionStubs(
     rootDir: string,
-    linkDefinitions: TAgentLinkDefinition[],
+    instructionDefinitions: TAgentInstructionDefinition[],
     logPrefix: string,
     managedSourceRoot: string,
     {
@@ -286,8 +333,8 @@ function ensureSymlinks(
         dryRun: boolean;
         overwriteBlockedPaths: Set<string>;
     },
-): TEnsureSymlinksResult {
-    const result: TEnsureSymlinksResult = {
+): TEnsureInstructionStubsResult {
+    const result: TEnsureInstructionStubsResult = {
         blocked: [],
         created: [],
         overwritten: [],
@@ -295,24 +342,31 @@ function ensureSymlinks(
         updated: [],
     };
 
-    for (const linkDefinition of linkDefinitions) {
-        const projectFilepath = path.join(rootDir, linkDefinition.projectPath);
+    for (const instructionDefinition of instructionDefinitions) {
+        const projectFilepath = path.join(rootDir, instructionDefinition.projectPath);
         const projectParentDir = path.dirname(projectFilepath);
         const relativeProjectPath = path.relative(rootDir, projectFilepath) || '.';
 
-        if (linkDefinition.ensureParentDir) fs.ensureDirSync(projectParentDir);
+        if (instructionDefinition.ensureParentDir) fs.ensureDirSync(projectParentDir);
         else if (!fs.existsSync(projectParentDir)) {
             result.skipped.push(relativeProjectPath);
             continue;
         }
 
-        const sourceFilepath = linkDefinition.sourcePath;
+        const sourceFilepath = instructionDefinition.sourcePath;
         if (!fs.existsSync(sourceFilepath)) throw new Error(`Missing project instruction asset: ${sourceFilepath}`);
+
+        const stubContent = renderInstructionStub({
+            includeWorktreeBootstrap: instructionDefinition.includeWorktreeBootstrap === true,
+            projectFilepath,
+            sourceFilepath,
+        });
 
         const existingState = inspectExistingPath({
             managedSourceRoot,
             projectFilepath,
             sourceFilepath,
+            stubContent,
         });
 
         if (existingState.kind === 'match') {
@@ -326,57 +380,94 @@ function ensureSymlinks(
             continue;
         }
 
-        const symlinkTarget = path.relative(projectParentDir, sourceFilepath);
-
         if (existingState.kind === 'managed-different') {
             if (!dryRun) {
-                fs.unlinkSync(projectFilepath);
-                fs.symlinkSync(symlinkTarget, projectFilepath);
+                fs.removeSync(projectFilepath);
+                fs.writeFileSync(projectFilepath, stubContent);
             }
             result.updated.push(relativeProjectPath);
-            logVerbose(`${logPrefix} Updated ${relativeProjectPath} -> ${symlinkTarget}`);
+            logVerbose(`${logPrefix} Updated ${relativeProjectPath}`);
             continue;
         }
 
         if (existingState.kind === 'blocked') {
             if (!dryRun) {
                 fs.removeSync(projectFilepath);
-                fs.symlinkSync(symlinkTarget, projectFilepath);
+                fs.writeFileSync(projectFilepath, stubContent);
             }
             result.overwritten.push(relativeProjectPath);
-            logVerbose(`${logPrefix} Replaced ${relativeProjectPath} -> ${symlinkTarget}`);
+            logVerbose(`${logPrefix} Replaced ${relativeProjectPath}`);
             continue;
         }
 
-        if (!dryRun) fs.symlinkSync(symlinkTarget, projectFilepath);
+        if (!dryRun) fs.writeFileSync(projectFilepath, stubContent);
         result.created.push(relativeProjectPath);
-        logVerbose(`${logPrefix} Created ${relativeProjectPath} -> ${symlinkTarget}`);
+        logVerbose(`${logPrefix} Created ${relativeProjectPath}`);
     }
 
     return result;
+}
+
+function renderInstructionStub({
+    includeWorktreeBootstrap,
+    projectFilepath,
+    sourceFilepath,
+}: {
+    includeWorktreeBootstrap: boolean;
+    projectFilepath: string;
+    sourceFilepath: string;
+}) {
+    const sourcePath = normalizeProjectPathForGitignore(path.relative(path.dirname(projectFilepath), sourceFilepath));
+    const lines = [
+        ...(includeWorktreeBootstrap ? [...newProteumWorktreeBootstrapBlock, ''] : []),
+        managedInstructionStubHeader,
+        '',
+        managedInstructionStubIntro,
+        '',
+        'Before reading or applying instructions from this file, read and follow the canonical Proteum instruction file at:',
+        '',
+        `\`${sourcePath}\``,
+        '',
+        'Resolve that path relative to this file. Treat the canonical file as if its full contents were written here.',
+        '',
+        'If the canonical file cannot be read, stop and run `npx proteum configure agents` before continuing.',
+        '',
+    ];
+
+    return lines.join('\n');
 }
 
 function inspectExistingPath({
     managedSourceRoot,
     projectFilepath,
     sourceFilepath,
+    stubContent,
 }: {
     managedSourceRoot: string;
     projectFilepath: string;
     sourceFilepath: string;
+    stubContent: string;
 }) {
     if (!pathEntryExists(projectFilepath)) return { kind: 'missing' as const };
 
     const stats = fs.lstatSync(projectFilepath);
-    if (!stats.isSymbolicLink()) return { kind: 'blocked' as const };
+    if (!stats.isSymbolicLink()) {
+        if (!stats.isFile()) return { kind: 'blocked' as const };
+
+        const existingContent = fs.readFileSync(projectFilepath, 'utf8');
+        if (existingContent === stubContent) return { kind: 'match' as const };
+        if (isManagedInstructionStub(existingContent)) return { kind: 'managed-different' as const };
+
+        return { kind: 'blocked' as const };
+    }
 
     const existingTarget = resolveSymlinkTarget(projectFilepath);
     const normalizedExistingTarget = normalizeAbsolutePath(existingTarget);
     const normalizedSourceFilepath = normalizeAbsolutePath(sourceFilepath);
     const normalizedManagedSourceRoot = normalizeAbsolutePath(managedSourceRoot);
 
-    if (normalizedExistingTarget === normalizedSourceFilepath) return { kind: 'match' as const };
     if (
+        normalizedExistingTarget === normalizedSourceFilepath ||
         normalizedExistingTarget === normalizedManagedSourceRoot ||
         normalizedExistingTarget.startsWith(`${normalizedManagedSourceRoot}/`)
     )
@@ -385,15 +476,19 @@ function inspectExistingPath({
     return { kind: 'blocked' as const };
 }
 
+function isManagedInstructionStub(content: string) {
+    return content.includes(`${managedInstructionStubHeader}\n\n${managedInstructionStubIntro}\n`);
+}
+
 function resolveSymlinkTarget(projectFilepath: string) {
     const projectParentDir = path.dirname(projectFilepath);
     const rawTarget = fs.readlinkSync(projectFilepath);
     return path.resolve(projectParentDir, rawTarget);
 }
 
-function mergeSymlinkResults(
-    result: TConfigureProjectAgentSymlinksResult,
-    next: TEnsureSymlinksResult,
+function mergeInstructionResults(
+    result: TConfigureProjectAgentInstructionsResult,
+    next: TEnsureInstructionStubsResult,
     rootDir: string,
 ) {
     result.created.push(...next.created.map((entry) => formatResultPath(rootDir, entry)));

@@ -6,7 +6,7 @@
 import path from 'path';
 
 // Core
-import { configureProjectAgentSymlinks } from '../cli/utils/agents';
+import { configureProjectAgentInstructions } from '../cli/utils/agents';
 
 /*----------------------------------
 - TYPES
@@ -31,5 +31,5 @@ for (const projectRoot of projectRoots) {
     }
 
     console.log(`[update-codex-agents] Syncing project Codex assets in ${projectRoot}`);
-    configureProjectAgentSymlinks({ appRoot: projectRoot, coreRoot: proteumRoot });
+    configureProjectAgentInstructions({ appRoot: projectRoot, coreRoot: proteumRoot });
 }

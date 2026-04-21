@@ -727,7 +727,7 @@ export const runInitScaffold = async () => {
               ? 'Run `npm run dev` in the new app directory.'
               : 'Run `npm install`, then `npm run dev` in the new app directory.',
     );
-    result.nextSteps.push('Run `proteum configure agents` when you want Proteum-managed instruction symlinks.');
+    result.nextSteps.push('Run `proteum configure agents` when you want Proteum-managed instruction stubs.');
     result.nextSteps.push('Use `proteum create page|controller|command|route|service ...` to add app artifacts.');
 
     printResult(result, createInitSummary(result, config));

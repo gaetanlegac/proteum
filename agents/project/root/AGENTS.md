@@ -46,7 +46,7 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 - When starting a long-lived dev server for an agent task, always request elevated permissions and run `npx proteum dev` outside the sandbox. Use an explicit task/thread-scoped session file such as `var/run/proteum/dev/agents/<task>.json`, inspect `npx proteum dev list --json` plus current listeners first, for example with `lsof -nP -iTCP -sTCP:LISTEN`, then choose a port that is not currently used before starting `npx proteum dev --session-file <path> --port <port>`. After the server is ready, print the live server URL as a clickable Markdown link.
 - Use `--replace-existing` only when restarting the exact session file started by the current thread/task. Never replace another live session that belongs to a user, another thread, or an unknown owner.
 - If the current app depends on local `file:` connected projects, boot every connected producer app too, each with its own task-scoped session file and free port, and run every one of those `proteum dev` processes with elevated permissions outside the sandbox before starting or verifying the consumer app.
-- For raw browser automation, use `npx proteum verify browser` when it matches the task, or direct Playwright with a disposable profile when lower-level control is required. Bootstrap protected browser state through `npx proteum session`.
+- For raw browser automation, use `npx proteum verify browser` when it matches the task, or `npx proteum e2e --port <port>` for targeted/full Playwright suites. Bootstrap protected browser state through `npx proteum e2e --session-email <email> --session-role <role>` or `npx proteum session`.
 - Current CLI banner contract: only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. Only `proteum dev` clears the interactive terminal before rendering, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI, and reports connected app names plus successful connected `/ping` checks in the ready banner. When the app root is missing `AGENTS.md`, the bare interactive `proteum dev` start offers to launch `proteum configure agents` before the dev loop begins.
 
 ### Before Finishing
@@ -169,8 +169,8 @@ Verify at the correct layer:
 - Router or plugin changes: verify request context, auth, redirects, metrics, and validation on a running app.
 - New features or feature-behavior changes: use the cheapest trustworthy verification while iterating, then update the relevant end-to-end coverage and finish by running the full Playwright suite.
 - Generated, connected, or ownership-ambiguous changes: start with `npx proteum orient <query>` and prefer `npx proteum verify owner <query>` before broad global checks.
-- Browser-visible issues: prefer `npx proteum verify browser <path>` or the narrowest targeted Playwright pass only after request-level verification is insufficient.
-- Raw browser execution beyond `npx proteum verify browser`: use direct Playwright with a disposable profile, and keep that step for the final verifier agent unless a narrower surface cannot reproduce the issue.
+- Browser-visible issues: prefer `npx proteum verify browser <path>` or the narrowest `npx proteum e2e --port <port> ...` Playwright pass only after request-level verification is insufficient.
+- Raw browser execution beyond `npx proteum verify browser`: use `npx proteum e2e --port <port>` first, then direct Playwright with a disposable profile only when the wrapper cannot express the needed control. Keep that step for the final verifier agent unless a narrower surface cannot reproduce the issue.
 - For trace-first reproduction, session-based auth setup, temporary logs, and post-fix surface checks, follow root-level `diagnostics.md`.
 
 ## Implementation Rules

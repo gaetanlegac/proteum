@@ -4,11 +4,11 @@ import cli, { type TArgsObject } from '../context';
 import { createClipanionUsage, proteumCommands, type TProteumCommandName } from '../presentation/commands';
 import { createArgs } from './argv';
 
-type TRunModule = { run: () => Promise<void> };
+type TRunModule = { run: () => Promise<number | void> };
 
 export const runCommandModule = async (loader: () => Promise<TRunModule>) => {
     const module = await loader();
-    await module.run();
+    return await module.run();
 };
 
 export abstract class ProteumCommand extends Command {

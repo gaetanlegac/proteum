@@ -53,6 +53,7 @@ proteum diagnose /api/Auth/CurrentUser --url http://127.0.0.1:3101
 proteum verify owner /api/Auth/CurrentUser
 proteum verify request /dashboard --port 3101
 proteum verify browser /dashboard --port 3101 --session-email admin@example.com --session-role ADMIN
+proteum e2e --port 3101 --session-email admin@example.com --session-role ADMIN tests/e2e/features/dashboard.spec.ts
 
 proteum perf top --since today
 proteum perf request /dashboard --port 3101
@@ -210,7 +211,7 @@ For AI coding agents or automation:
 2. Read `./.proteum/manifest.json` or run `proteum explain --json` only after you know which surface matters.
 3. Run `proteum doctor --json` and `proteum doctor --contracts --json` to inspect framework and generated-artifact diagnostics.
 4. Use `proteum verify owner <query>` or `proteum diagnose <path> --port <port>` for the smallest trustworthy runtime surface before broad checks.
-5. Use `proteum verify browser` for browser-visible verification, and only drop to direct Playwright when request-level verification cannot reproduce the issue. Keep auth sourced from `proteum session`, and reserve browser flows for the final verifier agent unless they are the only trustworthy surface.
+5. Use `proteum verify browser` for browser-visible verification, or `proteum e2e --port <port>` for targeted/full Playwright suites. Only drop to direct Playwright when the Proteum wrapper cannot express the needed control. Keep auth sourced from Proteum session helpers, and reserve browser flows for the final verifier agent unless they are the only trustworthy surface.
 6. For performance, CPU, SQL, render, cache, or connected-boundary questions, use `proteum perf request <requestId|path>` against the same running dev server.
 7. Use `proteum trace ...` when you need lower-level event detail than `diagnose` or `perf` provides.
 8. Run global checks second, not first. Unrelated diagnostics should remain visible but non-blocking during focused verification unless strict global mode is required.

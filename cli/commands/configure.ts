@@ -13,7 +13,7 @@ import cli from '..';
 import { renderRows } from '../presentation/layout';
 import { isLikelyProteumAppRoot } from '../presentation/commands';
 import { renderStep, renderSuccess, renderTitle, renderWarning } from '../presentation/ink';
-import { configureProjectAgentSymlinks, type TConfigureProjectAgentSymlinksResult } from '../utils/agents';
+import { configureProjectAgentInstructions, type TConfigureProjectAgentInstructionsResult } from '../utils/agents';
 
 /*----------------------------------
 - HELPERS
@@ -93,7 +93,12 @@ const promptBlockedOverwritePaths = async (blockedPaths: string[]) => {
     if (blockedPaths.length === 0) return [];
 
     console.info(await renderWarning('Proteum found existing non-managed instruction paths.'));
-    console.info(['Choose whether to overwrite each path with a Proteum-managed symlink:', ...blockedPaths.map((entry) => `- ${entry}`)].join('\n'));
+    console.info(
+        [
+            'Choose whether to overwrite each path with a Proteum-managed instruction stub:',
+            ...blockedPaths.map((entry) => `- ${entry}`),
+        ].join('\n'),
+    );
 
     const overwriteBlockedPaths: string[] = [];
 
@@ -118,7 +123,7 @@ const promptBlockedOverwritePaths = async (blockedPaths: string[]) => {
     return overwriteBlockedPaths;
 };
 
-const renderConfigureResultSections = (result: TConfigureProjectAgentSymlinksResult) => {
+const renderConfigureResultSections = (result: TConfigureProjectAgentInstructionsResult) => {
     const sections: string[] = [];
 
     sections.push(
@@ -178,7 +183,7 @@ export const runConfigureAgentsWizard = async ({
             : undefined;
     console.info(
         [
-            await renderTitle('PROTEUM CONFIGURE AGENTS', 'Configure Proteum-managed instruction symlinks.'),
+            await renderTitle('PROTEUM CONFIGURE AGENTS', 'Configure Proteum-managed instruction stubs.'),
             renderRows([{ label: 'app', value: appRoot === process.cwd() ? '.' : appRoot }]),
         ].join('\n\n'),
     );
@@ -204,7 +209,7 @@ export const runConfigureAgentsWizard = async ({
           })
         : undefined;
 
-    const preview = configureProjectAgentSymlinks({
+    const preview = configureProjectAgentInstructions({
         appRoot,
         coreRoot,
         dryRun: true,
@@ -216,12 +221,12 @@ export const runConfigureAgentsWizard = async ({
         await renderStep(
             '[1/1]',
             isMonorepo
-                ? `Writing monorepo-aware instruction symlinks using ${monorepoRoot}.`
-                : 'Writing standalone instruction symlinks.',
+                ? `Writing monorepo-aware instruction stubs using ${monorepoRoot}.`
+                : 'Writing standalone instruction stubs.',
         ),
     );
 
-    const result = configureProjectAgentSymlinks({
+    const result = configureProjectAgentInstructions({
         appRoot,
         coreRoot,
         monorepoRoot,
@@ -229,7 +234,7 @@ export const runConfigureAgentsWizard = async ({
     });
     const sections = renderConfigureResultSections(result);
 
-    console.info(await renderSuccess('Proteum-managed instruction symlinks are configured.'));
+    console.info(await renderSuccess('Proteum-managed instruction stubs are configured.'));
 
     if (sections.length > 0) console.info(`\n${sections.join('\n\n')}`);
 };

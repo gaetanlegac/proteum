@@ -344,6 +344,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum trace` | Inspect live dev-only request traces from the running SSR server |
 | `proteum command` | Run a dev-only internal command locally or against a running dev server |
 | `proteum session` | Mint a dev-only auth session token and Playwright-ready cookie payload |
+| `proteum e2e` | Run Playwright with Proteum-managed `E2E_*` values instead of shell-leading env assignments |
 | `proteum verify` | Validate framework-facing workflows across one or more running dev apps; `framework-change` is the built-in cross-reference-app check |
 | `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
 | `proteum configure agents` | Interactively configure Proteum-managed instruction symlinks and confirm overwrites for standalone or monorepo apps |
@@ -386,6 +387,7 @@ proteum command proteum/diagnostics/ping
 proteum command proteum/diagnostics/ping --port 3101
 proteum session admin@example.com --role ADMIN --port 3101
 proteum session god@example.com --role GOD --json
+proteum e2e --port 3101 --session-email admin@example.com --session-role ADMIN tests/e2e/features/admin.spec.ts
 proteum trace requests
 proteum trace arm --capture deep
 proteum trace latest
@@ -523,6 +525,7 @@ Proteum answers those questions with explicit artifacts:
 - the profiler `Explain`, `Doctor`, `Diagnose`, and `Perf` tabs for a human-readable view over the same diagnostics and trace-derived perf contracts
 - `proteum command ...` plus the profiler `Commands` tab for dev-only internal execution
 - `proteum session ...` for explicit authenticated dev browser or API bootstrapping without login UI automation
+- `proteum e2e ...` for Playwright runs that need `E2E_BASE_URL`, `E2E_PORT`, or `E2E_AUTH_TOKEN` without shell-leading env assignments
 
 If you are an LLM or automation agent, start here:
 
@@ -533,7 +536,7 @@ If you are an LLM or automation agent, start here:
 5. Inspect `server/controllers/**` for request entrypoints.
 6. Inspect `server/services/**` for business logic.
 7. Inspect `client/pages/**` for SSR routes and page data contracts.
-8. If the task touches a protected route or controller in dev and login UX is not the feature under test, use `proteum session <email> --role <role>` before Playwright or direct HTTP calls.
+8. If the task touches a protected route or controller in dev and login UX is not the feature under test, use `proteum e2e --session-email <email> --session-role <role>` for Playwright suites or `proteum session <email> --role <role>` before direct HTTP calls.
 
 For implementation rules in a real Proteum app, treat the local `AGENTS.md` files plus `proteum explain`, `proteum doctor`, `proteum diagnose`, `proteum perf`, and `proteum trace` as the task contract. This README is the framework overview, not the project-local instruction layer.
 

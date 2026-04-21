@@ -259,6 +259,63 @@ class CheckCommand extends ProteumCommand {
     }
 }
 
+class E2eCommand extends ProteumCommand {
+    public static paths = [['e2e']];
+
+    public static usage = buildUsage('e2e');
+
+    public cwd = Option.String('--cwd', { description: 'Run Playwright against another Proteum app root.' });
+    public port = Option.String('--port', { description: 'Set E2E_BASE_URL from a local router port.' });
+    public url = Option.String('--url', { description: 'Set E2E_BASE_URL from an explicit base URL.' });
+    public sessionEmail = Option.String('--session-email', {
+        description: 'Mint a dev session before Playwright starts and pass it as E2E_AUTH_TOKEN.',
+    });
+    public sessionRole = Option.String('--session-role', { description: 'Require the dev session user to have this role.' });
+    public env = Option.Array('--env', [], { description: 'Pass an environment value to Playwright as KEY=value.' });
+    public envFile = Option.Array('--env-file', [], { description: 'Load environment values from a dotenv file before Playwright starts.' });
+    public config = Option.String('--config', { description: 'Playwright config file.' });
+    public debug = Option.Boolean('--debug', false, { description: 'Run Playwright in debug mode.' });
+    public grep = Option.String('--grep', { description: 'Playwright grep filter.' });
+    public headed = Option.Boolean('--headed', false, { description: 'Run browsers in headed mode.' });
+    public list = Option.Boolean('--list', false, { description: 'List Playwright tests without running them.' });
+    public project = Option.Array('--project', [], { description: 'Playwright project name. Can be repeated.' });
+    public reporter = Option.String('--reporter', { description: 'Playwright reporter.' });
+    public retries = Option.String('--retries', { description: 'Playwright retry count.' });
+    public timeout = Option.String('--timeout', { description: 'Playwright per-test timeout.' });
+    public ui = Option.Boolean('--ui', false, { description: 'Run Playwright in UI mode.' });
+    public workers = Option.String('--workers', { description: 'Playwright worker count.' });
+    public specs = Option.Rest();
+
+    public async execute() {
+        const playwrightArgs = [
+            ...(this.config ? ['--config', this.config] : []),
+            ...(this.debug ? ['--debug'] : []),
+            ...(this.grep ? ['--grep', this.grep] : []),
+            ...(this.headed ? ['--headed'] : []),
+            ...(this.list ? ['--list'] : []),
+            ...this.project.flatMap((project) => ['--project', project]),
+            ...(this.reporter ? ['--reporter', this.reporter] : []),
+            ...(this.retries ? ['--retries', this.retries] : []),
+            ...(this.timeout ? ['--timeout', this.timeout] : []),
+            ...(this.ui ? ['--ui'] : []),
+            ...(this.workers ? ['--workers', this.workers] : []),
+            ...this.specs,
+        ];
+
+        this.setCliArgs({
+            env: this.env,
+            envFile: this.envFile,
+            playwrightArgs,
+            port: this.port ?? '',
+            sessionEmail: this.sessionEmail ?? '',
+            sessionRole: this.sessionRole ?? '',
+            url: this.url ?? '',
+            workdir: this.cwd ?? '',
+        });
+        return await runCommandModule(() => import('../commands/e2e'));
+    }
+}
+
 class ConnectCommand extends ProteumCommand {
     public static paths = [['connect']];
 
@@ -608,6 +665,7 @@ export const registeredCommands = {
     typecheck: TypecheckCommand,
     lint: LintCommand,
     check: CheckCommand,
+    e2e: E2eCommand,
     connect: ConnectCommand,
     doctor: DoctorCommand,
     explain: ExplainCommand,
@@ -640,6 +698,7 @@ export const createCli = (version: string) => {
     clipanion.register(TypecheckCommand);
     clipanion.register(LintCommand);
     clipanion.register(CheckCommand);
+    clipanion.register(E2eCommand);
     clipanion.register(ConnectCommand);
     clipanion.register(DoctorCommand);
     clipanion.register(ExplainCommand);
