@@ -1,7 +1,7 @@
 {
 	"name": "proteum",
 	"description": "LLM-first Opinionated Typescript Framework for web applications.",
-	"version": "2.2.2-1",
+	"version": "2.2.3",
 	"author": "Gaetan Le Gac (https://github.com/gaetanlegac)",
 	"repository": "git://github.com/gaetanlegac/proteum.git",
 	"license": "MIT",
