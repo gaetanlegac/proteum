@@ -18,8 +18,8 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
   - Read and acknowledge the applicable `AGENTS.md` files.
   - Run `npm i`.
   - Run the dev server with the task-safe elevated-permissions launch workflow from `Task Lifecycle`, keep it running so user can see the results by himself, and print the live server URL as a clickable Markdown link.
-- If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it. After this, everytime you implemented a fix
-    - test, re-run analysis and give a comparizon table of before and after
+- If the user pastes raw errors without asking for a fix, do not implement changes yet. First run the task-safe local reproduction path: identify the likely app, route, command, or request from the error, boot or reuse the relevant dev server with the elevated-permissions workflow in `Task Lifecycle`, reproduce the failing surface locally, and inspect server output, browser console output, diagnostics, traces, or the smallest relevant command result. If the error does not identify enough context to reproduce, say what is missing and use the available local evidence before guessing. Then list likely causes and, for each one, give probability, why, and how to fix it. After this, every time you implement a fix:
+    - test, re-run analysis and give a comparison table of before and after
     - re-print the complete list of suggested fixes, but strike the ones we already implemented or not necessary anymore
 - If the task is ambiguous, generated, connected, or multi-repo, start with `npx proteum orient <query>` before reading large parts of the codebase.
 - If the user reports an issue, or the agent encounters one during exploration, implementation, verification, or runtime reproduction, load and follow root-level `diagnostics.md`.

@@ -11,7 +11,7 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 
 ## Fast Triggers
 
-- If the user pastes raw errors without asking for a fix, do not implement changes. List likely causes and, for each one, give probability, why, and how to fix it.
+- If the user pastes raw errors without asking for a fix, do not implement changes yet. First run the task-safe local reproduction path: identify the likely app, route, command, or request from the error, boot or reuse the relevant dev server with the elevated-permissions workflow in `Task Lifecycle`, reproduce the failing surface locally, and inspect server output, browser console output, diagnostics, traces, or the smallest relevant command result. If the error does not identify enough context to reproduce, say what is missing and use the available local evidence before guessing. Then list likely causes and, for each one, give probability, why, and how to fix it.
 - If the task is ambiguous, generated, connected, or multi-repo, start with `npx proteum orient <query>` before reading large parts of the codebase.
 - If the user reports an issue, or the agent encounters one during exploration, implementation, verification, or runtime reproduction, load and follow root-level `diagnostics.md`.
 - If the task touches client-side files, especially `client/**` and page files, load and apply root-level `optimizations.md` only after implementation for post-implementation checking and optimization. Skip it at task start and skip it for server-only, test-only, doc-only, and non-client refactor tasks unless the user explicitly asks for optimization work.
