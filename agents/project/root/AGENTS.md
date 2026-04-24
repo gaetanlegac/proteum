@@ -53,6 +53,7 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 
 - Before finishing, re-check touched files against root-level `CODING_STYLE.md` and any narrower area `AGENTS.md` that applied to the edit. Re-check against root-level `optimizations.md` only for touched client-side files. Re-check against root-level `diagnostics.md` only if the task involved an issue, diagnosis, runtime reproduction, or verification failure.
 - Do not default to project-wide typecheck or `npx proteum check` after every change. After implementing a new feature or changing existing feature behavior, always update the end-to-end coverage for that behavior and run the full Playwright test suite before finishing. For docs-only, wording-only, type-only, test-only, generated-output cleanup, or clearly local non-runtime refactors, skip Playwright unless the user explicitly asks for it or verification reveals a real issue.
+- After implementing UI-visible changes, once the required tests or verification pass, use the browser MCP to open the changed routes or states, capture screenshots focused on the changed areas, inspect them for obvious visual defects, and include or reference those screenshots in the final response as proof of the completed UI change.
 - Before finishing a task, stop every `proteum dev` session started during the task and confirm cleanup with `npx proteum dev list --json` or an explicit `npx proteum dev stop --session-file <path>`.
 - When you have finished your work, ask the user whether they want a commit message. After providing a commit message or after creating a commit, immediately follow it with this exact prompt and obey it:
   `Explain in short minimalistic and few bullet points what we changed in this thread, like you would do to your grandma. Start with a verb in the past.`
@@ -168,6 +169,7 @@ Verify at the correct layer:
 - SSR changes: load the real page and inspect rendered HTML plus browser console.
 - Router or plugin changes: verify request context, auth, redirects, metrics, and validation on a running app.
 - New features or feature-behavior changes: use the cheapest trustworthy verification while iterating, then update the relevant end-to-end coverage and finish by running the full Playwright suite.
+- UI-visible changes: after the required tests or verification, use the browser MCP to screenshot the changed areas and confirm the screenshots match the intended result.
 - Generated, connected, or ownership-ambiguous changes: start with `npx proteum orient <query>` and prefer `npx proteum verify owner <query>` before broad global checks.
 - Browser-visible issues: prefer `npx proteum verify browser <path>` or the narrowest `npx proteum e2e --port <port> ...` Playwright pass only after request-level verification is insufficient.
 - Raw browser execution beyond `npx proteum verify browser`: use `npx proteum e2e --port <port>` first, then direct Playwright with a disposable profile only when the wrapper cannot express the needed control. Keep that step for the final verifier agent unless a narrower surface cannot reproduce the issue.
