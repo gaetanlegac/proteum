@@ -18,7 +18,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 - Only the bare `npx proteum build` and bare `npx proteum dev` commands print the welcome banner and active Proteum installation method. Any extra argument or option skips the banner. Only `npx proteum dev` clears the interactive terminal before rendering and reports connected app names plus successful connected `/ping` checks in the ready banner; keep that in mind when capturing or comparing command logs during diagnosis. When the app root is missing `AGENTS.md`, the bare interactive `npx proteum dev` start offers to launch `npx proteum configure agents` before the dev loop begins.
 - For ownership or repo discovery questions, start with `npx proteum orient <query>` instead of jumping straight into source searches.
 - For request-time issues in dev, start with `npx proteum diagnose <path> --port <port>` when you have a concrete failing route, page, controller path, or request target. It combines owner lookup, manifest diagnostics, contract diagnostics, matching trace data, and buffered server logs in one pass.
-- Prefer focused verification before global checks: `npx proteum verify owner <query>`, `npx proteum verify request <path>`, and only then `npx proteum verify browser <path>` or `npx proteum e2e --port <port> ...` when the bug is browser-visible.
+- Prefer focused verification before global checks: `npx proteum verify owner <query>`, `npx proteum verify request <path>`, and only then browser MCP validation when the bug is browser-visible. Use `npx proteum e2e --port <port> ...` only when automated end-to-end coverage or a Playwright suite is required.
 - When diagnosing a consumer app that depends on local `file:` connected projects, boot every connected producer app too, each on its own free port and task-scoped session file, and run every one of those `proteum dev` processes with elevated permissions outside the sandbox before reproducing the consumer issue.
 - For connected-project failures, confirm the consumer app resolves the expected `connect.<Namespace>.source` and `connect.<Namespace>.urlInternal` values, the producer app exposes `GET /api/__proteum/connected/ping`, and the imported controller entries show `scope=connected` in `proteum explain`.
 - Use `npx proteum explain owner <query>` when you need a fast ownership graph for a route, controller path, source file, or generated artifact before reading code.
@@ -27,9 +27,9 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 - For request-time issues in dev, inspect traces before adding logs when the diagnose surface is still too coarse.
 - If a server is already running on the default port from `PORT` or `./.proteum/manifest.json`, inspect existing traces before reproducing the issue.
 - If existing traces are insufficient, arm `npx proteum trace arm --capture deep`, reproduce once, then inspect the new request with `npx proteum trace latest` or `npx proteum trace show <requestId>`.
-- Inspect browser console errors and warnings for frontend, SSR, hydration, and controller-call issues.
+- Use the browser MCP to inspect browser console errors and warnings for frontend, SSR, hydration, and controller-call issues.
 - Inspect server startup and runtime errors.
-- For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` over driving the login UI. Feed that auth into `npx proteum verify browser ...`, or use `npx proteum e2e --session-email <email> --session-role <role>` so Playwright receives the auth token through the child process environment. Use the login UI only when auth UX itself is under test.
+- For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` over driving the login UI, then use that session for browser MCP validation. Use `npx proteum e2e --session-email <email> --session-role <role>` only when Playwright end-to-end suites need the auth token through the child process environment. Use the login UI only when auth UX itself is under test.
 
 ## Temporary Instrumentation
 
@@ -50,13 +50,13 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 ## Verification And Testing
 
 - Use the cheapest trustworthy verification that matches the failing layer.
-- After implementing a change, verify only at the smallest trustworthy layer required by the changed surface. Do not default to a running app, project-wide typecheck, `npx proteum check`, or Playwright when a narrower static or request-level verification is enough.
+- After implementing a change, verify only at the smallest trustworthy layer required by the changed surface. Do not default to a running app, browser MCP, project-wide typecheck, `npx proteum check`, or Playwright when a narrower static or request-level verification is enough.
 - For compile-time or type-safety issues, start with the relevant targeted typecheck or build command. Do not run them by default for unrelated runtime, copy, docs, or local refactor changes.
 - For request/runtime issues, verify through the real page, route, generated controller call, or command on a running app.
-- Start the smallest trustworthy runtime surface first: `npx proteum orient <query>`, then the relevant real URL, generated controller call, command, or `npx proteum diagnose <path> --port <port>`. Add targeted Playwright coverage only when request-level verification is insufficient or the change is browser-visible.
-- When `npx proteum verify browser` is insufficient, use `npx proteum e2e --port <port>` for targeted or full Playwright suites. Use direct Playwright with a disposable profile only when the wrapper cannot express the needed browser control. Do not launch raw browser automation against a shared persistent profile.
+- Start the smallest trustworthy runtime surface first: `npx proteum orient <query>`, then the relevant real URL, generated controller call, command, or `npx proteum diagnose <path> --port <port>`. Use browser MCP validation only when request-level verification is insufficient or the change is browser-visible.
+- When automated browser assertions or suite coverage are required, use `npx proteum e2e --port <port>` for targeted or full Playwright suites. Do not use direct Playwright for browser validation outside the E2E wrapper, and do not launch raw browser automation against a shared persistent profile.
 - Focused verification should treat unrelated global diagnostics as visible but non-blocking by default. Use `--strict-global` only when the task explicitly requires broad clean-room validation.
-- For browser regressions, prefer a real browser repro first and add targeted Playwright coverage only when the user asks for automated coverage, when a stable regression path needs automation, or when manual/browser verification is insufficient.
+- For browser regressions, prefer a browser MCP repro first and add targeted Playwright E2E coverage only when the user asks for automated coverage, when a stable regression path needs automation, or when browser MCP verification is insufficient.
 - For UI-visible fixes, after the required tests or verification pass, use the browser MCP to capture focused screenshots of the changed areas and inspect them before finalizing.
 - Only the final verifier agent should usually run browser flows. Earlier agents should stay on `orient`, `verify owner`, `verify request`, `diagnose`, and command-level checks unless browser execution is the only trustworthy reproducer.
 - Treat server startup failures, runtime errors, browser console errors or warnings, and Playwright failures as blocking unless they are clearly unrelated to the change.
@@ -64,4 +64,4 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 - If the task started any long-lived `proteum dev` server, stop it explicitly with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`, then confirm the remaining tracked sessions with `npx proteum dev list --json`.
 - Add `data-testid` when stable selectors are missing instead of relying on brittle text or DOM-shape selectors.
 - If an isolated test misses prerequisite state, run the smallest broader scope that reproduces the real setup.
-- After a fix, re-check traces, rendered HTML, browser console, and server output when those surfaces were part of the original failure.
+- After a fix, re-check traces, rendered HTML, browser console through the browser MCP, and server output when those surfaces were part of the original failure.

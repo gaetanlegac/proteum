@@ -42,7 +42,7 @@ When tradeoffs exist inside optimization work, optimize in this order:
 - Do not stop at static analysis for SSR, routing, emitted assets, or rendered HTML.
 - After implementing a feature or change, verify that performance, load size, and SEO output did not materially regress before finishing.
 - When runtime cost, hot paths, or memory can change, use the relevant `npx proteum perf ...` command against the affected request or route and compare to the pre-change behavior when possible.
-- For browser or SSR changes, load the real page, inspect the rendered HTML, and confirm the change does not ship unnecessary client code or oversized SSR payloads.
+- For browser or SSR changes, use the browser MCP to load the real page, inspect the rendered HTML, and confirm the change does not ship unnecessary client code or oversized SSR payloads.
 - Treat clearly worse bundle size, runtime cost, or crawlable HTML quality as regressions to fix or justify explicitly, not as optional follow-up cleanup.
 - Build-only checks are supplementary.
-- For SSR changes, load the real page and inspect the rendered HTML plus browser console.
+- For SSR changes, use the browser MCP to load the real page and inspect the rendered HTML plus browser console.

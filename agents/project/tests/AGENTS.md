@@ -10,7 +10,7 @@ Diagnostics source of truth: root-level `diagnostics.md`.
 - Understand the real user flow and the main feature branches before writing tests.
 - Test the current controller/page runtime model, not legacy `@Route` or `api.fetch(...)` behavior.
 - Verify routing, controllers, SSR, and router plugins against a running app when behavior depends on real request handling.
-- After implementing a new feature or changing existing feature behavior, update the end-to-end coverage for that behavior and run the full Playwright suite before finishing. Prefer `npx proteum e2e --port <port>` for Playwright runs so base URLs and auth tokens are passed through Proteum-managed child env instead of shell-leading environment assignments. Use a real browser repro against a running app during iteration when it is the fastest trustworthy loop.
+- After implementing a new feature or changing existing feature behavior, update the end-to-end coverage for that behavior and run the full Playwright suite before finishing. Prefer `npx proteum e2e --port <port>` for Playwright runs so base URLs and auth tokens are passed through Proteum-managed child env instead of shell-leading environment assignments. Use a browser MCP repro against a running app during iteration when it is the fastest trustworthy loop.
 - For UI-visible feature changes, after the required Playwright run passes, use the browser MCP to capture focused screenshots of the changed areas and inspect them for visual correctness before finishing.
 - Exercise real URLs, generated controller calls, or real browser flows instead of re-deriving framework internals in tests.
 - Organize end-to-end tests following the Crosspath platform layout under `tests/e2e/**`.

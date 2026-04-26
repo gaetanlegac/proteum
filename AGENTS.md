@@ -31,7 +31,7 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 cd <worktree path>
 npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
 ```
-- After implementing a framework feature or change, do not stop at code edits. Boot both reference apps, exercise the affected flow with Playwright or the smallest real Proteum surface, run the relevant `proteum` diagnostics or perf commands, and confirm there is no meaningful regression in runtime behavior, performance, load size, SEO output, or coding-style expectations before finishing.
+- After implementing a framework feature or change, do not stop at code edits. Boot both reference apps, exercise browser-visible flows with the browser MCP or use the smallest real Proteum surface, run the relevant `proteum` diagnostics or perf commands, and confirm there is no meaningful regression in runtime behavior, performance, load size, SEO output, or coding-style expectations before finishing.
 - When starting a long-lived reference app dev server for framework work, always request elevated permissions and run `npx proteum dev` outside the sandbox. Use an explicit thread-scoped session file such as `var/run/proteum/dev/framework-<app>-<task>.json`, inspect tracked sessions plus current listeners first, for example with `npx proteum dev list --json` and `lsof -nP -iTCP -sTCP:LISTEN`, then choose a port that is not currently used before starting `npx proteum dev --session-file <path> --port <port>`. After the server is ready, print the live server URL as a clickable Markdown link such as `[http://localhost:3100](http://localhost:3100)`.
 - Do not use `--replace-existing` unless you are restarting the exact session file started by the current thread/task. Never replace another live session that belongs to a user, another thread, or an unknown owner.
 - When a reference app uses local `file:` connected projects for the affected flow, boot every connected producer app as well, each on its own free port and thread-scoped session file, and run every one of those `proteum dev` processes with elevated permissions outside the sandbox before starting or validating the consumer app.
@@ -82,12 +82,12 @@ Do not stop at static analysis for routing, controllers, generated code, SSR, cl
 - When validating a concrete route, controller path, or failing page on a running dev server, prefer `proteum diagnose <path> --port <port>` first. Use raw `proteum trace ...` output when you need lower-level event detail beyond the diagnose summary.
 - When the issue is latency, CPU, SQL cost, render cost, or memory drift, inspect `proteum perf top`, `proteum perf request`, `proteum perf compare`, or `proteum perf memory` against the running dev server before adding custom instrumentation.
 - When a framework change can affect shipped client code size, run `proteum build --prod --analyze` for static bundle artifacts or `proteum build --prod --analyze --analyze-serve --analyze-port auto` when you need a local analyzer URL.
-- For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` or `npx proteum e2e --session-email <email> --session-role <role>` instead of automating the login UI. Use the login UI only when login itself is the feature under test.
-- When a task needs browser execution instead of the higher-level verifier, prefer `npx proteum verify browser <path>` or `npx proteum e2e --port <port>` for Playwright suites. Keep auth sourced from Proteum session helpers, not UI login or shared browser state.
+- For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` for browser MCP validation, or `npx proteum e2e --session-email <email> --session-role <role>` for automated end-to-end suites, instead of automating the login UI. Use the login UI only when login itself is the feature under test.
+- When a task needs browser execution instead of the higher-level verifier, use the browser MCP. Keep Playwright inside `npx proteum e2e --port <port>` for targeted or full end-to-end suites. Keep auth sourced from Proteum session helpers, not UI login or shared browser state.
 - For request-time behavior, arm traces with `proteum trace arm --capture deep`, reproduce once, then inspect `proteum trace latest` or `proteum trace show <requestId>`.
 - When the framework-facing workflow itself changed, verify the CLI surface too with `proteum verify framework-change --crosspath-port <port> --product-port <port> --website-port <port>`.
 - Only the final verifier agent should usually run browser flows. Other agents should stay on `orient`, `verify owner`, `verify request`, and command-level checks unless browser execution is the only trustworthy surface.
-- Open the real pages with Playwright.
+- Open the real pages with the browser MCP.
 - Inspect browser console errors and warnings.
 - Inspect server startup and runtime errors.
 
