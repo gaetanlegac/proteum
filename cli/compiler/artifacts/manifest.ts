@@ -5,7 +5,6 @@ import app from '../../app';
 import cli from '../..';
 import { inspectProteumEnv } from '../../../common/env/proteumEnv';
 import { reservedRouteOptionKeys, routeOptionKeys } from '../../../common/router/pageData';
-import { getProjectInstructionGitignoreEntries } from '../../utils/agents';
 import {
     TProteumManifest,
     TProteumManifestCommand,
@@ -40,10 +39,7 @@ const collectManifestDiagnostics = ({
     routes: TProteumManifest['routes'];
 }) => {
     const diagnostics: TProteumManifestDiagnostic[] = [];
-    const expectedGitignoreEntries = [
-        ...requiredGitignoreEntries,
-        ...getProjectInstructionGitignoreEntries({ coreRoot: cli.paths.core.root }),
-    ];
+    const expectedGitignoreEntries = [...requiredGitignoreEntries];
 
     const pushDiagnostic = (diagnostic: TProteumManifestDiagnostic) => {
         diagnostics.push(diagnostic);

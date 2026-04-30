@@ -253,11 +253,7 @@ export const createServerTsconfigTemplate = (paths: TTsconfigTemplatePaths) => `
 }
 `;
 
-export const createGitignoreTemplate = ({
-    projectInstructionGitignoreBlock,
-}: {
-    projectInstructionGitignoreBlock: string;
-}) => `node_modules
+export const createGitignoreTemplate = () => `node_modules
 /.proteum
 /.cache
 /bin
@@ -265,8 +261,6 @@ export const createGitignoreTemplate = ({
 /var
 /proteum.connected.json
 .env
-
-${projectInstructionGitignoreBlock}
 `;
 
 export const createEnvTemplate = ({ port, url }: { port: number; url: string }) => `ENV_NAME=local

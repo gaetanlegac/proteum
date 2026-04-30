@@ -21,13 +21,11 @@ type TConfigureProjectAgentInstructionsArgs = {
 };
 
 type TAgentInstructionDefinition = {
-    includeWorktreeBootstrap?: boolean;
     projectPath: string;
-    sourcePath: string;
     ensureParentDir?: boolean;
 };
 
-type TEnsureInstructionStubsResult = {
+type TEnsureInstructionFilesResult = {
     blocked: string[];
     created: string[];
     overwritten: string[];
@@ -47,58 +45,41 @@ export type TConfigureProjectAgentInstructionsResult = {
     updatedGitignores: string[];
 };
 
-export type TProjectAgentFileInspection = {
-    existing: string[];
-    missing: string[];
-};
-
 /*----------------------------------
 - CONSTANTS
 ----------------------------------*/
 
 const managedInstructionStubHeader = '# Proteum Managed Instructions';
-const managedInstructionStubIntro = 'This file is managed by `proteum configure agents`.';
-const newProteumWorktreeBootstrapBlock = [
-    '## New Proteum Worktree Bootstrap',
-    '',
-    'When starting work in a newly created Proteum worktree, immediately copy the `.env` file from the main worktree, change it to use a different free port by updating `PORT`, `URL`, and `URL_INTERNAL`, and run:',
-    '',
-    '```',
-    'npx proteum configure agents',
-    'npm i',
-    'npx prisma generate',
-    'npx proteum refresh',
-    '```',
-    '',
-    'Run it before reading project-specific AGENTS files or making code changes. If the command is interactive, answer according to the current repository layout, then continue by reading the generated AGENTS.md files.',
-];
+const managedInstructionStubFinalLine =
+    'If the canonical file cannot be read, stop and run `npx proteum configure agents` before continuing.';
+const managedInstructionSectionHeader = '# Proteum Instructions';
+const managedInstructionSectionStart = '<!-- proteum-instructions:start -->';
+const managedInstructionSectionEnd = '<!-- proteum-instructions:end -->';
+const managedInstructionSectionIntro = 'This section is managed by `proteum configure agents`.';
 
 const sharedAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
-    { projectPath: 'CODING_STYLE.md', sourcePath: 'CODING_STYLE.md' },
-    { projectPath: 'diagnostics.md', sourcePath: 'diagnostics.md' },
-    { projectPath: 'optimizations.md', sourcePath: 'optimizations.md' },
-    { projectPath: path.join('client', 'AGENTS.md'), sourcePath: path.join('client', 'AGENTS.md') },
-    { projectPath: path.join('client', 'pages', 'AGENTS.md'), sourcePath: path.join('client', 'pages', 'AGENTS.md') },
-    {
-        projectPath: path.join('server', 'services', 'AGENTS.md'),
-        sourcePath: path.join('server', 'services', 'AGENTS.md'),
-    },
-    { projectPath: path.join('server', 'routes', 'AGENTS.md'), sourcePath: path.join('server', 'routes', 'AGENTS.md') },
-    { projectPath: path.join('tests', 'e2e', 'AGENTS.md'), sourcePath: path.join('tests', 'AGENTS.md') },
+    { projectPath: 'CODING_STYLE.md' },
+    { projectPath: 'diagnostics.md' },
+    { projectPath: 'optimizations.md' },
+    { projectPath: path.join('client', 'AGENTS.md') },
+    { projectPath: path.join('client', 'pages', 'AGENTS.md') },
+    { projectPath: path.join('server', 'services', 'AGENTS.md') },
+    { projectPath: path.join('server', 'routes', 'AGENTS.md') },
+    { projectPath: path.join('tests', 'e2e', 'AGENTS.md') },
 ];
 
 const standaloneAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
-    { projectPath: 'AGENTS.md', sourcePath: 'AGENTS.md', includeWorktreeBootstrap: true },
+    { projectPath: 'AGENTS.md' },
     ...sharedAppAgentInstructionDefinitions,
 ];
 
 const monorepoAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
-    { projectPath: 'AGENTS.md', sourcePath: path.join('app-root', 'AGENTS.md') },
+    { projectPath: 'AGENTS.md' },
     ...sharedAppAgentInstructionDefinitions,
 ];
 
 const monorepoRootAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
-    { projectPath: 'AGENTS.md', sourcePath: path.join('root', 'AGENTS.md'), includeWorktreeBootstrap: true },
+    { projectPath: 'AGENTS.md' },
 ];
 
 const legacyProjectInstructionGitignoreBlockStart = '# Proteum-managed instruction symlinks';
@@ -134,41 +115,44 @@ export function configureProjectAgentInstructions({
         updated: [],
         updatedGitignores: [],
     };
+    const embeddedInstructions = renderEmbeddedProjectInstructions({ coreRoot });
 
     if (mode === 'monorepo' && normalizedMonorepoRoot) {
         result.monorepoRoot = normalizedMonorepoRoot;
 
-        const rootInstructions = getRootAgentInstructionDefinitions({ coreRoot });
-        const rootStubs = ensureInstructionStubs(
+        const rootInstructions = getRootAgentInstructionDefinitions();
+        const rootFiles = ensureInstructionFiles(
             normalizedMonorepoRoot,
             rootInstructions,
             '[agents]',
             path.join(coreRoot, 'agents', 'project'),
+            embeddedInstructions,
             {
                 dryRun,
                 overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
             },
         );
-        mergeInstructionResults(result, rootStubs, normalizedMonorepoRoot);
+        mergeInstructionResults(result, rootFiles, normalizedMonorepoRoot);
 
-        if (!dryRun && ensureInstructionGitignoreEntries({ rootDir: normalizedMonorepoRoot, instructionDefinitions: rootInstructions }))
+        if (!dryRun && removeInstructionGitignoreEntries({ rootDir: normalizedMonorepoRoot, instructionDefinitions: rootInstructions }))
             result.updatedGitignores.push(path.join(normalizedMonorepoRoot, '.gitignore'));
     }
 
-    const appInstructions = getAppAgentInstructionDefinitions({ coreRoot, mode });
-    const appStubs = ensureInstructionStubs(
+    const appInstructions = getAppAgentInstructionDefinitions({ mode });
+    const appFiles = ensureInstructionFiles(
         normalizedAppRoot,
         appInstructions,
         '[agents]',
         path.join(coreRoot, 'agents', 'project'),
+        embeddedInstructions,
         {
             dryRun,
             overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
         },
     );
-    mergeInstructionResults(result, appStubs, normalizedAppRoot);
+    mergeInstructionResults(result, appFiles, normalizedAppRoot);
 
-    if (!dryRun && ensureInstructionGitignoreEntries({ rootDir: normalizedAppRoot, instructionDefinitions: appInstructions }))
+    if (!dryRun && removeInstructionGitignoreEntries({ rootDir: normalizedAppRoot, instructionDefinitions: appInstructions }))
         result.updatedGitignores.push(path.join(normalizedAppRoot, '.gitignore'));
 
     return result;
@@ -176,51 +160,15 @@ export function configureProjectAgentInstructions({
 
 export const configureProjectAgentSymlinks = configureProjectAgentInstructions;
 
-export function getProjectInstructionGitignoreEntries({ coreRoot }: TProjectInstructionArgs) {
-    return Array.from(
-        new Set(
-            getAppAgentInstructionDefinitions({ coreRoot, mode: 'standalone' }).map((instructionDefinition) =>
-                `/${normalizeProjectPathForGitignore(instructionDefinition.projectPath)}`,
-            ),
-        ),
-    );
-}
+export function resolveProjectAgentMonorepoRoot(appRoot: string) {
+    const normalizedAppRoot = resolveCanonicalPath(appRoot);
+    const likelyRepoRoot = findLikelyRepoRoot(normalizedAppRoot);
 
-export function renderProjectInstructionGitignoreBlock({ coreRoot }: TProjectInstructionArgs) {
-    return renderInstructionGitignoreBlock({
-        instructionDefinitions: getAppAgentInstructionDefinitions({ coreRoot, mode: 'standalone' }),
-    });
-}
+    if (!likelyRepoRoot) return undefined;
+    if (likelyRepoRoot === normalizedAppRoot) return undefined;
+    if (!isInsideDirectory({ child: normalizedAppRoot, parent: likelyRepoRoot })) return undefined;
 
-export function inspectProjectAgentFiles({ appRoot }: { appRoot: string }): TProjectAgentFileInspection {
-    const normalizedAppRoot = path.resolve(appRoot);
-    const expectedAgentPaths = Array.from(
-        new Set(
-            standaloneAppAgentInstructionDefinitions
-                .map((instructionDefinition) => instructionDefinition.projectPath)
-                .filter((projectPath) => projectPath.endsWith('AGENTS.md')),
-        ),
-    );
-    const result: TProjectAgentFileInspection = {
-        existing: [],
-        missing: [],
-    };
-
-    for (const projectPath of expectedAgentPaths) {
-        const absolutePath = path.join(normalizedAppRoot, projectPath);
-        const parentPath = path.dirname(absolutePath);
-
-        if (projectPath !== 'AGENTS.md' && !fs.existsSync(parentPath)) continue;
-
-        if (fs.existsSync(absolutePath)) {
-            result.existing.push(projectPath);
-            continue;
-        }
-
-        result.missing.push(projectPath);
-    }
-
-    return result;
+    return likelyRepoRoot;
 }
 
 /*----------------------------------
@@ -228,52 +176,19 @@ export function inspectProjectAgentFiles({ appRoot }: { appRoot: string }): TPro
 ----------------------------------*/
 
 function getAppAgentInstructionDefinitions({
-    coreRoot,
     mode,
-}: TProjectInstructionArgs & { mode: 'monorepo' | 'standalone' }) {
-    const agentSourceRoot = path.join(coreRoot, 'agents', 'project');
+}: { mode: 'monorepo' | 'standalone' }) {
     const sourceDefinitions =
         mode === 'monorepo' ? monorepoAppAgentInstructionDefinitions : standaloneAppAgentInstructionDefinitions;
 
-    return resolveAgentInstructionDefinitions({
-        agentSourceRoot,
-        instructionDefinitions: sourceDefinitions,
-    });
+    return sourceDefinitions.map((instructionDefinition) => ({ ...instructionDefinition }));
 }
 
-function getRootAgentInstructionDefinitions({ coreRoot }: TProjectInstructionArgs) {
-    return resolveAgentInstructionDefinitions({
-        agentSourceRoot: path.join(coreRoot, 'agents', 'project'),
-        instructionDefinitions: monorepoRootAgentInstructionDefinitions,
-    });
+function getRootAgentInstructionDefinitions() {
+    return monorepoRootAgentInstructionDefinitions.map((instructionDefinition) => ({ ...instructionDefinition }));
 }
 
-function resolveAgentInstructionDefinitions({
-    agentSourceRoot,
-    instructionDefinitions,
-}: {
-    agentSourceRoot: string;
-    instructionDefinitions: TAgentInstructionDefinition[];
-}) {
-    return instructionDefinitions.map((instructionDefinition) => ({
-        ...instructionDefinition,
-        sourcePath: path.join(agentSourceRoot, instructionDefinition.sourcePath),
-    }));
-}
-
-function renderInstructionGitignoreBlock({ instructionDefinitions }: { instructionDefinitions: TAgentInstructionDefinition[] }) {
-    const entries = Array.from(
-        new Set(
-            instructionDefinitions.map(
-                (instructionDefinition) => `/${normalizeProjectPathForGitignore(instructionDefinition.projectPath)}`,
-            ),
-        ),
-    );
-
-    return [projectInstructionGitignoreBlockStart, ...entries, projectInstructionGitignoreBlockEnd].join('\n');
-}
-
-function ensureInstructionGitignoreEntries({
+function removeInstructionGitignoreEntries({
     rootDir,
     instructionDefinitions,
 }: {
@@ -310,22 +225,22 @@ function ensureInstructionGitignoreEntries({
     }
 
     const baseContent = trimTrailingBlankLines(filteredLines).join('\n');
-    const managedBlock = renderInstructionGitignoreBlock({ instructionDefinitions });
-    const nextContent = baseContent ? `${baseContent}\n\n${managedBlock}\n` : `${managedBlock}\n`;
+    const nextContent = baseContent ? `${baseContent}\n` : '';
 
     if (nextContent === fs.readFileSync(gitignoreFilepath, 'utf8')) return false;
 
     fs.writeFileSync(gitignoreFilepath, nextContent);
-    logVerbose(`[agents] Updated ${path.relative(rootDir, gitignoreFilepath) || '.gitignore'} with Proteum-managed instruction ignore entries.`);
+    logVerbose(`[agents] Removed Proteum-managed instruction ignore entries from ${path.relative(rootDir, gitignoreFilepath) || '.gitignore'}.`);
 
     return true;
 }
 
-function ensureInstructionStubs(
+function ensureInstructionFiles(
     rootDir: string,
     instructionDefinitions: TAgentInstructionDefinition[],
     logPrefix: string,
     managedSourceRoot: string,
+    managedSectionContent: string,
     {
         dryRun,
         overwriteBlockedPaths,
@@ -333,8 +248,8 @@ function ensureInstructionStubs(
         dryRun: boolean;
         overwriteBlockedPaths: Set<string>;
     },
-): TEnsureInstructionStubsResult {
-    const result: TEnsureInstructionStubsResult = {
+): TEnsureInstructionFilesResult {
+    const result: TEnsureInstructionFilesResult = {
         blocked: [],
         created: [],
         overwritten: [],
@@ -353,24 +268,31 @@ function ensureInstructionStubs(
             continue;
         }
 
-        const sourceFilepath = instructionDefinition.sourcePath;
-        if (!fs.existsSync(sourceFilepath)) throw new Error(`Missing project instruction asset: ${sourceFilepath}`);
-
-        const stubContent = renderInstructionStub({
-            includeWorktreeBootstrap: instructionDefinition.includeWorktreeBootstrap === true,
-            projectFilepath,
-            sourceFilepath,
-        });
-
         const existingState = inspectExistingPath({
             managedSourceRoot,
             projectFilepath,
-            sourceFilepath,
-            stubContent,
         });
 
-        if (existingState.kind === 'match') {
-            result.skipped.push(relativeProjectPath);
+        if (existingState.kind === 'file') {
+            const nextContent = upsertManagedInstructionSection(existingState.content, managedSectionContent);
+            if (nextContent === existingState.content) {
+                result.skipped.push(relativeProjectPath);
+                continue;
+            }
+
+            if (!dryRun) fs.writeFileSync(projectFilepath, nextContent);
+            result.updated.push(relativeProjectPath);
+            logVerbose(`${logPrefix} Updated ${relativeProjectPath}`);
+            continue;
+        }
+
+        if (existingState.kind === 'managed-different') {
+            if (!dryRun) {
+                fs.removeSync(projectFilepath);
+                fs.writeFileSync(projectFilepath, managedSectionContent);
+            }
+            result.updated.push(relativeProjectPath);
+            logVerbose(`${logPrefix} Updated ${relativeProjectPath}`);
             continue;
         }
 
@@ -380,27 +302,17 @@ function ensureInstructionStubs(
             continue;
         }
 
-        if (existingState.kind === 'managed-different') {
-            if (!dryRun) {
-                fs.removeSync(projectFilepath);
-                fs.writeFileSync(projectFilepath, stubContent);
-            }
-            result.updated.push(relativeProjectPath);
-            logVerbose(`${logPrefix} Updated ${relativeProjectPath}`);
-            continue;
-        }
-
         if (existingState.kind === 'blocked') {
             if (!dryRun) {
                 fs.removeSync(projectFilepath);
-                fs.writeFileSync(projectFilepath, stubContent);
+                fs.writeFileSync(projectFilepath, managedSectionContent);
             }
             result.overwritten.push(relativeProjectPath);
             logVerbose(`${logPrefix} Replaced ${relativeProjectPath}`);
             continue;
         }
 
-        if (!dryRun) fs.writeFileSync(projectFilepath, stubContent);
+        if (!dryRun) fs.writeFileSync(projectFilepath, managedSectionContent);
         result.created.push(relativeProjectPath);
         logVerbose(`${logPrefix} Created ${relativeProjectPath}`);
     }
@@ -408,45 +320,12 @@ function ensureInstructionStubs(
     return result;
 }
 
-function renderInstructionStub({
-    includeWorktreeBootstrap,
-    projectFilepath,
-    sourceFilepath,
-}: {
-    includeWorktreeBootstrap: boolean;
-    projectFilepath: string;
-    sourceFilepath: string;
-}) {
-    const sourcePath = normalizeProjectPathForGitignore(path.relative(path.dirname(projectFilepath), sourceFilepath));
-    const lines = [
-        ...(includeWorktreeBootstrap ? [...newProteumWorktreeBootstrapBlock, ''] : []),
-        managedInstructionStubHeader,
-        '',
-        managedInstructionStubIntro,
-        '',
-        'Before reading or applying instructions from this file, read and follow the canonical Proteum instruction file at:',
-        '',
-        `\`${sourcePath}\``,
-        '',
-        'Resolve that path relative to this file. Treat the canonical file as if its full contents were written here.',
-        '',
-        'If the canonical file cannot be read, stop and run `npx proteum configure agents` before continuing.',
-        '',
-    ];
-
-    return lines.join('\n');
-}
-
 function inspectExistingPath({
     managedSourceRoot,
     projectFilepath,
-    sourceFilepath,
-    stubContent,
 }: {
     managedSourceRoot: string;
     projectFilepath: string;
-    sourceFilepath: string;
-    stubContent: string;
 }) {
     if (!pathEntryExists(projectFilepath)) return { kind: 'missing' as const };
 
@@ -454,30 +333,35 @@ function inspectExistingPath({
     if (!stats.isSymbolicLink()) {
         if (!stats.isFile()) return { kind: 'blocked' as const };
 
-        const existingContent = fs.readFileSync(projectFilepath, 'utf8');
-        if (existingContent === stubContent) return { kind: 'match' as const };
-        if (isManagedInstructionStub(existingContent)) return { kind: 'managed-different' as const };
+        const content = fs.readFileSync(projectFilepath, 'utf8');
 
-        return { kind: 'blocked' as const };
+        return { kind: 'file' as const, content };
     }
 
     const existingTarget = resolveSymlinkTarget(projectFilepath);
     const normalizedExistingTarget = normalizeAbsolutePath(existingTarget);
-    const normalizedSourceFilepath = normalizeAbsolutePath(sourceFilepath);
     const normalizedManagedSourceRoot = normalizeAbsolutePath(managedSourceRoot);
 
-    if (
-        normalizedExistingTarget === normalizedSourceFilepath ||
-        normalizedExistingTarget === normalizedManagedSourceRoot ||
-        normalizedExistingTarget.startsWith(`${normalizedManagedSourceRoot}/`)
-    )
+    if (isManagedInstructionSymlinkTarget({ normalizedExistingTarget, normalizedManagedSourceRoot }))
         return { kind: 'managed-different' as const };
 
     return { kind: 'blocked' as const };
 }
 
-function isManagedInstructionStub(content: string) {
-    return content.includes(`${managedInstructionStubHeader}\n\n${managedInstructionStubIntro}\n`);
+function isManagedInstructionSymlinkTarget({
+    normalizedExistingTarget,
+    normalizedManagedSourceRoot,
+}: {
+    normalizedExistingTarget: string;
+    normalizedManagedSourceRoot: string;
+}) {
+    if (normalizedExistingTarget === normalizedManagedSourceRoot) return true;
+    if (normalizedExistingTarget.startsWith(`${normalizedManagedSourceRoot}/`)) return true;
+
+    const targetSegments = normalizedExistingTarget.split('/');
+    return targetSegments.some(
+        (segment, index) => segment === 'agents' && targetSegments[index + 1] === 'project',
+    );
 }
 
 function resolveSymlinkTarget(projectFilepath: string) {
@@ -488,7 +372,7 @@ function resolveSymlinkTarget(projectFilepath: string) {
 
 function mergeInstructionResults(
     result: TConfigureProjectAgentInstructionsResult,
-    next: TEnsureInstructionStubsResult,
+    next: TEnsureInstructionFilesResult,
     rootDir: string,
 ) {
     result.created.push(...next.created.map((entry) => formatResultPath(rootDir, entry)));
@@ -498,8 +382,202 @@ function mergeInstructionResults(
     result.blocked.push(...next.blocked.map((entry) => formatResultPath(rootDir, entry)));
 }
 
+function renderEmbeddedProjectInstructions({ coreRoot }: TProjectInstructionArgs) {
+    const agentSourceRoot = path.join(coreRoot, 'agents', 'project');
+    if (!fs.existsSync(agentSourceRoot)) throw new Error(`Missing project instruction source root: ${agentSourceRoot}`);
+
+    const sourceFiles = collectMarkdownFiles(agentSourceRoot).sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+    const lines = [
+        managedInstructionSectionHeader,
+        managedInstructionSectionStart,
+        '',
+        managedInstructionSectionIntro,
+        '',
+    ];
+
+    for (const sourceFile of sourceFiles) {
+        const content = fs.readFileSync(sourceFile.filepath, 'utf8');
+        const demotedContent = demoteMarkdownHeadings(content).trim();
+
+        lines.push(`## Source: ${sourceFile.relativePath}`, '');
+        if (demotedContent) lines.push(demotedContent, '');
+    }
+
+    lines.push(managedInstructionSectionEnd, '');
+
+    return lines.join('\n');
+}
+
+function collectMarkdownFiles(rootDir: string, currentDir = rootDir): { filepath: string; relativePath: string }[] {
+    const files: { filepath: string; relativePath: string }[] = [];
+
+    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+        const filepath = path.join(currentDir, entry.name);
+
+        if (entry.isDirectory()) {
+            files.push(...collectMarkdownFiles(rootDir, filepath));
+            continue;
+        }
+
+        if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+
+        files.push({
+            filepath,
+            relativePath: normalizeProjectPathForGitignore(path.relative(rootDir, filepath)),
+        });
+    }
+
+    return files;
+}
+
+function demoteMarkdownHeadings(content: string) {
+    const lines = content.split(/\r?\n/);
+    let activeFence: string | undefined;
+
+    return lines
+        .map((line) => {
+            const fenceMatch = line.match(/^\s*(```+|~~~+)/);
+            if (fenceMatch) {
+                const marker = fenceMatch[1].startsWith('`') ? '`' : '~';
+                activeFence = activeFence === marker ? undefined : marker;
+                return line;
+            }
+
+            if (activeFence) return line;
+
+            return line.replace(/^(#{1,5})(\s+)/, '#$1$2');
+        })
+        .join('\n');
+}
+
+function upsertManagedInstructionSection(content: string, managedSectionContent: string) {
+    const existingRange = findManagedInstructionSectionRange(content);
+
+    if (!existingRange) {
+        const legacyStubRange = findLegacyManagedInstructionStubRange(content);
+
+        if (legacyStubRange) {
+            const before = content.slice(0, legacyStubRange.start);
+            const after = content.slice(legacyStubRange.end);
+
+            return joinMarkdownSections([before, managedSectionContent, after]);
+        }
+
+        return joinMarkdownSections([content, managedSectionContent]);
+    }
+
+    const before = content.slice(0, existingRange.start);
+    const after = content.slice(existingRange.end);
+
+    return joinMarkdownSections([before, managedSectionContent, after]);
+}
+
+function findManagedInstructionSectionRange(content: string) {
+    const markerStartIndex = content.indexOf(managedInstructionSectionStart);
+    if (markerStartIndex === -1) return undefined;
+
+    const markerEndIndex = content.indexOf(managedInstructionSectionEnd, markerStartIndex);
+    if (markerEndIndex === -1) return undefined;
+
+    const rangeEnd = markerEndIndex + managedInstructionSectionEnd.length;
+    const contentThroughStartMarker = content.slice(0, markerStartIndex + managedInstructionSectionStart.length);
+    const headerPattern = new RegExp(
+        `(^|\\n)${escapeRegExp(managedInstructionSectionHeader)}\\s*\\n(?:[ \\t]*\\n)*${escapeRegExp(managedInstructionSectionStart)}$`,
+    );
+    const headerMatch = contentThroughStartMarker.match(headerPattern);
+
+    if (!headerMatch) return { start: markerStartIndex, end: rangeEnd };
+
+    const matchedContent = headerMatch[0];
+    const leadingNewlineOffset = matchedContent.startsWith('\n') ? 1 : 0;
+    const rangeStart = markerStartIndex + managedInstructionSectionStart.length - matchedContent.length + leadingNewlineOffset;
+
+    return { start: rangeStart, end: rangeEnd };
+}
+
+function findLegacyManagedInstructionStubRange(content: string) {
+    const lines = content.split(/(?<=\n)/);
+    let offset = 0;
+
+    for (let index = 0; index < lines.length; index++) {
+        const line = lines[index];
+
+        if (line.trim() !== managedInstructionStubHeader) {
+            offset += line.length;
+            continue;
+        }
+
+        let endOffset = content.length;
+        let scanOffset = offset + line.length;
+
+        for (let scanIndex = index + 1; scanIndex < lines.length; scanIndex++) {
+            const currentLine = lines[scanIndex];
+
+            scanOffset += currentLine.length;
+            if (currentLine.trim() !== managedInstructionStubFinalLine) continue;
+
+            let blankIndex = scanIndex + 1;
+            let blankOffset = scanOffset;
+
+            while (blankIndex < lines.length && lines[blankIndex].trim() === '') {
+                blankOffset += lines[blankIndex].length;
+                blankIndex += 1;
+            }
+
+            endOffset = blankOffset;
+            break;
+        }
+
+        return { start: offset, end: endOffset };
+    }
+
+    return undefined;
+}
+
+function joinMarkdownSections(sections: string[]) {
+    return `${sections
+        .map((section) => trimBlankLines(section.split(/\r?\n/)).join('\n'))
+        .filter(Boolean)
+        .join('\n\n')}\n`;
+}
+
+function trimBlankLines(lines: string[]) {
+    const trimmedLines = trimTrailingBlankLines(lines);
+
+    while (trimmedLines.length > 0 && trimmedLines[0].trim() === '') trimmedLines.shift();
+
+    return trimmedLines;
+}
+
 function formatResultPath(rootDir: string, relativePath: string) {
     return normalizeProjectPathForGitignore(path.join(rootDir, relativePath));
+}
+
+export function resolveCanonicalPath(inputPath: string) {
+    const resolvedPath = path.resolve(inputPath);
+
+    try {
+        return fs.realpathSync(resolvedPath);
+    } catch {
+        return resolvedPath;
+    }
+}
+
+export function isInsideDirectory({ child, parent }: { child: string; parent: string }) {
+    const relativePath = path.relative(parent, child);
+    return relativePath !== '' && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+}
+
+export function findLikelyRepoRoot(startPath: string) {
+    let currentPath = path.resolve(startPath);
+
+    while (true) {
+        if (pathEntryExists(path.join(currentPath, '.git'))) return resolveCanonicalPath(currentPath);
+
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) return undefined;
+        currentPath = parentPath;
+    }
 }
 
 function normalizeAbsolutePath(filepath: string) {
@@ -528,6 +606,10 @@ function trimTrailingBlankLines(lines: string[]) {
     while (trimmedLines.length > 0 && trimmedLines[trimmedLines.length - 1].trim() === '') trimmedLines.pop();
 
     return trimmedLines;
+}
+
+function escapeRegExp(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function pathEntryExists(filepath: string) {

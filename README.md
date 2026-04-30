@@ -347,7 +347,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum e2e` | Run Playwright with Proteum-managed `E2E_*` values instead of shell-leading env assignments |
 | `proteum verify` | Validate framework-facing workflows across one or more running dev apps; `framework-change` is the built-in cross-reference-app check |
 | `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
-| `proteum configure agents` | Interactively configure Proteum-managed instruction symlinks and confirm overwrites for standalone or monorepo apps |
+| `proteum configure agents` | Interactively configure tracked Proteum instruction files for standalone or monorepo apps |
 | `proteum create` | Scaffold a page, controller, command, route, or root service inside an app |
 
 Recommended daily workflow:
@@ -361,7 +361,7 @@ proteum build --prod --analyze
 proteum build --prod --analyze --analyze-serve --analyze-port auto
 ```
 
-Only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. `proteum dev` is the only command that clears the interactive terminal before rendering its live session UI, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys, and prints connected app names plus successful connected `/ping` checks in the server-ready banner. When the app root is missing `AGENTS.md`, the interactive `proteum dev` start offers to launch `proteum configure agents` before the dev loop begins.
+Only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. `proteum dev` is the only command that clears the interactive terminal before rendering its live session UI, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys, and prints connected app names plus successful connected `/ping` checks in the server-ready banner. Every `proteum dev` start ensures tracked Proteum instruction files contain the current managed `# Proteum Instructions` section before the dev loop begins.
 
 Useful inspection commands:
 
@@ -404,9 +404,9 @@ proteum create controller Founder/projects --method list
 proteum create service Conversion/Plans
 ```
 
-`proteum configure agents` asks before replacing any existing non-managed instruction file or foreign symlink. If you decline, that path is left untouched.
+`proteum configure agents` embeds the full Proteum project instruction corpus into the managed `# Proteum Instructions` section of each tracked instruction file. It preserves content outside that section and asks before replacing directories or foreign symlinks. If you decline, that path is left untouched.
 
-Bare interactive `proteum dev` reuses that same wizard when the app root is missing `AGENTS.md`; declining the prompt continues the dev start without writing files.
+Every `proteum dev` start runs the same idempotent instruction check. It updates missing or stale managed sections automatically and prompts only when a blocked path would need to be replaced.
 
 `proteum connect`, `proteum explain`, `proteum doctor`, and `proteum diagnose` share the same generated manifest and contract state. `proteum perf` uses the same dev request-trace store as the profiler `Perf` tab. For the full diagnostics and tracing model, see [docs/diagnostics.md](docs/diagnostics.md) and [docs/request-tracing.md](docs/request-tracing.md).
 

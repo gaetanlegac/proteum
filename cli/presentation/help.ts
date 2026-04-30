@@ -139,7 +139,7 @@ export const renderCliOverview = async ({
                     indent: '  ',
                     nextIndent: '  ',
                 }),
-                wrapText('When the app root is missing `AGENTS.md`, the interactive `proteum dev` start offers to launch `proteum configure agents` before the dev loop begins.', {
+                wrapText('Before the dev loop starts, `proteum dev` ensures tracked instruction files contain the current managed `# Proteum Instructions` section.', {
                     indent: '  ',
                     nextIndent: '  ',
                 }),

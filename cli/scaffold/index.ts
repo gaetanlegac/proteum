@@ -5,7 +5,6 @@ import { UsageError } from 'clipanion';
 
 import cli from '..';
 import { loadApplicationIdentityConfig } from '../../common/applicationConfigLoader';
-import { renderProjectInstructionGitignoreBlock } from '../utils/agents';
 import { runProcess } from '../utils/runProcess';
 import {
     createClientTsconfigTemplate,
@@ -656,9 +655,7 @@ const createInitFilePlans = ({ appRoot, config }: { appRoot: string; config: TSc
     },
     {
         relativePath: '.gitignore',
-        content: createGitignoreTemplate({
-            projectInstructionGitignoreBlock: renderProjectInstructionGitignoreBlock({ coreRoot: cli.paths.core.root }),
-        }),
+        content: createGitignoreTemplate(),
     },
     {
         relativePath: 'eslint.config.mjs',
@@ -727,7 +724,7 @@ export const runInitScaffold = async () => {
               ? 'Run `npm run dev` in the new app directory.'
               : 'Run `npm install`, then `npm run dev` in the new app directory.',
     );
-    result.nextSteps.push('Run `proteum configure agents` when you want Proteum-managed instruction stubs.');
+    result.nextSteps.push('Run `proteum configure agents` when you want tracked Proteum instruction files.');
     result.nextSteps.push('Use `proteum create page|controller|command|route|service ...` to add app artifacts.');
 
     printResult(result, createInitSummary(result, config));

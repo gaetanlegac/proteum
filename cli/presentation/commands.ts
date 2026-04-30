@@ -113,22 +113,22 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
     configure: {
         name: 'configure',
         category: 'Project scaffolding',
-        summary: 'Interactively configure Proteum-managed instruction stubs for a standalone app or monorepo app root.',
+        summary: 'Interactively configure tracked Proteum instruction files for a standalone app or monorepo app root.',
         usage: 'proteum configure agents',
         bestFor:
-            'Creating or switching the managed `AGENTS.md` instruction layout intentionally instead of having `init` or `dev` write instruction files implicitly.',
+            'Creating or switching the tracked instruction layout intentionally while keeping Proteum-owned instructions embedded in managed sections.',
         examples: [
             {
-                description: 'Configure instruction stubs for the current standalone app',
+                description: 'Configure instruction files for the current standalone app',
                 command: 'proteum configure agents',
             },
         ],
         notes: [
-            'This command is interactive. It asks whether the current Proteum app belongs to a monorepo and, if so, which ancestor path should receive the reusable root `AGENTS.md` stub.',
-            'Standalone mode writes the full app-root instruction set into the current Proteum app root.',
-            'Monorepo mode writes the reusable root `AGENTS.md` into the chosen monorepo root and switches the current app root `AGENTS.md` to the app-root addendum.',
-            'If a target path already contains a non-managed file or foreign symlink, the interactive flow asks whether to overwrite it with the Proteum-managed stub.',
-            'Declined non-managed paths are left untouched; Proteum still creates missing stubs and updates stubs or symlinks it already manages.',
+            'This command is interactive. It asks whether the current Proteum app belongs to a monorepo and, if so, which ancestor path should receive the reusable root `AGENTS.md` file.',
+            'Standalone mode writes tracked instruction files into the current Proteum app root.',
+            'Monorepo mode writes the reusable root `AGENTS.md` into the chosen monorepo root and the app-root instruction files into the current Proteum app root.',
+            'Every managed instruction file contains a `# Proteum Instructions` section with the full embedded Proteum project instruction corpus.',
+            'Existing content outside `# Proteum Instructions` is preserved. Directories and foreign symlinks are replaced only after confirmation.',
         ],
         status: 'experimental',
     },
@@ -191,7 +191,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         notes: [
             'Use `--cwd` when the target Proteum app lives in another worktree or checkout and you do not want to `cd` first.',
             'Proteum writes a machine-readable dev session file under `var/run/proteum/dev/<port>.json` by default; override it with `--session-file` when an agent needs a stable path.',
-            'Before the interactive dev loop starts, Proteum offers to launch `proteum configure agents` when the app root is missing `AGENTS.md`.',
+            'Before the dev loop starts, Proteum ensures tracked instruction files contain the current managed `# Proteum Instructions` section.',
             'Use `--replace-existing` when retries should stop the previously tracked matching session before starting a new one.',
             '`proteum dev list` inspects tracked sessions for the current app root. Add `--stale` to show only orphaned or dead sessions.',
             '`proteum dev stop` targets the current session file by default. Add `--all` to stop every tracked session for the current app root.',

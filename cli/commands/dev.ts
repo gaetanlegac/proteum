@@ -40,8 +40,7 @@ import {
 } from '../runtime/devSessions';
 import { resolveFrameworkInstallInfo } from '../paths';
 import { logVerbose } from '../runtime/verbose';
-import { inspectProjectAgentFiles } from '../utils/agents';
-import { runConfigureAgentsWizard } from './configure';
+import { configureProjectAgentInstructions, resolveProjectAgentMonorepoRoot } from '../utils/agents';
 
 // Core
 import { app, App } from '../app';
@@ -144,43 +143,74 @@ const createIgnoredWatchMatcher = (outputPaths: string[]) => (watchPath: string)
     return ignoredWatchPathPatterns.test(normalizedWatchPath);
 };
 
-const promptToConfigureAgentsIfMissing = async () => {
-    if (cli.args.json === true) return;
-    if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+const promptBlockedAgentInstructionOverwrites = async (blockedPaths: string[]) => {
+    if (blockedPaths.length === 0) return [];
+    if (cli.args.json === true || !process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new UsageError(
+            [
+                'Proteum could not update managed instruction files because existing paths are blocked:',
+                ...blockedPaths.map((entry) => `- ${entry}`),
+                'Run `proteum configure agents` in an interactive terminal to choose which paths can be replaced.',
+            ].join('\n'),
+        );
+    }
 
-    const inspection = inspectProjectAgentFiles({ appRoot: app.paths.root });
-    if (!inspection.missing.includes('AGENTS.md')) return;
-
-    console.info(await renderWarning('Proteum could not find the app-root `AGENTS.md` instruction file.'));
+    console.info(await renderWarning('Proteum found existing paths that block managed instruction updates.'));
     console.info(
         [
-            'Missing standard AGENTS files:',
-            ...inspection.missing.map((entry) => `- ${entry}`),
-            '',
-            'Run `proteum configure agents` now before starting the dev server?',
+            'Choose whether to overwrite each blocked path with a tracked Proteum instruction file:',
+            ...blockedPaths.map((entry) => `- ${entry}`),
         ].join('\n'),
     );
 
-    const response = await prompts(
-        {
-            type: 'confirm',
-            name: 'value',
-            message: 'Run the configure-agents wizard now?',
-            initial: true,
-        },
-        {
-            onCancel: () => {
-                throw new UsageError('Cancelled `proteum dev`.');
+    const overwriteBlockedPaths: string[] = [];
+
+    for (const blockedPath of blockedPaths) {
+        const response = await prompts(
+            {
+                type: 'confirm',
+                name: 'value',
+                message: `Overwrite ${blockedPath}?`,
+                initial: false,
             },
-        },
-    );
+            {
+                onCancel: () => {
+                    throw new UsageError('Cancelled `proteum dev`.');
+                },
+            },
+        );
 
-    if (response.value !== true) return;
+        if (response.value === true) overwriteBlockedPaths.push(blockedPath);
+    }
 
-    await runConfigureAgentsWizard({
+    return overwriteBlockedPaths;
+};
+
+const ensureProjectAgentInstructions = async () => {
+    const monorepoRoot = resolveProjectAgentMonorepoRoot(app.paths.root);
+    const preview = configureProjectAgentInstructions({
         appRoot: app.paths.root,
         coreRoot: cli.paths.core.root,
+        dryRun: true,
+        monorepoRoot,
     });
+    const overwriteBlockedPaths = await promptBlockedAgentInstructionOverwrites(preview.blocked);
+
+    const result = configureProjectAgentInstructions({
+        appRoot: app.paths.root,
+        coreRoot: cli.paths.core.root,
+        monorepoRoot,
+        overwriteBlockedPaths,
+    });
+
+    if (result.blocked.length === 0) return;
+
+    throw new UsageError(
+        [
+            'Proteum could not update all managed instruction files because these paths were left blocked:',
+            ...result.blocked.map((entry) => `- ${entry}`),
+        ].join('\n'),
+    );
 };
 
 const getDevAppName = (app: App) =>
@@ -903,6 +933,6 @@ export const run = async () => {
         return;
     }
 
-    await promptToConfigureAgentsIfMissing();
+    await ensureProjectAgentInstructions();
     await runDevLoop();
 };

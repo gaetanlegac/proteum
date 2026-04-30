@@ -13,38 +13,17 @@ import cli from '..';
 import { renderRows } from '../presentation/layout';
 import { isLikelyProteumAppRoot } from '../presentation/commands';
 import { renderStep, renderSuccess, renderTitle, renderWarning } from '../presentation/ink';
-import { configureProjectAgentInstructions, type TConfigureProjectAgentInstructionsResult } from '../utils/agents';
+import {
+    configureProjectAgentInstructions,
+    findLikelyRepoRoot,
+    isInsideDirectory,
+    resolveCanonicalPath,
+    type TConfigureProjectAgentInstructionsResult,
+} from '../utils/agents';
 
 /*----------------------------------
 - HELPERS
 ----------------------------------*/
-
-const findLikelyRepoRoot = (startPath: string) => {
-    let currentPath = path.resolve(startPath);
-
-    while (true) {
-        if (fs.existsSync(path.join(currentPath, '.git'))) return currentPath;
-
-        const parentPath = path.dirname(currentPath);
-        if (parentPath === currentPath) return undefined;
-        currentPath = parentPath;
-    }
-};
-
-const resolveCanonicalPath = (inputPath: string) => {
-    const resolvedPath = path.resolve(inputPath);
-
-    try {
-        return fs.realpathSync(resolvedPath);
-    } catch {
-        return resolvedPath;
-    }
-};
-
-const isInsideDirectory = ({ child, parent }: { child: string; parent: string }) => {
-    const relativePath = path.relative(parent, child);
-    return relativePath !== '' && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
-};
 
 const assertProteumAppRoot = (appRoot: string) => {
     if (isLikelyProteumAppRoot(appRoot)) return;
@@ -92,10 +71,10 @@ const promptMonorepoRoot = async ({
 const promptBlockedOverwritePaths = async (blockedPaths: string[]) => {
     if (blockedPaths.length === 0) return [];
 
-    console.info(await renderWarning('Proteum found existing non-managed instruction paths.'));
+    console.info(await renderWarning('Proteum found existing paths that block managed instruction updates.'));
     console.info(
         [
-            'Choose whether to overwrite each path with a Proteum-managed instruction stub:',
+            'Choose whether to overwrite each path with a tracked Proteum instruction file:',
             ...blockedPaths.map((entry) => `- ${entry}`),
         ].join('\n'),
     );
@@ -145,7 +124,7 @@ const renderConfigureResultSections = (result: TConfigureProjectAgentInstruction
     if (result.blocked.length > 0)
         sections.push(
             [
-                'Skipped existing non-managed paths:',
+                'Skipped blocked paths:',
                 ...result.blocked.map((entry) => `- ${entry}`),
             ].join('\n'),
         );
@@ -183,7 +162,7 @@ export const runConfigureAgentsWizard = async ({
             : undefined;
     console.info(
         [
-            await renderTitle('PROTEUM CONFIGURE AGENTS', 'Configure Proteum-managed instruction stubs.'),
+            await renderTitle('PROTEUM CONFIGURE AGENTS', 'Configure tracked Proteum instruction files.'),
             renderRows([{ label: 'app', value: appRoot === process.cwd() ? '.' : appRoot }]),
         ].join('\n\n'),
     );
@@ -221,8 +200,8 @@ export const runConfigureAgentsWizard = async ({
         await renderStep(
             '[1/1]',
             isMonorepo
-                ? `Writing monorepo-aware instruction stubs using ${monorepoRoot}.`
-                : 'Writing standalone instruction stubs.',
+                ? `Writing monorepo-aware instruction files using ${monorepoRoot}.`
+                : 'Writing standalone instruction files.',
         ),
     );
 
@@ -234,7 +213,7 @@ export const runConfigureAgentsWizard = async ({
     });
     const sections = renderConfigureResultSections(result);
 
-    console.info(await renderSuccess('Proteum-managed instruction stubs are configured.'));
+    console.info(await renderSuccess('Proteum-managed instruction files are configured.'));
 
     if (sections.length > 0) console.info(`\n${sections.join('\n\n')}`);
 };
