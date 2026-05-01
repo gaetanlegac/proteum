@@ -63,7 +63,7 @@ export default class AuthenticationRouterService<
             request.id,
             'auth.route',
             {
-                routePath: route.path || '',
+                routePath: 'path' in route ? route.path || '' : '',
                 routeId: route.options.id || '',
                 authInput: route.options.auth ?? null,
                 tracking: route.options.authTracking ?? null,

@@ -200,7 +200,8 @@ export default abstract class AuthService<
         if ('apiKey' in session) {
             return {
                 payloadKind: 'api-key',
-                payloadAccountType: session.accountType ?? null,
+                payloadAccountType:
+                    'accountType' in session && typeof session.accountType === 'string' ? session.accountType : null,
             };
         }
 

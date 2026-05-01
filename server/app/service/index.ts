@@ -57,6 +57,8 @@ export type TServiceModelsClient<TApplication extends Application = Application>
 
 export type TSetupConfig<TConfig> = TConfig extends (...args: any[]) => any
     ? TConfig
+    : TConfig extends AnyService
+      ? TConfig
     : TConfig extends Array<infer TItem>
       ? Array<TSetupConfig<TItem>>
       : TConfig extends object

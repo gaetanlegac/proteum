@@ -18,7 +18,7 @@ export default function ApexChart({
         if (!target || !options) return;
 
         let disposed = false;
-        let chart: { destroy: () => void } | undefined;
+        let chart: { destroy: () => void; render: () => Promise<void> | void } | undefined;
 
         target.innerHTML = '';
         setErrorMessage(undefined);
