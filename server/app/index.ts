@@ -44,8 +44,13 @@ export const Service = ServicesContainer;
 type Prettify<T> = { [K in keyof T]: T[K] } & {};
 
 export type ApplicationProperties = Prettify<keyof Application>;
-export type RootServicesOf<TApplication extends Application = Application> = Prettify<{
-    [TKey in Exclude<keyof TApplication, ApplicationProperties> as TApplication[TKey] extends AnyService ? TKey : never]: TApplication[TKey];
+type RootServiceCandidate = {
+    runHook: object;
+    getServiceInstance: object;
+    status: string | undefined;
+};
+export type RootServicesOf<TApplication extends object = object> = Prettify<{
+    [TKey in Exclude<keyof TApplication, ApplicationProperties> as TApplication[TKey] extends RootServiceCandidate ? TKey : never]: TApplication[TKey];
 }>;
 
 const isServiceInstance = (value: unknown): value is AnyService => {
@@ -66,7 +71,7 @@ const createDevDiagnosticsRegistry = (app: Application) => new DevDiagnosticsReg
 export abstract class Application<
     TServicesContainer extends ServicesContainerClass = ServicesContainerClass,
     TUser extends TBasicUser = TBasicUser,
-> extends ApplicationService<Config, Hooks, Application, Application> {
+> extends ApplicationService<Config, Hooks, object, object> {
     public static identity = ConfigApplication.identity;
     public static setup = ConfigApplication.setup;
 

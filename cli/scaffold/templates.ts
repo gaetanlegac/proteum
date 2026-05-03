@@ -191,6 +191,7 @@ export const createClientTsconfigTemplate = (paths: TTsconfigTemplatePaths) => `
             "@server/*": [${JSON.stringify(paths.frameworkServer)}],
 
             "@/client/context": ["./.proteum/client/context.ts"],
+            "@/server/index": ["./.proteum/client/server-index.d.ts"],
             "@generated/client/*": ["./.proteum/client/*"],
             "@generated/common/*": ["./.proteum/common/*"],
             "@generated/server/*": ["./.proteum/server/*"],
@@ -227,7 +228,6 @@ export const createServerTsconfigTemplate = (paths: TTsconfigTemplatePaths) => `
             "@common/*": [${JSON.stringify(paths.frameworkCommon)}],
             "@server/*": [${JSON.stringify(paths.frameworkServer)}],
 
-            "@/client/context": ["./.proteum/client/context.ts"],
             "@generated/client/*": ["./.proteum/client/*"],
             "@generated/common/*": ["./.proteum/common/*"],
             "@generated/server/*": ["./.proteum/server/*"],

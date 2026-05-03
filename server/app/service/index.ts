@@ -25,7 +25,7 @@ export type {
 - TYPES: OPTIONS
 ----------------------------------*/
 
-export type AnyService = Service<{}, {}, Application, any>;
+export type AnyService = Service<{}, any, any, any>;
 export type AnyServiceClass = ClassType<AnyService>;
 
 /*----------------------------------
@@ -42,7 +42,7 @@ export type THooksIndex<THooks extends THooksList> = { [name in keyof THooks]?: 
 
 export type StartedServicesIndex = { [serviceId: string]: AnyService };
 
-type TServiceRouter<TApplication extends Application> = TApplication extends { Router: infer TRouter }
+type TServiceRouter<TApplication extends object> = TApplication extends { Router: infer TRouter }
     ? TRouter extends TAnyRouter
         ? TRouter
         : TAnyRouter
@@ -52,7 +52,7 @@ type TServiceRouter<TApplication extends Application> = TApplication extends { R
  * @deprecated Services should not depend on request context.
  * Resolve auth/input/request data in controllers and pass explicit typed values into services instead.
  */
-export type TServiceRequestContext<TApplication extends Application = Application> = {
+export type TServiceRequestContext<TApplication extends object = object> = {
     app: TApplication;
     context: object;
     request: ServerRequest<TServiceRouter<TApplication>>;
@@ -63,7 +63,7 @@ export type TServiceRequestContext<TApplication extends Application = Applicatio
     Router: TServiceRouter<TApplication>;
 } & TRouterContextServices<TServiceRouter<TApplication>>;
 
-export type TServiceModelsClient<TApplication extends Application = Application> = TApplication extends {
+export type TServiceModelsClient<TApplication extends object = object> = TApplication extends {
     Models: { client: infer TModels };
 }
     ? TModels
@@ -71,7 +71,7 @@ export type TServiceModelsClient<TApplication extends Application = Application>
             models: { client: infer TModels };
         }
       ? TModels
-      : never;
+      : object;
 
 export type TSetupConfig<TConfig> = TConfig extends (...args: infer TFunctionArgs) => infer TFunctionResult
     ? TConfig
@@ -106,8 +106,8 @@ const resolveSelfReference = <TSelf extends object, TValue extends object>(
 export default abstract class Service<
     TConfig extends {},
     THooks extends THooksList,
-    TApplication extends Application = Application,
-    TParent extends object = AnyService,
+    TApplication extends object = object,
+    TParent extends object = object,
 > {
     public started?: Promise<void>;
     public starting?: Promise<void>;

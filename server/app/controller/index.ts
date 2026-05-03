@@ -12,6 +12,12 @@ import {
     type TValidationSchema,
     type TValidationShape,
 } from '@server/services/router/request/validation/zod';
+import type {
+    Request as ServerRequest,
+    Response as ServerResponse,
+    TAnyRouter,
+    TRouterContextServices,
+} from '@server/services/router';
 
 export { schema } from '@server/services/router/request/validation/zod';
 export type {
@@ -36,20 +42,43 @@ type TControllerModelsClient<TApplication extends object = object> = TApplicatio
       ? TModels
       : object;
 
+type TControllerRouter<TRouter> = TRouter extends TAnyRouter ? TRouter : TAnyRouter;
+type TControllerApplicationRouter<TApplication extends object> = TApplication extends { Router: infer TRouter }
+    ? TControllerRouter<TRouter>
+    : TAnyRouter;
+
 export type TControllerRequestContext<
     TApplication extends object = object,
     TRouter extends object = object,
     TRequestServices extends object = {},
 > = {
-    app: object;
+    app: TApplication;
     context: object;
-    request: { data: TObjetDonnees; request: { data: TObjetDonnees }; user?: object | null };
-    api: object;
-    response: object;
+    request: ServerRequest<TControllerRouter<TRouter>>;
+    api: ServerRequest<TControllerRouter<TRouter>>['api'];
+    response: ServerResponse<TControllerRouter<TRouter>>;
     route: object;
     page?: object;
-    Router: TRouter;
-} & TRequestServices;
+    Router: TControllerRouter<TRouter>;
+} & (TRouter extends TAnyRouter ? TRouterContextServices<TControllerRouter<TRouter>> : {}) &
+    TRequestServices;
+
+type TControllerBaseContext<TApplication extends object> = {
+    app: TApplication;
+    request: { data: TObjetDonnees };
+};
+
+type TControllerDefaultContext<TApplication extends object, TRequestServices extends object> = {
+    app: TApplication;
+    context: object;
+    request: ServerRequest<TControllerApplicationRouter<TApplication>>;
+    api: ServerRequest<TControllerApplicationRouter<TApplication>>['api'];
+    response: ServerResponse<TControllerApplicationRouter<TApplication>>;
+    route: object;
+    page?: object;
+    Router: TControllerApplicationRouter<TApplication>;
+} & TRouterContextServices<TControllerApplicationRouter<TApplication>> &
+    TRequestServices;
 
 /*----------------------------------
 - CLASS
@@ -59,11 +88,7 @@ export default abstract class Controller<
     TApplication extends object = object,
     TRouter extends object = object,
     TRequestServices extends object = {},
-    TContext extends TControllerRequestContext<TApplication, TRouter, TRequestServices> = TControllerRequestContext<
-        TApplication,
-        TRouter,
-        TRequestServices
-    >,
+    TContext extends TControllerBaseContext<TApplication> = TControllerDefaultContext<TApplication, TRequestServices>,
 > {
     public constructor(public request: TContext) {}
 

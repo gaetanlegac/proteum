@@ -6,7 +6,6 @@
         "paths": {
 
             "@/server/models": ["./.proteum/server/models.ts"],
-            "@/client/context": ["./.proteum/client/context.ts"],
             "@generated/client/*": ["./.proteum/client/*"],
             "@generated/common/*": ["./.proteum/common/*"],
             "@generated/server/*": ["./.proteum/server/*"],

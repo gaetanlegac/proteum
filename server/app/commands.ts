@@ -3,7 +3,6 @@
 ----------------------------------*/
 
 import { Command as ClipanionCommand, Option, UsageError } from 'clipanion';
-import type CurrentCommandApplication from '@/server/index';
 
 /*----------------------------------
 - TYPES
@@ -21,8 +20,8 @@ export type TCommandApplication = {
     };
     getRootServices?: () => Record<string, unknown>;
     findService?: (serviceId: string) => unknown;
-    models?: unknown;
-    Models?: unknown;
+    models?: { client?: object };
+    Models?: { client?: object };
 };
 
 export type TCommandService = {
@@ -33,23 +32,19 @@ export type TCommandService = {
 - COMMAND CLASSES
 ----------------------------------*/
 
-export abstract class Commands<TApplication extends TCommandApplication = CurrentCommandApplication> {
-    public app: CurrentCommandApplication;
+export abstract class Commands<TApplication extends TCommandApplication = TCommandApplication> {
+    public app: TApplication;
 
-    public constructor(app: CurrentCommandApplication) {
+    public constructor(app: TApplication) {
         this.app = app;
     }
 
-    public get services(): CurrentCommandApplication {
+    public get services(): TApplication {
         return this.app;
     }
 
-    public get models(): any {
-        const app = this.app as {
-            models?: { client?: any };
-            Models?: { client?: any };
-        };
-        const models = app.models?.client ?? app.Models?.client;
+    public get models(): object {
+        const models = this.app.models?.client ?? this.app.Models?.client;
 
         if (!models)
             throw new Error(`${this.constructor.name} tried to access models but no Models service is registered.`);

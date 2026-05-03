@@ -22,13 +22,21 @@ type ConstructorConfig<TServiceClass extends AnyServiceClass> = ConstructorParam
 
 export type ServiceConfig<TServiceClass extends AnyServiceClass> = ConstructorConfig<TServiceClass>;
 
+type ExactConfig<TConfig, TExpected> = TExpected extends object
+    ? TConfig extends object
+        ? { [TKey in Exclude<keyof TConfig, keyof TExpected>]: never } & {
+                  [TKey in keyof TConfig & keyof TExpected]?: ExactConfig<TConfig[TKey], NonNullable<TExpected[TKey]>>;
+              }
+        : {}
+    : {};
+
 /*----------------------------------
 - CLASS
 ----------------------------------*/
 export class ServicesContainer<TServicesIndex extends StartedServicesIndex = StartedServicesIndex> {
     public config<TServiceClass extends AnyServiceClass, const TConfig extends ServiceConfig<TServiceClass>>(
         _serviceClass: TServiceClass,
-        config: TConfig,
+        config: TConfig & ExactConfig<TConfig, ServiceConfig<TServiceClass>>,
     ): TConfig {
         return config;
     }

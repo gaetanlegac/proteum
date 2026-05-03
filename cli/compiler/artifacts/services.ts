@@ -711,6 +711,68 @@ ${classMembers.join('\n')}
     };
 };
 
+const isNamespaceImportDeclaration = (statement: ts.ImportDeclaration) =>
+    statement.importClause?.namedBindings !== undefined && ts.isNamespaceImport(statement.importClause.namedBindings);
+
+const isClientServerStubSupportStatement = (statement: ts.Statement, appClassIdentifier: string) => {
+    if (ts.isTypeAliasDeclaration(statement)) {
+        return !new Set([
+            `${appClassIdentifier}Disks`,
+            `${appClassIdentifier}Router`,
+            `${appClassIdentifier}RouterPlugins`,
+        ]).has(statement.name.text);
+    }
+
+    return ts.isInterfaceDeclaration(statement) || ts.isModuleDeclaration(statement);
+};
+
+const createClientServerIndexDeclaration = (rootServices: TParsedService[]) => {
+    const sourceFile = createSourceFile(getAppServerEntryFilepath());
+    const appClass = getDefaultExportClassDeclaration(sourceFile);
+    const serviceTypesByRegisteredName = new Map(
+        rootServices.map((service) => [service.registeredName, `import("${service.importPath}").default`] as const),
+    );
+
+    const imports = sourceFile.statements
+        .filter((statement): statement is ts.ImportDeclaration => ts.isImportDeclaration(statement))
+        .filter((statement) => !isNamespaceImportDeclaration(statement))
+        .map((statement) => statement.getText(sourceFile));
+    const supportStatements = sourceFile.statements
+        .slice(0, sourceFile.statements.indexOf(appClass))
+        .filter((statement) => isClientServerStubSupportStatement(statement, app.identity.identifier))
+        .map((statement) => statement.getText(sourceFile));
+    const heritageClauses = appClass.heritageClauses?.map((clause) => clause.getText(sourceFile)).join(' ');
+    const properties = appClass.members
+        .filter((member): member is ts.PropertyDeclaration => ts.isPropertyDeclaration(member))
+        .filter((member) => !isPrivateOrProtectedInstanceMember(member))
+        .map((property) => {
+            const propertyName = getPropertyNameText(property.name);
+            if (!propertyName) return undefined;
+
+            const propertyType =
+                propertyName === 'Disks'
+                    ? 'object'
+                    : propertyName === 'Router'
+                      ? `${app.identity.identifier}Router`
+                      : property.type?.getText(sourceFile) || serviceTypesByRegisteredName.get(propertyName);
+            if (!propertyType) return undefined;
+
+            return `    public ${propertyName}: ${propertyType};`;
+        })
+        .filter((property): property is string => property !== undefined);
+
+    return `${imports.join('\n')}
+
+${supportStatements.join('\n\n')}
+
+type ${app.identity.identifier}Router = Router<${app.identity.identifier}>;
+
+export default class ${app.identity.identifier}${heritageClauses ? ` ${heritageClauses}` : ''} {
+${properties.join('\n')}
+}
+`;
+};
+
 const resolveManifestService = (service: TParsedService, parent: string): TProteumManifestService => ({
     kind: 'service',
     registeredName: service.registeredName,
@@ -731,8 +793,13 @@ export const generateServiceArtifacts = () => {
     const commandServiceStubs = createCommandServiceStubDeclarations(rootServices);
 
     writeIfChanged(
+        path.join(app.paths.client.generated, 'server-index.d.ts'),
+        createClientServerIndexDeclaration(rootServices),
+    );
+
+    writeIfChanged(
         path.join(app.paths.client.generated, 'services.d.ts'),
-        `declare type ${appClassIdentifier} = import("@/client").${appClassIdentifier};
+        `declare type ${appClassIdentifier} = import("@/server/index").default;
 
 declare module "@app" {
 
@@ -883,26 +950,6 @@ declare module "@app" {
     )
 
     export = ServerServices
-}
-
-declare module '@server/app' {
-
-    import { Application } from "@server/app";
-    import { Environment } from "@server/app";
-    import { ServicesContainer } from "@server/app/service/container";
-
-    abstract class ApplicationWithServices extends Application<
-        ServicesContainer<InstalledServices>
-    > {}
-
-    export interface Exported {
-        Application: typeof ApplicationWithServices,
-        Environment: Environment,
-    }
-
-    const foo: Exported;
-
-    export = foo;
 }
 
 declare module '@common/errors' {
