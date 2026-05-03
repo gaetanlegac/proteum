@@ -56,6 +56,10 @@ const isServiceInstance = (value: unknown): value is AnyService => {
     return typeof service.runHook === 'function' && typeof service.getServiceInstance === 'function' && service.status !== undefined;
 };
 
+const createCommandsManager = (app: Application) => new CommandsManager(app, { debug: true }, app);
+const createDevCommandsRegistry = (app: Application) => new DevCommandsRegistry(app);
+const createDevDiagnosticsRegistry = (app: Application) => new DevDiagnosticsRegistry(app);
+
 /*----------------------------------
 - FUNCTIONS
 ----------------------------------*/
@@ -69,6 +73,7 @@ export abstract class Application<
     public app!: this;
     public servicesContainer!: TServicesContainer;
     public userType!: TUser;
+    public declare Router: object;
 
     /*----------------------------------
     - PROPERTIES
@@ -122,21 +127,22 @@ export abstract class Application<
     - COMMANDS
     ----------------------------------*/
 
-    private commandsManager = new CommandsManager(this, { debug: true }, this);
-    private devCommandsRegistry?: DevCommandsRegistry<this>;
-    private devDiagnosticsRegistry?: DevDiagnosticsRegistry<this>;
+    private commandsManager?: CommandsManager;
+    private devCommandsRegistry?: DevCommandsRegistry;
+    private devDiagnosticsRegistry?: DevDiagnosticsRegistry;
 
     public command(...args: Parameters<CommandsManager['command']>) {
+        this.commandsManager ??= createCommandsManager(this as Application);
         return this.commandsManager.command(...args);
     }
 
     public getDevCommands() {
-        this.devCommandsRegistry ??= new DevCommandsRegistry(this);
+        this.devCommandsRegistry ??= createDevCommandsRegistry(this as Application);
         return this.devCommandsRegistry;
     }
 
     public getDevDiagnostics() {
-        this.devDiagnosticsRegistry ??= new DevDiagnosticsRegistry(this);
+        this.devDiagnosticsRegistry ??= createDevDiagnosticsRegistry(this as Application);
         return this.devDiagnosticsRegistry;
     }
 

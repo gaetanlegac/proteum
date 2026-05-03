@@ -19,7 +19,8 @@ import zod, { ZodError } from 'zod';
 export { default as schema } from 'zod';
 
 // Core
-import Service, { AnyService, TServiceArgs } from '@server/app/service';
+import type { Application } from '@server/app/index';
+import Service, { TServiceArgs } from '@server/app/service';
 import context from '@server/context';
 import type DisksManager from '@server/services/disks';
 import { CoreError, InputError, NotFound, toJson as errorToJson } from '@common/errors';
@@ -104,16 +105,16 @@ const staticHtmlCacheControl = 'public, max-age=0, must-revalidate';
 ----------------------------------*/
 
 export type TAnyRouter = ServerRouter<
-    AnyService['app'],
+    Application,
     TRouterServicesList,
-    Config<TRouterServicesList, AnyService['app']>
+    Config<TRouterServicesList, Application>
 >;
 
 const LogPrefix = '[router]';
 
 export type Config<
     TServices extends TRouterServicesList,
-    TApplication extends AnyService['app'] = AnyService['app'],
+    TApplication extends Application = Application,
 > = {
     debug: boolean;
 
@@ -147,16 +148,16 @@ export type TControllerDefinition = {
 };
 
 export type TServerRouter = ServerRouter<
-    AnyService['app'],
+    Application,
     TRouterServicesList,
-    Config<TRouterServicesList, AnyService['app']>
+    Config<TRouterServicesList, Application>
 >;
 
 /*----------------------------------
 - CLASSE
 ----------------------------------*/
 export default class ServerRouter<
-        TApplication extends AnyService['app'] = AnyService['app'],
+        TApplication extends Application = Application,
         TServices extends TRouterServicesList = TRouterServicesList,
         TConfig extends Config<TServices, TApplication> = Config<TServices, TApplication>,
     >

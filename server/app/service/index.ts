@@ -5,10 +5,21 @@
 // Specific
 import type { Application } from '../index';
 import type { Command } from '../commands';
-import type { TRouterContext, TAnyRouter } from '../../services/router';
+import type {
+    Request as ServerRequest,
+    Response as ServerResponse,
+    TRouterContextServices,
+    TAnyRouter,
+} from '../../services/router';
 
 export { schema } from '../../services/router/request/validation/zod';
-export type { z } from '../../services/router/request/validation/zod';
+export type {
+    z,
+    TInferValidationSchema,
+    TTypedValidationSchema,
+    TValidationSchema,
+    TValidationShape,
+} from '../../services/router/request/validation/zod';
 
 /*----------------------------------
 - TYPES: OPTIONS
@@ -41,9 +52,16 @@ type TServiceRouter<TApplication extends Application> = TApplication extends { R
  * @deprecated Services should not depend on request context.
  * Resolve auth/input/request data in controllers and pass explicit typed values into services instead.
  */
-export type TServiceRequestContext<TApplication extends Application = Application> = TRouterContext<
-    TServiceRouter<TApplication>
->;
+export type TServiceRequestContext<TApplication extends Application = Application> = {
+    app: TApplication;
+    context: object;
+    request: ServerRequest<TServiceRouter<TApplication>>;
+    api: ServerRequest<TServiceRouter<TApplication>>['api'];
+    response: ServerResponse<TServiceRouter<TApplication>>;
+    route: object;
+    page?: object;
+    Router: TServiceRouter<TApplication>;
+} & TRouterContextServices<TServiceRouter<TApplication>>;
 
 export type TServiceModelsClient<TApplication extends Application = Application> = TApplication extends {
     Models: { client: infer TModels };
@@ -55,9 +73,9 @@ export type TServiceModelsClient<TApplication extends Application = Application>
       ? TModels
       : never;
 
-export type TSetupConfig<TConfig> = TConfig extends (...args: any[]) => any
+export type TSetupConfig<TConfig> = TConfig extends (...args: infer TFunctionArgs) => infer TFunctionResult
     ? TConfig
-    : TConfig extends AnyService
+    : TConfig extends { getServiceInstance: (...args: infer TServiceArgs) => infer TServiceInstance }
       ? TConfig
     : TConfig extends Array<infer TItem>
       ? Array<TSetupConfig<TItem>>

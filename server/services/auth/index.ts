@@ -10,7 +10,6 @@ import type http from 'http';
 // Core
 import type { Application } from '@server/app/index';
 import Service from '@server/app/service';
-import { type TAnyRouter, Request as ServerRequest } from '@server/services/router';
 import * as AuthErrors from '@common/errors';
 import type { TTraceCaptureMode, TTraceEventType } from '@common/dev/requestTrace';
 
@@ -103,7 +102,13 @@ export type TAuthConfiguredRules = {
 
 export type TAuthTrackingContext = ProteumAuthTrackingContext | null;
 
-export type TAuthRulesFactory<TUser extends TBasicUser, TRequest extends ServerRequest<TAnyRouter>> = (
+export type TAuthRequest = {
+    id: string;
+    res: Pick<express.Response, 'clearCookie' | 'cookie'>;
+    user: TBasicUser | null;
+};
+
+export type TAuthRulesFactory<TUser extends TBasicUser, TRequest extends TAuthRequest> = (
     user: TUser,
     tracking: TAuthTrackingContext,
     request: TRequest,
@@ -121,7 +126,7 @@ export const UserRoles = ['USER', 'ADMIN', 'TEST', 'DEV'] as const;
 
 export type TConfig<
     TUser extends TBasicUser = TBasicUser,
-    TRequest extends ServerRequest<TAnyRouter> = ServerRequest<TAnyRouter>,
+    TRequest extends TAuthRequest = TAuthRequest,
 > = {
     debug: boolean;
     logoutUrl: string;
@@ -155,7 +160,7 @@ export default abstract class AuthService<
     TUser extends TBasicUser,
     TApplication extends Application,
     TJwtSession extends TBasicJwtSession = TBasicJwtSession,
-    TRequest extends ServerRequest<TAnyRouter> = ServerRequest<TAnyRouter>,
+    TRequest extends TAuthRequest = TAuthRequest,
 > extends Service<TConfig<TUser, TRequest>, THooks, TApplication, TApplication> {
     public login?(request: TRequest, email: string): Promise<unknown>;
     public abstract decodeSession(jwt: TJwtSession, req: THttpRequest): Promise<TUser | null>;
@@ -603,7 +608,7 @@ export default abstract class AuthService<
     ): TUser | null {
         const user = this.getDecodedUser(request);
         const conditionRuleNames =
-            conditions && conditions !== false
+            conditions
                 ? (Object.keys(conditions) as Array<Extract<keyof TAuthConfiguredRules, string>>)
                 : [];
 

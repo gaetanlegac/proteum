@@ -4,6 +4,8 @@ import zod from 'zod';
 export type TRichTextValidatorOptions = { attachements?: boolean };
 export type TValidationSchema = zod.ZodTypeAny;
 export type TValidationShape = zod.ZodRawShape;
+export type TInferValidationSchema<TSchema extends TValidationSchema> = zod.infer<TSchema>;
+export type TTypedValidationSchema<TOutput> = zod.ZodType<TOutput>;
 
 type TChoiceOption = { value: PrimitiveValue; label: string };
 

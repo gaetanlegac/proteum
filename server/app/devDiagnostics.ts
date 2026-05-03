@@ -36,8 +36,8 @@ const isExplainSectionName = (value: string): value is TExplainSectionName =>
 const isConsoleLogLevel = (value: string): value is TDevConsoleLogLevel =>
     ['silly', 'log', 'info', 'warn', 'error'].includes(value);
 
-export default class DevDiagnosticsRegistry<TApplication extends Application = Application> {
-    public constructor(private app: TApplication) {}
+export default class DevDiagnosticsRegistry {
+    public constructor(private app: Application) {}
 
     private getManifestFilepath() {
         return path.join(this.app.container.path.root, '.proteum', 'manifest.json');

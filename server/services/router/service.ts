@@ -7,15 +7,16 @@ import type { Application } from '@server/app/index';
 import Service, { TSetupConfig } from '@server/app/service';
 
 // Specific
-import type { default as Router } from '.';
 import type ServerRequest from './request';
 import type { TAnyRouter } from '.';
 
-export type AnyRouterService = RouterService<any, TAnyRouter, object | null>;
+export type AnyRouterService = Service<{}, {}, Application, object> & {
+    requestService(request: object): object | null;
+};
 
-export type TRouterServiceArgs<TConfig extends {} = {}, TRouter extends TAnyRouter = TAnyRouter> = [
+export type TRouterServiceArgs<TConfig extends {} = {}> = [
     getConfig: TSetupConfig<TConfig> | null | undefined,
-    app: TRouter['app'],
+    app: Application,
 ];
 
 /*----------------------------------
@@ -23,11 +24,14 @@ export type TRouterServiceArgs<TConfig extends {} = {}, TRouter extends TAnyRout
 ----------------------------------*/
 export default abstract class RouterService<
     TConfig extends {},
-    TRouter extends TAnyRouter = TAnyRouter,
+    TRouter extends TAnyRouter,
     TRequestService extends object | null = object | null,
-> extends Service<TConfig, {}, TRouter['app'], TRouter> {
-    public constructor(...[config, app]: TRouterServiceArgs<TConfig, TRouter>) {
-        super(app as TRouter['app'] & TRouter, config, app);
+> extends Service<TConfig, {}, Application, object> {
+    public declare parent: TRouter;
+    public declare app: TRouter extends { app: infer TApplication extends Application } ? TApplication : Application;
+
+    public constructor(...[config, app]: TRouterServiceArgs<TConfig>) {
+        super(app, config, app);
     }
 
     public abstract requestService(request: ServerRequest<TRouter>): TRequestService;

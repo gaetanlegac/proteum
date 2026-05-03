@@ -10,19 +10,19 @@ import type CurrentCommandApplication from '@/server/index';
 ----------------------------------*/
 
 export type TCommandApplication = {
-    env: {
+    env?: {
         profile?: string;
         name?: string;
         [key: string]: unknown;
     };
-    identity: {
+    identity?: {
         identifier?: string;
         [key: string]: unknown;
     };
-    getRootServices: () => Record<string, unknown>;
+    getRootServices?: () => Record<string, unknown>;
     findService?: (serviceId: string) => unknown;
-    models?: { client?: any };
-    Models?: { client?: any };
+    models?: unknown;
+    Models?: unknown;
 };
 
 export type TCommandService = {

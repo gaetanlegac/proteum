@@ -27,7 +27,7 @@ export type TDrivercnfig = {
 
 export type SourceFile = { name: string; path: string; modified: number; parentFolder: string; source: string };
 
-export type TOutputFileOptions = { encoding: string };
+export type TOutputFileOptions = { encoding: BufferEncoding };
 
 export type TReadFileOptions = { encoding?: 'string' | 'buffer'; withMetas?: boolean };
 

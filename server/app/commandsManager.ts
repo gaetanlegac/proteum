@@ -197,12 +197,16 @@ const parseCommandOptionTokens = (tokens: string[]) => {
 - SERVICE
 ----------------------------------*/
 
-export default class CommandsManager extends Service<Config, Hooks, Application> {
+export default class CommandsManager extends Service<Config, Hooks, Application, object> {
     public priority = 2 as 2;
 
     public commandsIndex: CommandsList = {};
 
     private runtimeCli?: Cli;
+
+    public constructor(parent: object | 'self', config: Config | null | undefined, app: Application | 'self') {
+        super(parent, config, app);
+    }
 
     public command<TArgs extends any[]>(
         ...args:

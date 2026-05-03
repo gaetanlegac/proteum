@@ -11,32 +11,30 @@ import {
     TAnyRoute,
     RouterService,
     TAnyRouter,
+    TServerRouter,
 } from '@server/services/router';
 
 import type { Application } from '@server/app/index';
+import AppContainer from '@server/app/container';
 
 import type { TRouterServiceArgs } from '@server/services/router/service';
 
 // Specific
 import type { default as UsersService, TAuthCheckConditions, TBasicUser } from '..';
-import UsersRequestService from './request';
-
-/*----------------------------------
-- TYPES
-----------------------------------*/
+import { createUsersRequestService, type TUsersRequestContext } from './request';
 
 /*----------------------------------
 - SERVICE
 ----------------------------------*/
 export default class AuthenticationRouterService<
-    TApplication extends Application = Application,
-    TUser extends TBasicUser = TApplication['app']['userType'],
-    TRouter extends TAnyRouter = TAnyRouter,
+    TApplication extends Application,
+    TUser extends TBasicUser,
+    TRouter extends TAnyRouter = TServerRouter,
     TRequest extends ServerRequest<TRouter> = ServerRequest<TRouter>,
 > extends RouterService<
     { users: UsersService<TUser, TApplication> },
     TRouter,
-    UsersRequestService<TRouter, TUser, TRequest>
+    TUsersRequestContext<TUser>
 > {
     /*----------------------------------
     - LIFECYCLE
@@ -45,7 +43,7 @@ export default class AuthenticationRouterService<
     public users: UsersService<TUser, TApplication>;
 
     public constructor(
-        getConfig: TRouterServiceArgs<{ users: UsersService<TUser, TApplication> }, TRouter>[0],
+        getConfig: TRouterServiceArgs<{ users: UsersService<TUser, TApplication> }>[0],
         app: TApplication,
     ) {
         super(getConfig, app);
@@ -59,7 +57,7 @@ export default class AuthenticationRouterService<
         details: Record<string, any>,
         minimumCapture: 'summary' | 'resolve' | 'deep' = 'resolve',
     ) {
-        this.app.container.Trace.record(
+        AppContainer.Trace.record(
             request.id,
             'auth.route',
             {
@@ -219,7 +217,7 @@ export default class AuthenticationRouterService<
     - ROUTER SERVICE LIFECYCLE
     ----------------------------------*/
 
-    public requestService(request: TRequest): UsersRequestService<TRouter, TUser, TRequest> {
-        return new UsersRequestService(request, this);
+    public requestService(request: TRequest): TUsersRequestContext<TUser> {
+        return createUsersRequestService(request, this.users);
     }
 }

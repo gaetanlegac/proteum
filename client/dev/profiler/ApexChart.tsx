@@ -18,7 +18,7 @@ export default function ApexChart({
         if (!target || !options) return;
 
         let disposed = false;
-        let chart: { destroy: () => void; render: () => Promise<void> | void } | undefined;
+        let chart: { destroy: () => void; render: () => Promise<unknown> | void } | undefined;
 
         target.innerHTML = '';
         setErrorMessage(undefined);
@@ -29,8 +29,9 @@ export default function ApexChart({
                 if (disposed || !mountRef.current) return;
 
                 const ApexCharts = module.default;
-                chart = new ApexCharts(mountRef.current, options);
-                await chart.render();
+                const nextChart = new ApexCharts(mountRef.current, options);
+                chart = nextChart;
+                await nextChart.render();
             } catch (error) {
                 if (!disposed) setErrorMessage(readErrorMessage(error));
             }

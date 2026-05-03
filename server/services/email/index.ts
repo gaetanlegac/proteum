@@ -57,7 +57,7 @@ type TOptions = { transporter?: string };
 /*----------------------------------
 - FONCTIONS
 ----------------------------------*/
-export default abstract class Email<TConfig extends Config, TApplication extends Application = Application> extends Service<
+export default abstract class Email<TConfig extends Config, TApplication extends Application> extends Service<
     TConfig,
     Hooks,
     TApplication,

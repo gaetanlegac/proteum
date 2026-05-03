@@ -7,9 +7,6 @@ import zod from 'zod';
 
 // Core
 import context from '@server/context';
-import type { Application } from '../index';
-import type { TServiceModelsClient } from '../service';
-import type { TRouterContext, TAnyRouter } from '@server/services/router';
 import {
     toValidationSchema,
     type TValidationSchema,
@@ -17,29 +14,56 @@ import {
 } from '@server/services/router/request/validation/zod';
 
 export { schema } from '@server/services/router/request/validation/zod';
-export type { z } from '@server/services/router/request/validation/zod';
+export type {
+    z,
+    TInferValidationSchema,
+    TTypedValidationSchema,
+    TValidationSchema,
+    TValidationShape,
+} from '@server/services/router/request/validation/zod';
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
-type TControllerRouter<TApplication extends Application = Application> = TApplication extends { Router: infer TRouter }
-    ? TRouter extends TAnyRouter
-        ? TRouter
-        : TAnyRouter
-    : TAnyRouter;
+type TControllerModelsClient<TApplication extends object = object> = TApplication extends {
+    Models: { client: infer TModels };
+}
+    ? TModels
+    : TApplication extends {
+            models: { client: infer TModels };
+        }
+      ? TModels
+      : object;
 
-export type TControllerRequestContext<TApplication extends Application = Application> = TRouterContext<
-    TControllerRouter<TApplication>
->;
+export type TControllerRequestContext<
+    TApplication extends object = object,
+    TRouter extends object = object,
+    TRequestServices extends object = {},
+> = {
+    app: object;
+    context: object;
+    request: { data: TObjetDonnees; request: { data: TObjetDonnees }; user?: object | null };
+    api: object;
+    response: object;
+    route: object;
+    page?: object;
+    Router: TRouter;
+} & TRequestServices;
 
 /*----------------------------------
 - CLASS
 ----------------------------------*/
 
 export default abstract class Controller<
-    TApplication extends Application = Application,
-    TContext extends TControllerRequestContext<TApplication> = TControllerRequestContext<TApplication>,
+    TApplication extends object = object,
+    TRouter extends object = object,
+    TRequestServices extends object = {},
+    TContext extends TControllerRequestContext<TApplication, TRouter, TRequestServices> = TControllerRequestContext<
+        TApplication,
+        TRouter,
+        TRequestServices
+    >,
 > {
     public constructor(public request: TContext) {}
 
@@ -51,9 +75,12 @@ export default abstract class Controller<
         return this.app;
     }
 
-    public get models(): TServiceModelsClient<TApplication> {
-        const app = this.app as { models?: { client?: unknown }; Models?: { client?: unknown } };
-        return (app.models?.client ?? app.Models?.client) as TServiceModelsClient<TApplication>;
+    public get models(): TControllerModelsClient<TApplication> {
+        const app = this.app as {
+            models?: { client?: TControllerModelsClient<TApplication> };
+            Models?: { client?: TControllerModelsClient<TApplication> };
+        };
+        return (app.models?.client ?? app.Models?.client) as TControllerModelsClient<TApplication>;
     }
 
     public input<TSchema extends TValidationSchema>(schema: TSchema): zod.output<TSchema>;

@@ -27,33 +27,34 @@ export type TServerReadyMessage = {
     connectedProjects?: TServerReadyConnectedProject[];
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
 export const isServerHotReloadRequest = (value: unknown): value is TServerHotReloadRequest =>
-    typeof value === 'object' &&
-    value !== null &&
-    (value as TServerHotReloadRequest).type === serverHotReloadMessageType.request &&
-    Array.isArray((value as TServerHotReloadRequest).changedFiles);
+    isRecord(value) &&
+    value.type === serverHotReloadMessageType.request &&
+    Array.isArray(value.changedFiles);
 
 export const isServerHotReloadResult = (value: unknown): value is TServerHotReloadResult =>
-    typeof value === 'object' &&
-    value !== null &&
-    ((value as TServerHotReloadResult).type === serverHotReloadMessageType.succeeded ||
-        (value as TServerHotReloadResult).type === serverHotReloadMessageType.failed) &&
-    Array.isArray((value as TServerHotReloadResult).changedFiles);
+    isRecord(value) &&
+    (value.type === serverHotReloadMessageType.succeeded || value.type === serverHotReloadMessageType.failed) &&
+    Array.isArray(value.changedFiles);
 
 const isServerReadyConnectedProject = (value: unknown): value is TServerReadyConnectedProject =>
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as TServerReadyConnectedProject).namespace === 'string' &&
-    typeof (value as TServerReadyConnectedProject).identifier === 'string' &&
-    typeof (value as TServerReadyConnectedProject).name === 'string' &&
-    typeof (value as TServerReadyConnectedProject).urlInternal === 'string' &&
-    typeof (value as TServerReadyConnectedProject).healthUrl === 'string';
+    isRecord(value) &&
+    typeof value.namespace === 'string' &&
+    typeof value.identifier === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.urlInternal === 'string' &&
+    typeof value.healthUrl === 'string';
 
-export const isServerReadyMessage = (value: unknown): value is TServerReadyMessage =>
-    typeof value === 'object' &&
-    value !== null &&
-    (value as TServerReadyMessage).type === serverHotReloadMessageType.ready &&
-    typeof (value as TServerReadyMessage).publicUrl === 'string' &&
-    ((value as TServerReadyMessage).connectedProjects === undefined ||
-        (Array.isArray((value as TServerReadyMessage).connectedProjects) &&
-            (value as TServerReadyMessage).connectedProjects.every(isServerReadyConnectedProject)));
+export const isServerReadyMessage = (value: unknown): value is TServerReadyMessage => {
+    if (!isRecord(value)) return false;
+
+    const connectedProjects = value.connectedProjects;
+    return (
+        value.type === serverHotReloadMessageType.ready &&
+        typeof value.publicUrl === 'string' &&
+        (connectedProjects === undefined ||
+            (Array.isArray(connectedProjects) && connectedProjects.every(isServerReadyConnectedProject)))
+    );
+};

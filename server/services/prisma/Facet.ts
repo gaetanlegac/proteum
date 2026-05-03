@@ -1,8 +1,9 @@
-import type { PrismaClient } from '@models/types';
-
 export type TDelegate<R = unknown> = {
     findMany(args?: Record<string, unknown>): Promise<R[]>;
     findFirst(args?: Record<string, unknown>): Promise<R | null>;
+};
+type TPrismaRawClient = {
+    $queryRawUnsafe(query: string): Promise<Record<string, unknown>[]>;
 };
 
 export type TWithStats = { $table: string; $key: string } & Record<string, string>;
@@ -18,7 +19,7 @@ export default class Facet<
     RT = R,
 > {
     constructor(
-        private readonly prisma: PrismaClient,
+        private readonly prisma: TPrismaRawClient,
         private readonly delegate: D,
         private readonly subset: S,
         private readonly transform?: Transform<R, RT>,
@@ -57,13 +58,13 @@ export default class Facet<
             ), 0)) as ${key}`,
         );
 
-        const statRows = (await this.prisma.$queryRawUnsafe(`
+        const statRows = await this.prisma.$queryRawUnsafe(`
             SELECT ${$key}, ${select.join(', ')} 
             FROM ${$table} 
             WHERE ${$key} IN (
                 ${(results as Array<Record<string, unknown>>).map((row) => "'" + row[$key] + "'").join(',')}
             )
-        `)) as Record<string, unknown>[];
+        `);
 
         for (const stat of statRows) {
             for (const key in stat) {

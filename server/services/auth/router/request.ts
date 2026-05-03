@@ -2,13 +2,11 @@
 - DEPENDANCES
 ----------------------------------*/
 
-// Core
-import type { Request as ServerRequest, TAnyRouter } from '@server/services/router';
-import RequestService from '@server/services/router/request/service';
+import type { Application } from '@server/app/index';
 
 // Specific
-import type AuthenticationRouterService from '.';
-import type { TAuthCheckConditions, TAuthTrackingContext, TUserRole } from '..';
+import type UsersService from '..';
+import type { TAuthCheckConditions, TAuthRequest, TAuthTrackingContext, TUserRole } from '..';
 
 // Types
 import type { TBasicUser } from '@server/services/auth';
@@ -17,21 +15,36 @@ import type { TBasicUser } from '@server/services/auth';
 - TYPES
 ----------------------------------*/
 
+type TUsersRouterService<TUser extends TBasicUser> = {
+    users: UsersService<TUser, Application>;
+};
+
+export interface TUsersRequestContext<TUser extends TBasicUser> {
+    login(email: string): Promise<unknown>;
+    logout(): void;
+
+    check(): TUser;
+    check(conditions: null, tracking?: TAuthTrackingContext): TUser;
+    check(conditions: TAuthCheckConditions, tracking?: TAuthTrackingContext): TUser;
+    check(conditions: false, tracking?: TAuthTrackingContext): null;
+    check(role: TUserRole, feature: null): TUser;
+    check(role: false): null;
+    check(role: TUserRole | true, feature: FeatureKeys, action?: string): TUser;
+    check(role: false, feature: FeatureKeys, action?: string): null;
+}
+
 /*----------------------------------
 - MODULE
 ----------------------------------*/
 export default class UsersRequestService<
-    TRouter extends TAnyRouter,
     TUser extends TBasicUser,
-    TRequest extends ServerRequest<TRouter> = ServerRequest<TRouter>,
-> extends RequestService<TRequest> {
+    TRequest extends TAuthRequest,
+> implements TUsersRequestContext<TUser> {
     public constructor(
-        request: TRequest,
-        public auth: AuthenticationRouterService<TRouter['app'], TUser, TRouter, TRequest>,
+        public request: TRequest,
+        public auth: TUsersRouterService<TUser>,
         public users = auth.users,
-    ) {
-        super(request);
-    }
+    ) {}
 
     public login(email: string) {
         if (!this.users.login) throw new Error('The current auth service does not implement login().');
@@ -93,3 +106,11 @@ export default class UsersRequestService<
         return this.users.check(this.request, roleOrConditions, featureOrTracking, action);
     }
 }
+
+export const createUsersRequestService = <
+    TUser extends TBasicUser,
+    TRequest extends TAuthRequest,
+>(
+    request: TRequest,
+    users: UsersService<TUser, Application>,
+): TUsersRequestContext<TUser> => new UsersRequestService<TUser, TRequest>(request, { users });

@@ -112,10 +112,10 @@ const loadGeneratedCommandDefinitions = () =>
         (a, b) => a.path.localeCompare(b.path),
     );
 
-export default class DevCommandsRegistry<TApplication extends Application = Application> {
+export default class DevCommandsRegistry {
     private definitions = loadGeneratedCommandDefinitions();
 
-    public constructor(private app: TApplication) {}
+    public constructor(private app: Application) {}
 
     public list() {
         return this.definitions.map((definition) => ({
@@ -150,7 +150,7 @@ export default class DevCommandsRegistry<TApplication extends Application = Appl
 
         try {
             const instance = new definition.Command(this.app);
-            const method = (instance as Record<string, unknown>)[definition.methodName];
+            const method = Reflect.get(instance, definition.methodName);
 
             if (typeof method !== 'function') {
                 throw new Error(

@@ -12,7 +12,7 @@ import express from 'express';
 
 // Core
 import context from '@server/context';
-import type { AnyRouterService, default as ServerRouter, TServerRouter, TAnyRouter } from '@server/services/router';
+import type { default as ServerRouter, TServerRouter, TAnyRouter } from '@server/services/router';
 import ServerRequest from '@server/services/router/request';
 import { TMatchedRoute, TRoute, TAnyRoute } from '@common/router';
 import { NotFound, Forbidden, Anomaly } from '@common/errors';
@@ -40,8 +40,7 @@ export type TBasicSSrData = {
     currentDomain: string;
 };
 
-type TServerRouterApplication<TRouter extends TServerRouter> =
-    TRouter extends ServerRouter<infer TApplication, any, any> ? TApplication : never;
+type TServerRouterApplication<TRouter extends TServerRouter> = TRouter['app'];
 
 type TServerRouterPlugins<TRouter extends TServerRouter> =
     TRouter extends ServerRouter<any, any, infer TConfig>
@@ -80,8 +79,10 @@ export type TRouterContextServices<
     // Custom context via servuces
     // For each roiuter service, return the request service (returned by roiuterService.requestService() )
     {
-        [serviceName in keyof TPlugins]: TPlugins[serviceName] extends AnyRouterService
-            ? Exclude<ReturnType<TPlugins[serviceName]['requestService']>, null | undefined>
+        [serviceName in keyof TPlugins]: TPlugins[serviceName] extends { requestService: infer TRequestServiceMethod }
+            ? TRequestServiceMethod extends (...args: infer TRequestServiceArgs) => infer TRequestService
+                ? Exclude<TRequestService, null | undefined>
+                : TPlugins[serviceName]
             : TPlugins[serviceName];
     };
 
@@ -97,7 +98,6 @@ const getRouteTraceTarget = (route: TAnyRoute<TRouterContext<TServerRouter>>) =>
 ----------------------------------*/
 export default class ServerResponse<
     TRouter extends TAnyRouter,
-    TRequestContext extends TRouterContext<TRouter> = TRouterContext<TRouter>,
     TData extends TResponseData = TResponseData,
 > extends BaseResponse<TData, ServerRequest<TRouter>> {
     // Services
@@ -220,13 +220,13 @@ export default class ServerResponse<
     ----------------------------------*/
 
     // Start controller services
-    private async createContext(route: TAnyRoute<TRouterContext<TRouter>>): Promise<TRequestContext> {
+    private async createContext(route: TAnyRoute<TRouterContext<TRouter>>): Promise<TRouterContext<TRouter>> {
         const contextServices = this.router.createContextServices(this.request);
         const controllers = createControllers(this.request.api);
         const customSsrData = this.router.config.context(this.request, this.app) as TRouterRequestContext<TRouter>;
 
         // TODO: transmiss safe data (especially for Router), as Router info could be printed on client side
-        const requestContext = {
+        const requestContext: TRouterContext<TRouter> = {
             // Router context
             app: this.app,
             context: undefined!,
@@ -242,7 +242,7 @@ export default class ServerResponse<
             // Router services
             ...(contextServices as TRouterContextServices<TRouter>),
             ...customSsrData,
-        } as TRequestContext;
+        };
 
         requestContext.context = requestContext;
 

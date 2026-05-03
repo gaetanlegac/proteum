@@ -3,29 +3,24 @@
 ----------------------------------*/
 
 // Specific
-import type { AnyService, AnyServiceClass, StartedServicesIndex } from '.';
+import type { AnyServiceClass, StartedServicesIndex } from '.';
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
-export type ServiceConfig<TServiceClass extends AnyServiceClass> = NonNullable<ConstructorParameters<TServiceClass>[1]>;
+type ConstructorConfig<TServiceClass extends AnyServiceClass> = ConstructorParameters<TServiceClass> extends [
+    _parent: object | 'self',
+    config: infer TConfig,
+    _app: object | 'self',
+    ..._rest: []
+]
+    ? NonNullable<TConfig>
+    : ConstructorParameters<TServiceClass> extends [config: infer TConfig, _app: object | 'self', ..._rest: []]
+      ? NonNullable<TConfig>
+      : {};
 
-type ExactConfig<TValue, TShape> = TValue extends TShape
-    ? TShape extends (...args: never[]) => infer _TReturn
-        ? TValue
-        : TValue extends readonly (infer TValueItem)[]
-          ? TShape extends readonly (infer TShapeItem)[]
-            ? readonly ExactConfig<TValueItem, TShapeItem>[]
-            : never
-          : TValue extends object
-            ? TShape extends object
-                ? Exclude<keyof TValue, keyof TShape> extends never
-                    ? { [K in keyof TValue]: K extends keyof TShape ? ExactConfig<TValue[K], TShape[K]> : never }
-                    : never
-                : TValue
-            : TValue
-    : never;
+export type ServiceConfig<TServiceClass extends AnyServiceClass> = ConstructorConfig<TServiceClass>;
 
 /*----------------------------------
 - CLASS
@@ -33,7 +28,7 @@ type ExactConfig<TValue, TShape> = TValue extends TShape
 export class ServicesContainer<TServicesIndex extends StartedServicesIndex = StartedServicesIndex> {
     public config<TServiceClass extends AnyServiceClass, const TConfig extends ServiceConfig<TServiceClass>>(
         _serviceClass: TServiceClass,
-        config: TConfig & ExactConfig<TConfig, ServiceConfig<TServiceClass>>,
+        config: TConfig,
     ): TConfig {
         return config;
     }
@@ -41,7 +36,7 @@ export class ServicesContainer<TServicesIndex extends StartedServicesIndex = Sta
     public callableInstance = <TInstance extends object, TCallableName extends keyof TInstance>(
         instance: TInstance,
         funcName: TCallableName,
-    ): TInstance[TCallableName] & TInstance => {
+    ): TInstance[TCallableName] & { serviceInstance: TInstance } => {
         const instanceRecord = instance as Record<string, unknown>;
         const callableFunc = instance[funcName];
         if (typeof callableFunc !== 'function') throw new Error(`instance[funcName] isn't callable.`);
@@ -66,7 +61,7 @@ export class ServicesContainer<TServicesIndex extends StartedServicesIndex = Sta
         // Allow us to recognize a callable as a service
         callable.serviceInstance = instance;
 
-        return callable as TInstance[TCallableName] & TInstance;
+        return callable as TInstance[TCallableName] & { serviceInstance: TInstance };
     };
 }
 

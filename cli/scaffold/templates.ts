@@ -207,8 +207,7 @@ export const createClientTsconfigTemplate = (paths: TTsconfigTemplatePaths) => `
         ".",
         "../var/typings",
         ${JSON.stringify(paths.frameworkTypesGlobal)},
-        "../.proteum/client/services.d.ts",
-        "../server/index.ts"
+        "../.proteum/client/services.d.ts"
     ]
 }
 `;

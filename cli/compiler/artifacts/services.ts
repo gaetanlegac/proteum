@@ -732,22 +732,13 @@ export const generateServiceArtifacts = () => {
 
     writeIfChanged(
         path.join(app.paths.client.generated, 'services.d.ts'),
-        `declare type ${appClassIdentifier} = import("@/server/index").default;
+        `declare type ${appClassIdentifier} = import("@/client").${appClassIdentifier};
 
 declare module "@app" {
 
     import { ${appClassIdentifier} as ${appClassIdentifier}Client } from "@/client";
-    import ${appClassIdentifier}Server from "@/server/index";
   
     export const Router: ${appClassIdentifier}Client['Router'];
-
-    ${rootServices
-        .map((service) =>
-            service.registeredName !== 'Router'
-                ? `export const ${service.registeredName}: ${appClassIdentifier}Server["${service.registeredName}"];`
-                : '',
-        )
-        .join('\n')}
 
 }
     
