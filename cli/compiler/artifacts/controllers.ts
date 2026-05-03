@@ -120,12 +120,14 @@ export const generateControllerArtifacts = async () => {
     const connectedManifestControllers: TProteumManifestController[] = [];
 
     connectedProjectContracts.forEach(({ namespace, cachedContractFilepath, contract, sourceKind, sourceValue, typeImportModuleSpecifier, typingMode }) => {
+        let connectedTypeName: string | null = null;
+
         if (typingMode === 'local-typed' && typeImportModuleSpecifier) {
-            const typeName = `ConnectedControllers_${namespace.replace(/[^A-Za-z0-9_$]+/g, '_')}`;
+            connectedTypeName = `ConnectedControllers_${namespace.replace(/[^A-Za-z0-9_$]+/g, '_')}`;
             connectedControllerTypeImports.push(
-                `import type { TConnectedControllers as ${typeName} } from ${JSON.stringify(typeImportModuleSpecifier)};`,
+                `import type { TConnectedControllers as ${connectedTypeName} } from ${JSON.stringify(typeImportModuleSpecifier)};`,
             );
-            typeTree[namespace] = JSON.stringify({ rawType: typeName });
+            typeTree[namespace] = JSON.stringify({ rawType: connectedTypeName });
         } else {
             typeTree[namespace] = JSON.stringify({ runtimeOnly: true });
         }
@@ -164,7 +166,9 @@ export const generateControllerArtifacts = async () => {
                     hasInput: controller.hasInput,
                     httpPath: controller.httpPath,
                     methodName: controller.methodName,
-                    resultType: 'unknown',
+                    resultType: connectedTypeName
+                        ? `TConnectedControllerResult<${connectedTypeName}, ${JSON.stringify(controller.clientAccessor)}>`
+                        : 'unknown',
                 }),
             );
         });
@@ -227,6 +231,28 @@ type TControllerResult<TController, TMethod extends keyof TController> =
     TController[TMethod] extends (...args: any[]) => infer TResult ? Awaited<TResult> : never;
 
 type TControllerFetcher<TController, TMethod extends keyof TController> = TFetcher<TControllerResult<TController, TMethod>>;
+
+type TConnectedFallbackValue =
+    | string
+    | number
+    | boolean
+    | null
+    | TConnectedFallbackValue[]
+    | { [key: string]: TConnectedFallbackValue | undefined };
+
+type TConnectedControllerLeaf<TControllerTree, TAccessor extends string> =
+    TAccessor extends \`${'${infer THead}.${infer TTail}'}\`
+        ? THead extends keyof TControllerTree
+            ? TConnectedControllerLeaf<TControllerTree[THead], TTail>
+            : undefined
+        : TAccessor extends keyof TControllerTree
+            ? TControllerTree[TAccessor]
+            : undefined;
+
+type TConnectedControllerResult<TControllerTree, TAccessor extends string> =
+    TConnectedControllerLeaf<TControllerTree, TAccessor> extends (...args: infer TArgs) => TFetcher<infer TResult>
+        ? Awaited<TResult>
+        : TConnectedFallbackValue;
 
 export type TControllers = ${printControllerTree(typeTree, typeLeaf)};
 
