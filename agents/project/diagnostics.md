@@ -50,7 +50,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 ## Verification And Testing
 
 - Use the cheapest trustworthy verification that matches the failing layer.
-- After implementing a change, verify only at the smallest trustworthy layer required by the changed surface. Do not default to a running app, browser MCP, project-wide typecheck, `npx proteum check`, or Playwright when a narrower static or request-level verification is enough.
+- After implementing a change, verify at the smallest trustworthy layer required by the changed surface first, then run the full project `npx proteum check` before finishing. Do not default to a running app, browser MCP, or Playwright while iterating when a narrower static or request-level verification is enough.
 - For compile-time or type-safety issues, start with the relevant targeted typecheck or build command. Do not run them by default for unrelated runtime, copy, docs, or local refactor changes.
 - For request/runtime issues, verify through the real page, route, generated controller call, or command on a running app.
 - Start the smallest trustworthy runtime surface first: `npx proteum orient <query>`, then the relevant real URL, generated controller call, command, or `npx proteum diagnose <path> --port <port>`. Use browser MCP validation only when request-level verification is insufficient or the change is browser-visible.
@@ -60,7 +60,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 - For UI-visible fixes, after the required tests or verification pass, use the browser MCP to capture focused screenshots of the changed areas and inspect them before finalizing.
 - Only the final verifier agent should usually run browser flows. Earlier agents should stay on `orient`, `verify owner`, `verify request`, `diagnose`, and command-level checks unless browser execution is the only trustworthy reproducer.
 - Treat server startup failures, runtime errors, browser console errors or warnings, and Playwright failures as blocking unless they are clearly unrelated to the change.
-- When the touched surface can affect coding-style enforcement, run the smallest relevant static check. Do not default to `npx proteum check`; prefer a narrower lint or type check only when the changed surface or an observed issue calls for it.
+- When the touched surface can affect coding-style enforcement, run the full project `npx proteum check` before finishing. Narrower lint or type checks are useful while iterating, but they do not replace the final full check.
 - If the task started any long-lived `proteum dev` server, stop it explicitly with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`, then confirm the remaining tracked sessions with `npx proteum dev list --json`.
 - Add `data-testid` when stable selectors are missing instead of relying on brittle text or DOM-shape selectors.
 - If an isolated test misses prerequisite state, run the smallest broader scope that reproduces the real setup.
