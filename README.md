@@ -404,7 +404,7 @@ proteum create controller Founder/projects --method list
 proteum create service Conversion/Plans
 ```
 
-`proteum configure agents` embeds the full Proteum project instruction corpus into the managed `# Proteum Instructions` section of each tracked instruction file. It preserves content outside that section and asks before replacing directories or foreign symlinks. If you decline, that path is left untouched.
+`proteum configure agents` embeds the full Proteum project instruction corpus into the managed `# Proteum Instructions` section of each tracked instruction file. Standalone mode writes root documents into the app root; monorepo mode writes shared root documents such as `AGENTS.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root and keeps only app-local instruction files in the Proteum app root. It preserves content outside managed sections and asks before replacing directories or foreign symlinks. If you decline, that path is left untouched.
 
 Every `proteum dev` start runs the same idempotent instruction check. It updates missing or stale managed sections automatically and prompts only when a blocked path would need to be replaced.
 

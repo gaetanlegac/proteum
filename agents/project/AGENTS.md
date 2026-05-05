@@ -201,6 +201,7 @@ Verify at the correct layer:
 - Do not create nested `catalogs/` folders under pages, components, services, tests, or other feature folders.
 - Keep strong TypeScript typings across the project.
 - Do not introduce `any` or `unknown`, including through casts, helper aliases, or fallback generic defaults.
+- Do not use `Reflect.get`, bracket access, broad `in` checks, or local loose reader helpers to bypass missing typings for app-owned data; fix the type contract or normalize once with a typed adapter at the boundary.
 - Fix typing issues only on code you wrote.
 - Never cast with `as any` or `as unknown`; fix the contract or add an explicit typed adapter.
 

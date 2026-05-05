@@ -159,12 +159,67 @@ test('monorepo configure writes root and app instruction files', () => {
     fs.mkdirSync(path.join(monorepoRoot, '.git'));
     fs.mkdirSync(path.join(appRoot, 'client'), { recursive: true });
 
+    configureProjectAgentInstructions({ appRoot, coreRoot });
+
     const result = configureProjectAgentInstructions({ appRoot, coreRoot, monorepoRoot });
 
     assert.equal(result.mode, 'monorepo');
     assert.equal(resolveProjectAgentMonorepoRoot(appRoot), fs.realpathSync(monorepoRoot));
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /## Source: AGENTS\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'CODING_STYLE.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'diagnostics.md'), 'utf8'), /## Source: AGENTS\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'optimizations.md'), 'utf8'), /## Source: AGENTS\.md/);
     assert.match(fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8'), /## Source: client\/AGENTS\.md/);
+    assert.equal(fs.existsSync(path.join(appRoot, 'CODING_STYLE.md')), false);
+    assert.equal(fs.existsSync(path.join(appRoot, 'diagnostics.md')), false);
+    assert.equal(fs.existsSync(path.join(appRoot, 'optimizations.md')), false);
+    assert.equal(result.removed.some((entry) => entry.endsWith('/apps/product/CODING_STYLE.md')), true);
+});
+
+test('monorepo configure preserves local app-root documents', () => {
+    const coreRoot = createCoreFixture();
+    const monorepoRoot = makeTempRoot();
+    const appRoot = path.join(monorepoRoot, 'apps', 'product');
+    const localCodingStylePath = path.join(appRoot, 'CODING_STYLE.md');
+
+    fs.mkdirSync(path.join(monorepoRoot, '.git'));
+    writeFile(localCodingStylePath, '# Local Coding Style\n\n- Keep this app-local override.\n');
+
+    const result = configureProjectAgentInstructions({ appRoot, coreRoot, monorepoRoot });
+
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'CODING_STYLE.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
+    assert.match(fs.readFileSync(localCodingStylePath, 'utf8'), /Keep this app-local override/);
+    assert.equal(result.removed.some((entry) => entry.endsWith('/apps/product/CODING_STYLE.md')), false);
+});
+
+test('monorepo configure strips retired managed sections from local app-root documents', () => {
+    const coreRoot = createCoreFixture();
+    const monorepoRoot = makeTempRoot();
+    const appRoot = path.join(monorepoRoot, 'apps', 'product');
+    const localCodingStylePath = path.join(appRoot, 'CODING_STYLE.md');
+
+    fs.mkdirSync(path.join(monorepoRoot, '.git'));
+    fs.mkdirSync(appRoot, { recursive: true });
+    configureProjectAgentInstructions({ appRoot, coreRoot });
+
+    const managedContent = fs.readFileSync(localCodingStylePath, 'utf8');
+    writeFile(
+        localCodingStylePath,
+        [
+            '# Local Coding Style',
+            '',
+            '- Keep this app-local override.',
+            '',
+            managedContent,
+        ].join('\n'),
+    );
+
+    const result = configureProjectAgentInstructions({ appRoot, coreRoot, monorepoRoot });
+    const retainedContent = fs.readFileSync(localCodingStylePath, 'utf8');
+
+    assert.match(retainedContent, /Keep this app-local override/);
+    assert.doesNotMatch(retainedContent, /proteum-instructions:start/);
+    assert.equal(result.updated.some((entry) => entry.endsWith('/apps/product/CODING_STYLE.md')), true);
 });
 
 test('configure migrates legacy managed symlinks to embedded files', () => {

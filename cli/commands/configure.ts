@@ -119,6 +119,7 @@ const renderConfigureResultSections = (result: TConfigureProjectAgentInstruction
     if (result.updated.length > 0) sections.push(['Updated:', ...result.updated.map((entry) => `- ${entry}`)].join('\n'));
     if (result.overwritten.length > 0)
         sections.push(['Overwritten:', ...result.overwritten.map((entry) => `- ${entry}`)].join('\n'));
+    if (result.removed.length > 0) sections.push(['Removed:', ...result.removed.map((entry) => `- ${entry}`)].join('\n'));
     if (result.updatedGitignores.length > 0)
         sections.push(['Updated .gitignore:', ...result.updatedGitignores.map((entry) => `- ${entry}`)].join('\n'));
     if (result.blocked.length > 0)

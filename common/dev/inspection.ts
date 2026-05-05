@@ -713,12 +713,25 @@ const resolveGuidanceFile = ({
     fallbackFilepath: string;
     relativePath: string;
 }) => {
-    const localFilepath = joinPath(appRoot, relativePath);
-    if (fileExists(localFilepath)) return { filepath: localFilepath, warning: undefined as string | undefined };
+    const resolvedAppRoot = resolvePath(appRoot);
+    const repoRoot = findRepoRoot(resolvedAppRoot);
+    let currentRoot = resolvedAppRoot;
+
+    while (true) {
+        const localFilepath = joinPath(currentRoot, relativePath);
+        if (fileExists(localFilepath)) return { filepath: localFilepath, warning: undefined as string | undefined };
+
+        if (currentRoot === repoRoot) break;
+
+        const parentRoot = dirnamePath(currentRoot);
+        if (parentRoot === currentRoot) break;
+
+        currentRoot = parentRoot;
+    }
 
     return {
         filepath: fallbackFilepath,
-        warning: `Missing ${relativePath} in ${appRoot}; using ${fallbackFilepath}.`,
+        warning: `Missing ${relativePath} in ${appRoot} and its repository ancestors; using ${fallbackFilepath}.`,
     };
 };
 

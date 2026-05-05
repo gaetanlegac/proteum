@@ -29,6 +29,7 @@ type TEnsureInstructionFilesResult = {
     blocked: string[];
     created: string[];
     overwritten: string[];
+    removed: string[];
     skipped: string[];
     updated: string[];
 };
@@ -40,6 +41,7 @@ export type TConfigureProjectAgentInstructionsResult = {
     monorepoRoot?: string;
     mode: 'monorepo' | 'standalone';
     overwritten: string[];
+    removed: string[];
     skipped: string[];
     updated: string[];
     updatedGitignores: string[];
@@ -57,10 +59,13 @@ const managedInstructionSectionStart = '<!-- proteum-instructions:start -->';
 const managedInstructionSectionEnd = '<!-- proteum-instructions:end -->';
 const managedInstructionSectionIntro = 'This section is managed by `proteum configure agents`.';
 
-const sharedAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
+const sharedRootDocumentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'CODING_STYLE.md' },
     { projectPath: 'diagnostics.md' },
     { projectPath: 'optimizations.md' },
+];
+
+const sharedAreaAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: path.join('client', 'AGENTS.md') },
     { projectPath: path.join('client', 'pages', 'AGENTS.md') },
     { projectPath: path.join('server', 'services', 'AGENTS.md') },
@@ -70,16 +75,18 @@ const sharedAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
 
 const standaloneAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'AGENTS.md' },
-    ...sharedAppAgentInstructionDefinitions,
+    ...sharedRootDocumentInstructionDefinitions,
+    ...sharedAreaAgentInstructionDefinitions,
 ];
 
 const monorepoAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'AGENTS.md' },
-    ...sharedAppAgentInstructionDefinitions,
+    ...sharedAreaAgentInstructionDefinitions,
 ];
 
 const monorepoRootAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'AGENTS.md' },
+    ...sharedRootDocumentInstructionDefinitions,
 ];
 
 const legacyProjectInstructionGitignoreBlockStart = '# Proteum-managed instruction symlinks';
@@ -111,6 +118,7 @@ export function configureProjectAgentInstructions({
         created: [],
         mode,
         overwritten: [],
+        removed: [],
         skipped: [],
         updated: [],
         updatedGitignores: [],
@@ -152,7 +160,29 @@ export function configureProjectAgentInstructions({
     );
     mergeInstructionResults(result, appFiles, normalizedAppRoot);
 
-    if (!dryRun && removeInstructionGitignoreEntries({ rootDir: normalizedAppRoot, instructionDefinitions: appInstructions }))
+    if (mode === 'monorepo') {
+        const retiredAppRootFiles = removeManagedInstructionFiles(
+            normalizedAppRoot,
+            sharedRootDocumentInstructionDefinitions,
+            '[agents]',
+            path.join(coreRoot, 'agents', 'project'),
+            {
+                dryRun,
+            },
+        );
+        mergeInstructionResults(result, retiredAppRootFiles, normalizedAppRoot);
+    }
+
+    const appGitignoreCleanupInstructions =
+        mode === 'monorepo' ? [...appInstructions, ...sharedRootDocumentInstructionDefinitions] : appInstructions;
+
+    if (
+        !dryRun &&
+        removeInstructionGitignoreEntries({
+            rootDir: normalizedAppRoot,
+            instructionDefinitions: appGitignoreCleanupInstructions,
+        })
+    )
         result.updatedGitignores.push(path.join(normalizedAppRoot, '.gitignore'));
 
     return result;
@@ -253,6 +283,7 @@ function ensureInstructionFiles(
         blocked: [],
         created: [],
         overwritten: [],
+        removed: [],
         skipped: [],
         updated: [],
     };
@@ -320,6 +351,74 @@ function ensureInstructionFiles(
     return result;
 }
 
+function removeManagedInstructionFiles(
+    rootDir: string,
+    instructionDefinitions: TAgentInstructionDefinition[],
+    logPrefix: string,
+    managedSourceRoot: string,
+    {
+        dryRun,
+    }: {
+        dryRun: boolean;
+    },
+): TEnsureInstructionFilesResult {
+    const result: TEnsureInstructionFilesResult = {
+        blocked: [],
+        created: [],
+        overwritten: [],
+        removed: [],
+        skipped: [],
+        updated: [],
+    };
+
+    for (const instructionDefinition of instructionDefinitions) {
+        const projectFilepath = path.join(rootDir, instructionDefinition.projectPath);
+        const projectParentDir = path.dirname(projectFilepath);
+        const relativeProjectPath = path.relative(rootDir, projectFilepath) || '.';
+
+        if (!fs.existsSync(projectParentDir)) continue;
+
+        const existingState = inspectExistingPath({
+            managedSourceRoot,
+            projectFilepath,
+        });
+
+        if (existingState.kind === 'missing') continue;
+
+        if (existingState.kind === 'managed-different') {
+            if (!dryRun) fs.removeSync(projectFilepath);
+            result.removed.push(relativeProjectPath);
+            logVerbose(`${logPrefix} Removed retired app-root ${relativeProjectPath}`);
+            continue;
+        }
+
+        if (existingState.kind === 'file') {
+            const retainedContent = removeManagedInstructionContent(existingState.content);
+
+            if (retainedContent === undefined) {
+                result.skipped.push(relativeProjectPath);
+                continue;
+            }
+
+            if (retainedContent.trim() === '') {
+                if (!dryRun) fs.removeSync(projectFilepath);
+                result.removed.push(relativeProjectPath);
+                logVerbose(`${logPrefix} Removed retired app-root ${relativeProjectPath}`);
+                continue;
+            }
+
+            if (!dryRun) fs.writeFileSync(projectFilepath, retainedContent);
+            result.updated.push(relativeProjectPath);
+            logVerbose(`${logPrefix} Removed retired managed section from ${relativeProjectPath}`);
+            continue;
+        }
+
+        result.skipped.push(relativeProjectPath);
+    }
+
+    return result;
+}
+
 function inspectExistingPath({
     managedSourceRoot,
     projectFilepath,
@@ -377,6 +476,7 @@ function mergeInstructionResults(
 ) {
     result.created.push(...next.created.map((entry) => formatResultPath(rootDir, entry)));
     result.overwritten.push(...next.overwritten.map((entry) => formatResultPath(rootDir, entry)));
+    result.removed.push(...next.removed.map((entry) => formatResultPath(rootDir, entry)));
     result.updated.push(...next.updated.map((entry) => formatResultPath(rootDir, entry)));
     result.skipped.push(...next.skipped.map((entry) => formatResultPath(rootDir, entry)));
     result.blocked.push(...next.blocked.map((entry) => formatResultPath(rootDir, entry)));
@@ -470,6 +570,16 @@ function upsertManagedInstructionSection(content: string, managedSectionContent:
     const after = content.slice(existingRange.end);
 
     return joinMarkdownSections([before, managedSectionContent, after]);
+}
+
+function removeManagedInstructionContent(content: string) {
+    const managedRange = findManagedInstructionSectionRange(content) || findLegacyManagedInstructionStubRange(content);
+    if (!managedRange) return undefined;
+
+    const before = content.slice(0, managedRange.start);
+    const after = content.slice(managedRange.end);
+
+    return joinMarkdownSections([before, after]);
 }
 
 function findManagedInstructionSectionRange(content: string) {

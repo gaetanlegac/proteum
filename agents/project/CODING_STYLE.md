@@ -10,6 +10,10 @@ This file is the source of truth for codex coding style instructions in Proteum-
 - Every time possible, create reusable functions and components instead of repeating.
 - Before finishing a feature or change, review touched files against this document and run the full project `npx proteum check`; coding-style regressions are defects, not optional cleanup.
 
+## Type safety
+
+- Do not use `Reflect.get`, bracket access, broad `in` checks, or local loose reader helpers to bypass missing typings for app-owned data; fix the type contract or normalize once with a typed adapter at the boundary.
+
 ## Formatting
 
 - Optimize for human readability while keeping the code vertically compact when horizontal space is available.

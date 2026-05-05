@@ -19,19 +19,37 @@ export const run = async (): Promise<void> => {
 
     console.info(
         [
-            await renderTitle('PROTEUM CHECK', 'Refreshing contracts, running TypeScript, then running ESLint.'),
+            await renderTitle('PROTEUM CHECK', 'Refreshing contracts, then running TypeScript and ESLint.'),
             renderRows([{ label: 'app', value: cli.paths.appRoot === process.cwd() ? '.' : cli.paths.appRoot }]),
         ].join('\n\n'),
     );
+
     if (hasAppConfig()) {
         console.info(await renderStep('[1/3]', 'Refreshing generated typings.'));
         await refreshGeneratedTypings();
     } else {
         console.info(await renderStep('[1/3]', 'Skipping generated typings: no Proteum app config found.'));
     }
+
+    const failures: Error[] = [];
+
     console.info(await renderStep('[2/3]', 'Running TypeScript typechecking.'));
-    await runAppTypecheck();
+    try {
+        await runAppTypecheck();
+    } catch (error) {
+        failures.push(error instanceof Error ? error : new Error(String(error)));
+    }
+
     console.info(await renderStep('[3/3]', 'Running ESLint.'));
-    await runAppLint();
+    try {
+        await runAppLint();
+    } catch (error) {
+        failures.push(error instanceof Error ? error : new Error(String(error)));
+    }
+
+    if (failures.length > 0) {
+        throw new AggregateError(failures, 'Proteum check failed. See TypeScript and ESLint output above.');
+    }
+
     console.info(await renderSuccess('All checks passed.'));
 };
