@@ -3,8 +3,9 @@ import Compiler from '../compiler';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
 import { buildContractsDoctorResponse } from '@common/dev/contractsDoctor';
 import { buildDoctorResponse, renderDoctorHuman, renderDoctorResponseHuman } from '@common/dev/diagnostics';
+import { compactList, printAgentResponse, printJson, truncateForAgent } from '../utils/agentOutput';
 
-const allowedDoctorArgs = new Set(['contracts', 'json', 'strict']);
+const allowedDoctorArgs = new Set(['contracts', 'full', 'human', 'json', 'strict']);
 
 const validateDoctorArgs = () => {
     const enabledArgs = Object.entries(cli.args)
@@ -20,6 +21,15 @@ const validateDoctorArgs = () => {
     }
 };
 
+const compactDiagnostic = (diagnostic: ReturnType<typeof buildDoctorResponse>['diagnostics'][number]) => ({
+    level: diagnostic.level,
+    code: diagnostic.code,
+    message: truncateForAgent(diagnostic.message),
+    filepath: diagnostic.filepath,
+    sourceLocation: diagnostic.sourceLocation,
+    fixHint: diagnostic.fixHint ? truncateForAgent(diagnostic.fixHint) : undefined,
+});
+
 export const run = async (): Promise<void> => {
     validateDoctorArgs();
 
@@ -32,9 +42,9 @@ export const run = async (): Promise<void> => {
             ? buildContractsDoctorResponse(manifest, cli.args.strict === true)
             : buildDoctorResponse(manifest, cli.args.strict === true);
 
-    if (cli.args.json === true) {
-        console.log(JSON.stringify(response, null, 2));
-    } else {
+    if (cli.args.full === true) {
+        printJson(response);
+    } else if (cli.args.human === true) {
         console.log(
             cli.args.contracts === true
                 ? renderDoctorResponseHuman({
@@ -45,6 +55,16 @@ export const run = async (): Promise<void> => {
                   })
                 : renderDoctorHuman(manifest, cli.args.strict === true),
         );
+    } else {
+        printAgentResponse({
+            summary: `${cli.args.contracts === true ? 'Doctor contracts' : 'Doctor'}: ${response.summary.errors} errors, ${response.summary.warnings} warnings`,
+            data: {
+                summary: response.summary,
+                diagnostics: compactList(response.diagnostics, 10).map(compactDiagnostic),
+                totalDiagnostics: response.diagnostics.length,
+            },
+            fullDetailCommand: `proteum doctor${cli.args.contracts === true ? ' --contracts' : ''} --full`,
+        });
     }
 
     if (cli.args.strict === true && response.diagnostics.length > 0) {

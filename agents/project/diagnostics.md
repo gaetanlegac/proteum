@@ -4,7 +4,8 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 
 ## Initial Triage
 
-- Start with machine-readable app state before reading large parts of the codebase: `npx proteum orient <query>`, `./.proteum/manifest.json`, `npx proteum connect --json`, `npx proteum explain --json`, `npx proteum doctor --json`, and `npx proteum doctor --contracts --json` when generated artifacts or manifest-owned files may be stale.
+- Start with compact machine-readable app state before reading large parts of the codebase: `npx proteum orient <query>`, `npx proteum runtime status`, `npx proteum connect`, `npx proteum explain`, `npx proteum doctor`, and `npx proteum doctor --contracts` when generated artifacts or manifest-owned files may be stale.
+- Use full-detail escape hatches only after compact output identifies the missing detail: `npx proteum explain --manifest`, `npx proteum diagnose <target> --full`, `npx proteum trace show <requestId> --events`, or `npx proteum perf request <requestId> --full`.
 - When the user pastes raw errors, reproduce locally before listing possible causes: identify the likely app, route, command, or request target from the error, boot or reuse the relevant dev server with the elevated-permissions workflow below, replay the failing surface once, and base the probability/why/how-to-fix list on local server output, browser console output, diagnostics, traces, or the smallest relevant command result. If there is not enough information to reproduce, state the missing context and ground the cause list in the local evidence that is available.
 - When one app depends on another app's generated controllers, inspect `npx proteum connect --controllers`, `npx proteum explain --connected --controllers`, the producer `proteum.connected.json`, the consumer `proteum.config.ts` connected `source` value, and the producer `./.proteum/proteum.connected.d.ts` before assuming the contract is local.
 - Use `rg -n` first to narrow the exact code path, then read only the relevant files.
@@ -26,7 +27,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 - For bundle-size inspection, use `npx proteum build --prod --analyze` to emit `bin/bundle-analysis/client.html` and `client-stats.json`, or add `--analyze-serve --analyze-port auto` when you want a local analyzer URL instead of a static HTML file.
 - For request-time issues in dev, inspect traces before adding logs when the diagnose surface is still too coarse.
 - If a server is already running on the default port from `PORT` or `./.proteum/manifest.json`, inspect existing traces before reproducing the issue.
-- If existing traces are insufficient, arm `npx proteum trace arm --capture deep`, reproduce once, then inspect the new request with `npx proteum trace latest` or `npx proteum trace show <requestId>`.
+- If existing traces are insufficient, arm `npx proteum trace arm --capture deep`, reproduce once, then inspect the new request with compact `npx proteum trace latest`; use `npx proteum trace show <requestId> --events` only when raw event detail is still required.
 - Use the browser MCP to inspect browser console errors and warnings for frontend, SSR, hydration, and controller-call issues.
 - Inspect server startup and runtime errors.
 - For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` over driving the login UI, then use that session for browser MCP validation. Use `npx proteum e2e --session-email <email> --session-role <role>` only when Playwright end-to-end suites need the auth token through the child process environment. Use the login UI only when auth UX itself is under test.

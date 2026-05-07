@@ -4,6 +4,7 @@ import path from 'path';
 import { UsageError } from 'clipanion';
 
 import cli from '..';
+import { compactList, printAgentResponse, printJson, quoteCommandArgument, truncateForAgent } from '../utils/agentOutput';
 import type {
     TPerfCompareResponse,
     TPerfMemoryResponse,
@@ -102,10 +103,6 @@ const requestJson = async <TResponse>(pathname: string) => {
     );
 };
 
-const printJson = (value: object) => {
-    console.log(JSON.stringify(value, null, 2));
-};
-
 const renderWindow = (label: string, value: { startedAt: string; finishedAt: string; requestCount: number; availableRequestCount: number }) =>
     `${label}=${value.requestCount}/${value.availableRequestCount} traces ${value.startedAt}..${value.finishedAt}`;
 
@@ -180,9 +177,113 @@ const renderRequest = (response: TPerfRequestResponse) =>
               )),
     ].join('\n');
 
+const compactTopLikeRow = (row: TPerfTopResponse['rows'][number]) => ({
+    label: row.label,
+    requestCount: row.requestCount,
+    avgDurationMs: row.avgDurationMs,
+    p95DurationMs: row.p95DurationMs,
+    maxDurationMs: row.maxDurationMs,
+    avgCpuMs: row.avgCpuMs,
+    avgSqlDurationMs: row.avgSqlDurationMs,
+    avgRenderDurationMs: row.avgRenderDurationMs,
+    avgHeapDeltaBytes: row.avgHeapDeltaBytes,
+    slowestRequestId: row.slowestRequestId,
+});
+
+const compactSql = (query: TPerfRequestResponse['request']['hottestSqlQueries'][number]) => ({
+    callerLabel: query.callerLabel,
+    operation: query.operation,
+    model: query.model,
+    fingerprint: query.fingerprint,
+    durationMs: query.durationMs,
+    query: truncateForAgent(query.query, 140),
+});
+
+const printCompactTop = (response: TPerfTopResponse) => {
+    printAgentResponse({
+        summary: `Perf top ${response.groupBy}: ${response.summary.requestCount} requests, ${response.summary.errorCount} errors, p95=${formatDuration(response.summary.p95DurationMs)}`,
+        data: {
+            groupBy: response.groupBy,
+            window: response.window,
+            summary: response.summary,
+            rows: compactList(response.rows, 8).map(compactTopLikeRow),
+            totalRows: response.rows.length,
+        },
+        fullDetailCommand: 'proteum perf top --full',
+    });
+};
+
+const printCompactCompare = (response: TPerfCompareResponse) => {
+    printAgentResponse({
+        summary: `Perf compare ${response.groupBy}: ${response.rows.length} rows`,
+        data: {
+            groupBy: response.groupBy,
+            baseline: response.baseline,
+            target: response.target,
+            rows: compactList(response.rows, 8),
+            totalRows: response.rows.length,
+        },
+        fullDetailCommand: 'proteum perf compare --full',
+    });
+};
+
+const printCompactMemory = (response: TPerfMemoryResponse) => {
+    printAgentResponse({
+        summary: `Perf memory ${response.groupBy}: ${response.rows.length} rows`,
+        data: {
+            groupBy: response.groupBy,
+            window: response.window,
+            rows: compactList(response.rows, 8),
+            totalRows: response.rows.length,
+        },
+        fullDetailCommand: 'proteum perf memory --full',
+    });
+};
+
+const printCompactRequest = (response: TPerfRequestResponse) => {
+    printAgentResponse({
+        summary: `${response.request.requestId}: ${response.request.method} ${response.request.path} total=${formatDuration(response.request.totalDurationMs)} cpu=${formatDuration(response.request.cpuTotalMs)} sql=${formatDuration(response.request.sqlDurationMs)}`,
+        data: {
+            request: {
+                requestId: response.request.requestId,
+                method: response.request.method,
+                path: response.request.path,
+                statusCode: response.request.statusCode,
+                routeLabel: response.request.routeLabel,
+                controllerLabel: response.request.controllerLabel,
+                totalDurationMs: response.request.totalDurationMs,
+                cpuTotalMs: response.request.cpuTotalMs,
+                sqlDurationMs: response.request.sqlDurationMs,
+                callDurationMs: response.request.callDurationMs,
+                renderDurationMs: response.request.renderDurationMs,
+                selfDurationMs: response.request.selfDurationMs,
+                heapDeltaBytes: response.request.heapDeltaBytes,
+            },
+            stages: compactList(response.request.stages, 8),
+            hotCalls: compactList(response.request.hottestCalls, 6),
+            chain: compactList(response.request.chain || [], 8),
+            hotSql: compactList(response.request.hottestSqlQueries, 6).map(compactSql),
+        },
+        nextActions: [
+            {
+                label: 'Diagnose Request',
+                command: `proteum diagnose ${quoteCommandArgument(response.request.path)}`,
+                reason: 'Combine this request with owner, diagnostics, suspects, and logs.',
+            },
+            {
+                label: 'Trace Events',
+                command: `proteum trace show ${quoteCommandArgument(response.request.requestId)} --events`,
+                reason: 'Open raw event detail only if the compact waterfall is insufficient.',
+            },
+        ],
+        fullDetailCommand: `proteum perf request ${quoteCommandArgument(response.request.requestId)} --full`,
+    });
+};
+
 export const run = async () => {
     const action = getAction();
-    const shouldPrintJson = cli.args.json === true;
+    const shouldPrintFull = cli.args.full === true;
+    const shouldPrintHuman = cli.args.human === true;
     const groupBy = typeof cli.args.groupBy === 'string' && cli.args.groupBy ? cli.args.groupBy : 'path';
     const limit =
         typeof cli.args.limit === 'string' && cli.args.limit ? Math.max(1, Number.parseInt(cli.args.limit, 10) || 12) : 12;
@@ -192,12 +293,13 @@ export const run = async () => {
         const response = await requestJson<TPerfTopResponse>(
             `/__proteum/perf/top?${new URLSearchParams({ groupBy, limit: String(limit), since }).toString()}`,
         );
-        if (shouldPrintJson) {
+        if (shouldPrintFull) {
             printJson(response);
             return;
         }
 
-        console.log(renderTop(response));
+        if (shouldPrintHuman) console.log(renderTop(response));
+        else printCompactTop(response);
         return;
     }
 
@@ -212,12 +314,13 @@ export const run = async () => {
                 target: targetWindow,
             }).toString()}`,
         );
-        if (shouldPrintJson) {
+        if (shouldPrintFull) {
             printJson(response);
             return;
         }
 
-        console.log(renderCompare(response));
+        if (shouldPrintHuman) console.log(renderCompare(response));
+        else printCompactCompare(response);
         return;
     }
 
@@ -226,12 +329,13 @@ export const run = async () => {
         const response = await requestJson<TPerfMemoryResponse>(
             `/__proteum/perf/memory?${new URLSearchParams({ groupBy, limit: String(limit), since }).toString()}`,
         );
-        if (shouldPrintJson) {
+        if (shouldPrintFull) {
             printJson(response);
             return;
         }
 
-        console.log(renderMemory(response));
+        if (shouldPrintHuman) console.log(renderMemory(response));
+        else printCompactMemory(response);
         return;
     }
 
@@ -241,10 +345,11 @@ export const run = async () => {
     const response = await requestJson<TPerfRequestResponse>(
         `/__proteum/perf/request?${new URLSearchParams({ query: requestTarget }).toString()}`,
     );
-    if (shouldPrintJson) {
+    if (shouldPrintFull) {
         printJson(response);
         return;
     }
 
-    console.log(renderRequest(response));
+    if (shouldPrintHuman) console.log(renderRequest(response));
+    else printCompactRequest(response);
 };

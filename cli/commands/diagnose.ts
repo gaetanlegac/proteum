@@ -12,6 +12,7 @@ import type { TRequestTraceErrorResponse, TRequestTraceArmResponse } from '../..
 import type { TDevSessionErrorResponse, TDevSessionStartResponse } from '../../common/dev/session';
 import { summarizeTraceForDiagnose } from '@common/dev/inspection';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
+import { compactList, printAgentResponse, printJson, quoteCommandArgument, truncateForAgent } from '../utils/agentOutput';
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 const truncate = (value: string, max = 160) => (value.length <= max ? value : `${value.slice(0, max)}...`);
@@ -237,6 +238,132 @@ const renderHuman = (manifest: ReturnType<typeof readProteumManifest>, response:
         renderLogs(response.serverLogs),
     ].join('\n');
 
+const compactOwnerMatch = (match: TDiagnoseResponse['owner']['matches'][number]) => ({
+    kind: match.kind,
+    label: match.label,
+    score: match.score,
+    scope: match.scopeLabel,
+    origin: match.originHint,
+    source: match.source,
+});
+
+const compactDiagnostic = (diagnostic: TDiagnoseResponse['doctor']['diagnostics'][number]) => ({
+    level: diagnostic.level,
+    code: diagnostic.code,
+    message: truncateForAgent(diagnostic.message),
+    filepath: diagnostic.filepath,
+    sourceLocation: diagnostic.sourceLocation,
+    fixHint: diagnostic.fixHint ? truncateForAgent(diagnostic.fixHint) : undefined,
+});
+
+const compactRequest = (request: TDiagnoseResponse['request']) =>
+    request
+        ? {
+              id: request.id,
+              method: request.method,
+              path: request.path,
+              statusCode: request.statusCode,
+              durationMs: request.durationMs,
+              capture: request.capture,
+              user: request.user,
+              errorMessage: request.errorMessage,
+              counts: {
+                  calls: request.calls.length,
+                  events: request.events.length,
+                  sqlQueries: request.sqlQueries.length,
+                  droppedEvents: request.droppedEvents,
+              },
+          }
+        : undefined;
+
+const buildDiagnoseFullDetailCommand = ({
+    hitPath,
+    query,
+}: {
+    hitPath: string;
+    query: string;
+}) =>
+    [
+        'proteum diagnose',
+        quoteCommandArgument(query),
+        hitPath ? `--hit ${quoteCommandArgument(hitPath)}` : '',
+        typeof cli.args.port === 'string' && cli.args.port ? `--port ${cli.args.port}` : '',
+        typeof cli.args.url === 'string' && cli.args.url ? `--url ${quoteCommandArgument(cli.args.url)}` : '',
+        '--full',
+    ]
+        .filter(Boolean)
+        .join(' ');
+
+const printCompactDiagnose = ({
+    hitPath,
+    query,
+    response,
+}: {
+    hitPath: string;
+    query: string;
+    response: TDiagnoseResponse;
+}) => {
+    const request = compactRequest(response.request);
+    const traceSummary = summarizeTraceForDiagnose(response.request);
+    const doctorSummary = `${response.doctor.summary.errors} doctor errors/${response.doctor.summary.warnings} warnings`;
+    const contractsSummary = `${response.contracts.summary.errors} contract errors/${response.contracts.summary.warnings} warnings`;
+    const summary = `${response.query || query || 'request'}: ${traceSummary}; ${doctorSummary}; ${contractsSummary}`;
+    const nextActions = response.orientation?.nextSteps || [];
+    const requestId = response.request?.id;
+
+    printAgentResponse({
+        summary,
+        data: {
+            query: response.query,
+            request,
+            owner: {
+                top: response.owner.matches[0] ? compactOwnerMatch(response.owner.matches[0]) : undefined,
+                matches: compactList(response.owner.matches, 4).map(compactOwnerMatch),
+                totalReturned: response.owner.matches.length,
+            },
+            suspects: compactList(response.suspects, 6),
+            chain: compactList(response.chain || [], 8),
+            diagnostics: {
+                doctor: {
+                    summary: response.doctor.summary,
+                    top: compactList(response.doctor.diagnostics, 6).map(compactDiagnostic),
+                    total: response.doctor.diagnostics.length,
+                },
+                contracts: {
+                    summary: response.contracts.summary,
+                    top: compactList(response.contracts.diagnostics, 6).map(compactDiagnostic),
+                    total: response.contracts.diagnostics.length,
+                },
+            },
+            logs: compactList(response.serverLogs.logs, 10).map((entry) => ({
+                level: entry.level,
+                time: entry.time,
+                text: truncateForAgent(entry.text),
+            })),
+            instructions: response.orientation
+                ? {
+                      mustRead: [...new Set([response.orientation.guidance.agents, ...response.orientation.guidance.areaAgents])],
+                      diagnostics: response.orientation.guidance.diagnostics,
+                      codingStyle: response.orientation.guidance.codingStyle,
+                      optimizations: response.orientation.guidance.optimizations,
+                  }
+                : undefined,
+        },
+        nextActions,
+        fullDetailCommand: buildDiagnoseFullDetailCommand({ hitPath, query }),
+        omitted: [
+            ...(requestId
+                ? [
+                      {
+                          reason: 'Full request events, API call payloads, and SQL text are omitted from the default diagnose response.',
+                          command: `proteum trace show ${quoteCommandArgument(requestId)} --events`,
+                      },
+                  ]
+                : []),
+        ],
+    });
+};
+
 const resolveManifest = async () => {
     try {
         return readProteumManifest(cli.paths.appRoot);
@@ -258,7 +385,6 @@ export const run = async () => {
     const method = typeof cli.args.method === 'string' && cli.args.method ? cli.args.method.trim().toUpperCase() : 'GET';
     const logsLevel = typeof cli.args.logsLevel === 'string' && cli.args.logsLevel ? cli.args.logsLevel.trim() : 'warn';
     const logsLimit = typeof cli.args.logsLimit === 'string' && cli.args.logsLimit ? cli.args.logsLimit.trim() : '40';
-    const shouldPrintJson = cli.args.json === true;
     const hitPath = hit || (target.startsWith('/') ? target : '');
     const query = target || hitPath;
     let parsedDataJson: unknown;
@@ -308,11 +434,16 @@ export const run = async () => {
     const diagnose = await requestJson<TDiagnoseResponse>(
         `/__proteum/diagnose?${new URLSearchParams(diagnoseRequest).toString()}`,
     );
-    if (shouldPrintJson) {
-        console.log(JSON.stringify(diagnose.body, null, 2));
+    if (cli.args.full === true) {
+        printJson(diagnose.body);
         return;
     }
 
-    const manifest = await resolveManifest();
-    console.log(renderHuman(manifest, diagnose.body));
+    if (cli.args.human === true) {
+        const manifest = await resolveManifest();
+        console.log(renderHuman(manifest, diagnose.body));
+        return;
+    }
+
+    printCompactDiagnose({ hitPath, query, response: diagnose.body });
 };

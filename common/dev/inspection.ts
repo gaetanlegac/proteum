@@ -1156,12 +1156,20 @@ export const explainOwner = (manifest: TProteumManifest, query: string): TExplai
     const normalizedQuery = normalizeText(query);
     if (!normalizedQuery) return { matches: [], normalizedQuery, query };
 
-    const matches = buildManifestEntries(manifest)
-        .map((entry) => {
-            const { score, matchedOn } = scoreOwnerMatch(query, entry);
-            return score > 0 ? toOwnerMatch(entry, score, matchedOn) : undefined;
-        })
-        .filter((match): match is TExplainOwnerMatch => match !== undefined)
+    const entries = buildManifestEntries(manifest);
+    const scoredMatches =
+        normalizedQuery === '/'
+            ? entries
+                  .filter((entry) => (entry.kind === 'route' || entry.kind === 'controller') && normalizeText(entry.label) === '/')
+                  .map((entry) => toOwnerMatch(entry, 200, ['/']))
+            : entries
+                  .map((entry) => {
+                      const { score, matchedOn } = scoreOwnerMatch(query, entry);
+                      return score > 0 ? toOwnerMatch(entry, score, matchedOn) : undefined;
+                  })
+                  .filter((match): match is TExplainOwnerMatch => match !== undefined);
+
+    const matches = scoredMatches
         .sort((left, right) => right.score - left.score || left.kind.localeCompare(right.kind) || left.label.localeCompare(right.label))
         .slice(0, 12);
 

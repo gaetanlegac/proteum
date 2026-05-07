@@ -20,6 +20,7 @@ The same API and SQL instrumentation feeds both shapes. Dev trace keeps the in-m
 proteum trace requests
 proteum trace latest
 proteum trace show <requestId>
+proteum trace show <requestId> --events
 proteum trace arm --capture deep
 proteum trace export <requestId>
 proteum trace latest --url http://127.0.0.1:3010
@@ -30,26 +31,28 @@ proteum perf compare --baseline yesterday --target today --group-by route
 proteum perf memory --since 1h --group-by controller
 ```
 
+Default trace output is compact `proteum-agent-v1` JSON with counts, failed calls, error events, hot calls, and hot SQL. Use `--events` or `--full` only when raw event details, payload summaries, or SQL text are needed.
+
 Before reproducing a bug or starting a new test pass:
 
-- read the default port from `PORT` or `./.proteum/manifest.json`
-- check whether a dev server is already running on that port
-- if it is, inspect `proteum trace requests`, `proteum trace latest`, and `proteum trace show <requestId>` first so you can capture past errors and their context
+- run `proteum runtime status` to reuse a tracked dev session when possible
+- if a server is already running, inspect `proteum trace requests`, `proteum trace latest`, and compact `proteum diagnose <path>` first so you can capture past errors without dumping raw events
 
 Typical debugging flow:
 
 ```bash
 proteum orient /dashboard
+proteum runtime status
 proteum diagnose /dashboard --hit /dashboard --port 3103
 proteum perf request /dashboard --port 3103
-proteum trace show <requestId> --port 3103
+proteum trace show <requestId> --events --port 3103
 ```
 
 Use `--url http://host:port` when the dev server is reachable on a non-standard host and `--port` is not enough.
 
 If the request under test is protected and login UX is not the feature under test, mint an auth cookie with `proteum session <email> --role <role>` before reproducing the request. This keeps the trace focused on the protected behavior instead of the login flow.
 
-If you already know the failing path and want a one-shot suspect list before reading raw events, start with `proteum diagnose <path> --port <port>` and `proteum perf request <path> --port <port>` first, then drop into `proteum trace show <requestId>` only when the lower-level event stream is still needed.
+If you already know the failing path and want a one-shot suspect list before reading raw events, start with `proteum diagnose <path> --port <port>` and `proteum perf request <path> --port <port>` first, then drop into `proteum trace show <requestId> --events` only when the lower-level event stream is still needed.
 
 Use ad hoc database queries or one-off scripts only after `orient`, `diagnose`, `perf request`, and `trace show` still leave the request chain unclear.
 

@@ -4,6 +4,7 @@ import path from 'path';
 import { UsageError } from 'clipanion';
 
 import cli from '..';
+import { compactList, printAgentResponse, printJson, quoteCommandArgument, truncateForAgent } from '../utils/agentOutput';
 import type {
     TRequestTrace,
     TRequestTraceArmResponse,
@@ -164,23 +165,114 @@ const renderTrace = (request: TRequestTrace) =>
         ),
     ].join('\n');
 
-const printJson = (value: object) => {
-    console.log(JSON.stringify(value, null, 2));
+const compactCall = (call: TRequestTrace['calls'][number]) => ({
+    id: call.id,
+    origin: call.origin,
+    label: call.label,
+    method: call.method,
+    path: call.path,
+    statusCode: call.statusCode,
+    durationMs: call.durationMs,
+    errorMessage: call.errorMessage ? truncateForAgent(call.errorMessage) : undefined,
+});
+
+const compactSql = (query: TRequestTrace['sqlQueries'][number]) => ({
+    id: query.id,
+    caller: query.callerLabel || `${query.callerMethod} ${query.callerPath}`,
+    kind: query.kind,
+    operation: query.operation,
+    model: query.model,
+    durationMs: query.durationMs,
+    fingerprint: query.fingerprint,
+});
+
+const compactEvent = (event: TRequestTrace['events'][number]) => ({
+    index: event.index,
+    elapsedMs: event.elapsedMs,
+    type: event.type,
+    detailKeys: Object.keys(event.details),
+});
+
+const buildTraceFullDetailCommand = (request: TRequestTrace) =>
+    [
+        'proteum trace show',
+        quoteCommandArgument(request.id),
+        typeof cli.args.port === 'string' && cli.args.port ? `--port ${cli.args.port}` : '',
+        typeof cli.args.url === 'string' && cli.args.url ? `--url ${quoteCommandArgument(cli.args.url)}` : '',
+        '--events',
+    ]
+        .filter(Boolean)
+        .join(' ');
+
+const printCompactTrace = (request: TRequestTrace) => {
+    const failedCalls = request.calls.filter((call) => call.errorMessage || (call.statusCode !== undefined && call.statusCode >= 400));
+    const errorEvents = request.events.filter((event) => event.type === 'error');
+    const hotCalls = [...request.calls].sort((left, right) => (right.durationMs || 0) - (left.durationMs || 0));
+    const hotSql = [...request.sqlQueries].sort((left, right) => right.durationMs - left.durationMs);
+
+    printAgentResponse({
+        summary: `${request.id}: ${request.method} ${request.path} status=${request.statusCode ?? 'pending'} durationMs=${request.durationMs ?? 'pending'} events=${request.events.length} calls=${request.calls.length} sql=${request.sqlQueries.length}`,
+        data: {
+            request: {
+                id: request.id,
+                method: request.method,
+                path: request.path,
+                statusCode: request.statusCode,
+                durationMs: request.durationMs,
+                capture: request.capture,
+                user: request.user,
+                errorMessage: request.errorMessage,
+                droppedEvents: request.droppedEvents,
+                persistedFilepath: request.persistedFilepath,
+            },
+            counts: {
+                calls: request.calls.length,
+                events: request.events.length,
+                sqlQueries: request.sqlQueries.length,
+            },
+            failedCalls: compactList(failedCalls, 5).map(compactCall),
+            errorEvents: compactList(errorEvents, 5).map(compactEvent),
+            hotCalls: compactList(hotCalls, 5).map(compactCall),
+            hotSql: compactList(hotSql, 5).map(compactSql),
+        },
+        nextActions: [
+            {
+                label: 'Diagnose Request',
+                command: `proteum diagnose ${quoteCommandArgument(request.path)}`,
+                reason: 'Collapse this trace with owner lookup, diagnostics, suspects, and server logs.',
+            },
+            {
+                label: 'Perf Request',
+                command: `proteum perf request ${quoteCommandArgument(request.id)}`,
+                reason: 'Inspect request timing, SQL, render, and memory rollups without full events.',
+            },
+        ],
+        fullDetailCommand: buildTraceFullDetailCommand(request),
+        omitted: [
+            {
+                reason: 'Full event details, payload summaries, raw SQL, and call bodies are omitted by default.',
+                command: buildTraceFullDetailCommand(request),
+            },
+        ],
+    });
 };
 
 export const run = async () => {
     const action = getAction();
     const requestId = typeof cli.args.id === 'string' ? cli.args.id : '';
-    const shouldPrintJson = cli.args.json === true;
+    const shouldPrintFull = cli.args.full === true || cli.args.events === true;
+    const shouldPrintHuman = cli.args.human === true;
 
     if (action === 'requests') {
         const response = await requestJson<TRequestTraceListResponse>('/__proteum/trace/requests');
-        if (shouldPrintJson) {
-            printJson(response);
-            return;
-        }
-
-        console.log(['Proteum trace', ...response.requests.map(renderTraceSummary)].join('\n'));
+        if (shouldPrintFull) printJson(response);
+        else if (shouldPrintHuman) console.log(['Proteum trace', ...response.requests.map(renderTraceSummary)].join('\n'));
+        else
+            printAgentResponse({
+                summary: `${response.requests.length} request traces`,
+                data: { requests: compactList(response.requests, 20), totalReturned: response.requests.length },
+                fullDetailCommand: 'proteum trace requests --full',
+            });
         return;
     }
 
@@ -191,23 +283,20 @@ export const run = async () => {
             json: { capture },
         });
 
-        if (shouldPrintJson) {
-            printJson(response);
-            return;
-        }
-
-        console.log(`Armed next request trace with capture=${response.capture}.`);
+        if (shouldPrintHuman) console.log(`Armed next request trace with capture=${response.capture}.`);
+        else printAgentResponse({ summary: `Armed next request trace with capture=${response.capture}.`, data: response });
         return;
     }
 
     if (action === 'latest') {
         const response = await requestJson<TRequestTraceResponse>('/__proteum/trace/latest');
-        if (shouldPrintJson) {
+        if (shouldPrintFull) {
             printJson(response);
             return;
         }
 
-        console.log(renderTrace(response.request));
+        if (shouldPrintHuman) console.log(renderTrace(response.request));
+        else printCompactTrace(response.request);
         return;
     }
 
@@ -218,12 +307,13 @@ export const run = async () => {
     const response = await requestJson<TRequestTraceResponse>(`/__proteum/trace/requests/${requestId}`);
 
     if (action === 'show') {
-        if (shouldPrintJson) {
+        if (shouldPrintFull) {
             printJson(response);
             return;
         }
 
-        console.log(renderTrace(response.request));
+        if (shouldPrintHuman) console.log(renderTrace(response.request));
+        else printCompactTrace(response.request);
         return;
     }
 
@@ -235,10 +325,15 @@ export const run = async () => {
     fs.ensureDirSync(path.dirname(output));
     fs.writeJSONSync(output, response.request, { spaces: 2 });
 
-    if (shouldPrintJson) {
+    if (shouldPrintFull) {
         printJson({ output, request: response.request });
         return;
     }
 
-    console.log(`Exported trace ${response.request.id} to ${output}`);
+    if (shouldPrintHuman) console.log(`Exported trace ${response.request.id} to ${output}`);
+    else
+        printAgentResponse({
+            summary: `Exported trace ${response.request.id}.`,
+            data: { output, requestId: response.request.id },
+        });
 };

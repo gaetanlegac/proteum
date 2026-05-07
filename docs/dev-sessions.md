@@ -78,13 +78,14 @@ curl -H "$(jq -r '.curlCookieHeader' session.json)" http://localhost:3101/api/Au
 - Prefer `proteum session` over UI login automation when the goal is to test or debug protected application behavior.
 - Prefer `proteum verify browser` for focused browser-visible verification, and `proteum e2e --port <port>` for targeted or full Playwright suites. When lower-level control is required, use direct Playwright with a disposable profile.
 - Use UI login automation only when the auth UX itself is the feature under test.
-- Pair it with `proteum diagnose` for a fast protected-route summary, `proteum perf request` for a one-request timing breakdown, then use `proteum trace` when you need lower-level request events.
+- Pair it with `proteum diagnose` for a fast protected-route summary, `proteum perf request` for a one-request timing breakdown, then use `proteum trace show <requestId> --events` only when you need lower-level request events.
 - Only the final verifier agent should usually run browser flows. Earlier agents should stay on `orient`, `verify owner`, `verify request`, and request-level diagnostics unless browser execution is required.
 
 Typical flow:
 
 ```bash
 proteum orient /dashboard
+proteum runtime status
 proteum session admin@example.com --role ADMIN --port 3101 --json > session.json
 proteum e2e --port 3101 --session-email admin@example.com --session-role ADMIN tests/e2e/features/dashboard.spec.ts
 proteum diagnose /dashboard --hit /dashboard --port 3101

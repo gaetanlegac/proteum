@@ -24,7 +24,12 @@ const createCoreFixture = () => {
 
     writeFile(path.join(agentsRoot, 'AGENTS.md'), '# Root Contract\n\n- Root rule\n');
     writeFile(path.join(agentsRoot, 'CODING_STYLE.md'), '# Coding Style\n\n- Style rule\n');
+    writeFile(path.join(agentsRoot, 'diagnostics.md'), '# Diagnostics\n\n- Diagnostics rule\n');
+    writeFile(path.join(agentsRoot, 'optimizations.md'), '# Optimizations\n\n- Optimization rule\n');
     writeFile(path.join(agentsRoot, 'client', 'AGENTS.md'), '# Client Rules\n\n- Client rule\n');
+    writeFile(path.join(agentsRoot, 'client', 'pages', 'AGENTS.md'), '# Page Rules\n\n- Page rule\n');
+    writeFile(path.join(agentsRoot, 'server', 'routes', 'AGENTS.md'), '# Route Rules\n\n- Route rule\n');
+    writeFile(path.join(agentsRoot, 'server', 'services', 'AGENTS.md'), '# Service Rules\n\n- Service rule\n');
     writeFile(path.join(agentsRoot, 'tests', 'e2e', 'AGENTS.md'), '# E2E Rules\n\n- E2E rule\n');
     writeFile(
         path.join(agentsRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'),
@@ -57,7 +62,7 @@ const createAppFixture = () => {
     return appRoot;
 };
 
-test('standalone configure creates tracked instruction files with embedded corpus', () => {
+test('standalone configure creates tracked instruction files with routing contract and split docs', () => {
     const coreRoot = createCoreFixture();
     const appRoot = createAppFixture();
     const result = configureProjectAgentInstructions({ appRoot, coreRoot });
@@ -68,10 +73,12 @@ test('standalone configure creates tracked instruction files with embedded corpu
     assert.equal(result.blocked.length, 0);
     assert.match(agentsContent, /^# Proteum Instructions/m);
     assert.match(agentsContent, /<!-- proteum-instructions:start -->/);
-    assert.match(agentsContent, /## Source: AGENTS\.md/);
-    assert.match(agentsContent, /## Root Contract/);
-    assert.match(agentsContent, /## Source: CODING_STYLE\.md/);
-    assert.match(codingStyleContent, /## Source: client\/AGENTS\.md/);
+    assert.match(agentsContent, /## Agent Routing Contract/);
+    assert.match(agentsContent, /npx proteum orient <query>/);
+    assert.doesNotMatch(agentsContent, /## Source: CODING_STYLE\.md/);
+    assert.match(codingStyleContent, /## Source: CODING_STYLE\.md/);
+    assert.match(codingStyleContent, /## Coding Style/);
+    assert.doesNotMatch(codingStyleContent, /## Source: client\/AGENTS\.md/);
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'AGENTS.md')), true);
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md')), true);
     assert.match(fs.readFileSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /Journey rule/);
@@ -111,7 +118,8 @@ test('configure preserves project content outside the managed section', () => {
     const content = fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8');
     assert.match(content, /# Product Notes/);
     assert.match(content, /Keep this product note\./);
-    assert.match(content, /## Source: CODING_STYLE\.md/);
+    assert.match(content, /## Agent Routing Contract/);
+    assert.doesNotMatch(content, /## Source: CODING_STYLE\.md/);
     assert.doesNotMatch(content, /Old managed content/);
     assert.match(content, /# Local Footer/);
     assert.match(content, /Keep this footer\./);
@@ -153,7 +161,8 @@ test('configure preserves project content around legacy managed stubs', () => {
     assert.match(content, /## Product Bootstrap/);
     assert.match(content, /Keep these local bootstrap notes\./);
     assert.match(content, /# Proteum Instructions/);
-    assert.match(content, /## Source: CODING_STYLE\.md/);
+    assert.match(content, /## Agent Routing Contract/);
+    assert.doesNotMatch(content, /## Source: CODING_STYLE\.md/);
     assert.doesNotMatch(content, /# Proteum Managed Instructions/);
     assert.doesNotMatch(content, /Before reading or applying instructions from this file/);
     assert.match(content, /## Local Footer/);
@@ -174,15 +183,16 @@ test('monorepo configure writes root and app instruction files', () => {
 
     assert.equal(result.mode, 'monorepo');
     assert.equal(resolveProjectAgentMonorepoRoot(appRoot), fs.realpathSync(monorepoRoot));
-    assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /## Source: AGENTS\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /## Agent Routing Contract/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'CODING_STYLE.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
-    assert.match(fs.readFileSync(path.join(monorepoRoot, 'diagnostics.md'), 'utf8'), /## Source: AGENTS\.md/);
-    assert.match(fs.readFileSync(path.join(monorepoRoot, 'optimizations.md'), 'utf8'), /## Source: AGENTS\.md/);
-    assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'AGENTS.md'), 'utf8'), /## Source: AGENTS\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'diagnostics.md'), 'utf8'), /## Source: diagnostics\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'optimizations.md'), 'utf8'), /## Source: optimizations\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'AGENTS.md'), 'utf8'), /## Source: tests\/e2e\/AGENTS\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: tests\/e2e\/REAL_WORLD_JOURNEY_TESTS\.md/);
     assert.doesNotMatch(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'AGENTS.md')), false);
-    assert.match(fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8'), /## Source: client\/AGENTS\.md/);
+    assert.match(fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8'), /## Agent Routing Contract/);
+    assert.match(fs.readFileSync(path.join(appRoot, 'client', 'AGENTS.md'), 'utf8'), /## Source: client\/AGENTS\.md/);
     assert.equal(fs.existsSync(path.join(appRoot, 'CODING_STYLE.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'diagnostics.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'optimizations.md')), false);
@@ -235,7 +245,7 @@ test('monorepo configure strips retired managed sections from local app-root doc
     assert.equal(result.updated.some((entry) => entry.endsWith('/apps/product/CODING_STYLE.md')), true);
 });
 
-test('configure migrates legacy managed symlinks to embedded files', () => {
+test('configure migrates legacy managed symlinks to tracked files', () => {
     const coreRoot = createCoreFixture();
     const appRoot = createAppFixture();
     const installedCoreRoot = createCoreFixture();
@@ -271,5 +281,5 @@ test('configure reports blocked paths unless overwrite is allowed', () => {
 
     assert.equal(result.overwritten.some((entry) => entry.endsWith('/CODING_STYLE.md')), true);
     assert.equal(fs.lstatSync(blockedPath).isFile(), true);
-    assert.match(fs.readFileSync(blockedPath, 'utf8'), /## Source: AGENTS\.md/);
+    assert.match(fs.readFileSync(blockedPath, 'utf8'), /## Source: CODING_STYLE\.md/);
 });

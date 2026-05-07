@@ -8,6 +8,7 @@ import Compiler from '../compiler';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
 import { buildOrientationResponse, type TOrientResponse } from '@common/dev/inspection';
 import type { TProteumManifest } from '@common/dev/proteumManifest';
+import { compactList, printAgentResponse, printJson, quoteCommandArgument } from '../utils/agentOutput';
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 const dedupe = <TValue>(values: TValue[]) => [...new Set(values)];
@@ -153,6 +154,63 @@ const renderHuman = (response: TOrientResponse) =>
         ...(response.warnings.length === 0 ? ['- none'] : response.warnings.map((warning) => `- ${warning}`)),
     ].join('\n');
 
+const compactOwnerMatch = (match: TOrientResponse['owner']['matches'][number]) => ({
+    kind: match.kind,
+    label: match.label,
+    score: match.score,
+    scope: match.scopeLabel,
+    origin: match.originHint,
+    source: match.source,
+});
+
+const buildInstructionPlan = (response: TOrientResponse) => ({
+    mustRead: [...new Set([response.guidance.agents, ...response.guidance.areaAgents])],
+    readWhen: [
+        {
+            file: response.guidance.diagnostics,
+            when: 'Read only for raw errors, failing requests, traces, perf regressions, or reproduction work.',
+        },
+        {
+            file: response.guidance.codingStyle,
+            when: 'Read before editing implementation files.',
+        },
+        {
+            file: response.guidance.optimizations,
+            when: 'Read after client-side implementation or when the task explicitly concerns packages, build, runtime, or performance.',
+        },
+    ],
+});
+
+const printCompactOrient = (response: TOrientResponse) => {
+    const topOwner = response.owner.matches[0];
+    const summary = topOwner
+        ? `${response.query} -> ${topOwner.kind} ${topOwner.label} (${topOwner.scopeLabel})`
+        : `${response.query} -> no manifest owner matched`;
+
+    printAgentResponse({
+        summary,
+        data: {
+            query: response.query,
+            app: response.app,
+            owner: {
+                top: topOwner ? compactOwnerMatch(topOwner) : undefined,
+                matches: compactList(response.owner.matches, 4).map(compactOwnerMatch),
+                totalReturned: response.owner.matches.length,
+            },
+            instructions: buildInstructionPlan(response),
+            connected: {
+                imports: compactList(response.connected.imports, 4),
+                producers: compactList(response.connected.producers, 3),
+                totalImports: response.connected.imports.length,
+                totalProducers: response.connected.producers.length,
+            },
+            warnings: response.warnings,
+        },
+        nextActions: response.nextSteps,
+        fullDetailCommand: `proteum orient ${quoteCommandArgument(response.query)} --full`,
+    });
+};
+
 export const run = async () => {
     const query = typeof cli.args.query === 'string' ? cli.args.query.trim() : '';
     if (!query) throw new UsageError('A query is required. Example: proteum orient /api/Auth/CurrentUser');
@@ -160,10 +218,15 @@ export const run = async () => {
     const manifest = await resolveManifest();
     const response = buildOrientationResponse(manifest, query);
 
-    if (cli.args.json === true) {
-        console.log(JSON.stringify(response, null, 2));
+    if (cli.args.full === true) {
+        printJson(response);
         return;
     }
 
-    console.log(renderHuman(response));
+    if (cli.args.human === true) {
+        console.log(renderHuman(response));
+        return;
+    }
+
+    printCompactOrient(response);
 };

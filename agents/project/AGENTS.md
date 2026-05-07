@@ -23,6 +23,7 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
     - re-print the complete list of suggested fixes, but strike the ones we already implemented or not necessary anymore
 - If the user asks to implement a feature, first inspect the relevant existing surface and state any implementation problem, pain point, attention point, or question you see. If a concern is blocking, or it can materially change product behavior, API shape, architecture, data model, cost, privacy, security, or UX, ask before editing; otherwise state the assumption and continue implementing.
 - If the task is ambiguous, generated, connected, or multi-repo, start with `npx proteum orient <query>` before reading large parts of the codebase.
+- Treat Proteum CLI output as the workflow router. Read only the instruction files returned in `orient` `mustRead`, plus conditional docs that match the current task. Do not read broad instruction folders or every managed instruction file up front.
 - If the user reports an issue, or the agent encounters one during exploration, implementation, verification, or runtime reproduction, load and follow root-level `diagnostics.md`.
 - If the task touches client-side files, especially `client/**` and page files, load and apply root-level `optimizations.md` only after implementation for post-implementation checking and optimization. Skip it at task start and skip it for server-only, test-only, doc-only, and non-client refactor tasks unless the user explicitly asks for optimization work.
 - If the task changes UX, copy, onboarding, pricing, product semantics, or commercial positioning, read the relevant files under `./docs/` first, especially `docs/PERSONAS.md`, `docs/PRODUCT.md`, and `docs/MARKETING.md` when they exist. If a dev server is already running, print the live dev server URL as a clickable Markdown link.
@@ -272,19 +273,22 @@ Project code should consume:
 
 Prefer structured CLI surfaces over re-deriving framework facts from source:
 
-- `npx proteum connect --json`
+- `npx proteum connect`
 - `npx proteum connect --controllers --strict`
 - `npx proteum orient <query>`
-- `npx proteum explain --json`
+- `npx proteum runtime status`
+- `npx proteum explain`
+- `npx proteum explain --manifest`
 - `npx proteum explain --connected --controllers`
 - `npx proteum explain owner <query>`
-- `npx proteum doctor --json`
-- `npx proteum doctor --contracts --json`
+- `npx proteum doctor`
+- `npx proteum doctor --contracts`
 - `npx proteum diagnose <path> --port <port>`
 - `npx proteum verify owner <query>`
 - `npx proteum verify request <path>`
 - `npx proteum perf ...`
-- `npx proteum trace ...`
+- `npx proteum trace latest`
+- `npx proteum trace show <requestId> --events`
 - `npx proteum command ...`
 - `npx proteum session ...`
 - `npx proteum create ... --dry-run --json`

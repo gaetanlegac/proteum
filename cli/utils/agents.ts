@@ -23,7 +23,7 @@ type TConfigureProjectAgentInstructionsArgs = {
 type TAgentInstructionDefinition = {
     projectPath: string;
     ensureParentDir?: boolean;
-    content?: 'embedded' | 'source';
+    content?: 'router' | 'source';
 };
 
 type TEnsureInstructionFilesResult = {
@@ -61,37 +61,37 @@ const managedInstructionSectionEnd = '<!-- proteum-instructions:end -->';
 const managedInstructionSectionIntro = 'This section is managed by `proteum configure agents`.';
 
 const sharedRootDocumentInstructionDefinitions: TAgentInstructionDefinition[] = [
-    { projectPath: 'CODING_STYLE.md' },
-    { projectPath: 'diagnostics.md' },
-    { projectPath: 'optimizations.md' },
+    { projectPath: 'CODING_STYLE.md', content: 'source' },
+    { projectPath: 'diagnostics.md', content: 'source' },
+    { projectPath: 'optimizations.md', content: 'source' },
 ];
 
 const sharedAppAreaAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
-    { projectPath: path.join('client', 'AGENTS.md') },
-    { projectPath: path.join('client', 'pages', 'AGENTS.md') },
-    { projectPath: path.join('server', 'services', 'AGENTS.md') },
-    { projectPath: path.join('server', 'routes', 'AGENTS.md') },
+    { projectPath: path.join('client', 'AGENTS.md'), content: 'source' },
+    { projectPath: path.join('client', 'pages', 'AGENTS.md'), content: 'source' },
+    { projectPath: path.join('server', 'services', 'AGENTS.md'), content: 'source' },
+    { projectPath: path.join('server', 'routes', 'AGENTS.md'), content: 'source' },
 ];
 
 const sharedE2eAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
-    { projectPath: path.join('tests', 'e2e', 'AGENTS.md'), ensureParentDir: true },
+    { projectPath: path.join('tests', 'e2e', 'AGENTS.md'), ensureParentDir: true, content: 'source' },
     { projectPath: path.join('tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), ensureParentDir: true, content: 'source' },
 ];
 
 const standaloneAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
-    { projectPath: 'AGENTS.md' },
+    { projectPath: 'AGENTS.md', content: 'router' },
     ...sharedRootDocumentInstructionDefinitions,
     ...sharedAppAreaAgentInstructionDefinitions,
     ...sharedE2eAgentInstructionDefinitions,
 ];
 
 const monorepoAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
-    { projectPath: 'AGENTS.md' },
+    { projectPath: 'AGENTS.md', content: 'router' },
     ...sharedAppAreaAgentInstructionDefinitions,
 ];
 
 const monorepoRootAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
-    { projectPath: 'AGENTS.md' },
+    { projectPath: 'AGENTS.md', content: 'router' },
     ...sharedRootDocumentInstructionDefinitions,
     ...sharedE2eAgentInstructionDefinitions,
 ];
@@ -548,48 +548,53 @@ function renderEmbeddedProjectInstructions({ coreRoot }: TProjectInstructionArgs
     const agentSourceRoot = path.join(coreRoot, 'agents', 'project');
     if (!fs.existsSync(agentSourceRoot)) throw new Error(`Missing project instruction source root: ${agentSourceRoot}`);
 
-    const sourceFiles = collectMarkdownFiles(agentSourceRoot).sort((a, b) => a.relativePath.localeCompare(b.relativePath));
     const lines = [
         managedInstructionSectionHeader,
         managedInstructionSectionStart,
         '',
         managedInstructionSectionIntro,
         '',
+        '## Agent Routing Contract',
+        '',
+        'Proteum CLI commands are optimized for agents. Do not load the whole instruction corpus up front.',
+        '',
+        '1. Start ambiguous, generated, connected, route, controller, file, or error work with `npx proteum orient <query>`.',
+        '2. Read only the files returned in `mustRead` plus the conditional docs that match the current task.',
+        '3. Use `npx proteum runtime status` before starting a dev server, so an existing tracked session can be reused.',
+        '4. Use `npx proteum diagnose <target>` for request-time issues before raw trace, perf, browser, or broad source search.',
+        '5. Use `--full`, `--manifest`, or `--events` only when a compact CLI response says the omitted detail is needed.',
+        '',
+        '## Always-On Safety',
+        '',
+        '- Never edit generated files under `.proteum`.',
+        '- Never create or edit Prisma migration files manually.',
+        '- Never run schema-mutating SQL such as `ALTER TABLE`, `CREATE TABLE`, `DROP TABLE`, or `CREATE INDEX`.',
+        '- If `schema.prisma` changes, ask the user to run `npx prisma migrate dev --config ./prisma.config.ts --name <migration name>` and wait for `continue` before validation.',
+        '- Do not run `git restore` or `git reset`.',
+        '- Keep `proteum dev` sessions tracked with explicit session files and do not replace another live session.',
+        '',
+        '## Routing Table',
+        '',
+        '- Raw errors, failing requests, traces, perf, or reproduction: read `diagnostics.md`.',
+        '- Implementation edits: read `CODING_STYLE.md` before editing.',
+        '- Client files or pages: read `client/AGENTS.md`; for page route/data/render work also read `client/pages/AGENTS.md`.',
+        '- Server services: read `server/services/AGENTS.md`.',
+        '- Manual server routes: read `server/routes/AGENTS.md`.',
+        '- E2E work: read `tests/e2e/AGENTS.md` and `tests/e2e/REAL_WORLD_JOURNEY_TESTS.md`.',
+        '- Package, runtime, build, or client-performance decisions: read `optimizations.md` after implementation or when explicitly optimizing.',
+        '',
+        '## Canonical Source Map',
+        '',
+        `- Root contract fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'AGENTS.md'))}`,
+        `- Diagnostics fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'diagnostics.md'))}`,
+        `- Optimization fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'optimizations.md'))}`,
+        `- Coding style fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'CODING_STYLE.md'))}`,
+        '',
     ];
-
-    for (const sourceFile of sourceFiles) {
-        const content = fs.readFileSync(sourceFile.filepath, 'utf8');
-        const demotedContent = demoteMarkdownHeadings(content).trim();
-
-        lines.push(`## Source: ${sourceFile.relativePath}`, '');
-        if (demotedContent) lines.push(demotedContent, '');
-    }
 
     lines.push(managedInstructionSectionEnd, '');
 
     return lines.join('\n');
-}
-
-function collectMarkdownFiles(rootDir: string, currentDir = rootDir): { filepath: string; relativePath: string }[] {
-    const files: { filepath: string; relativePath: string }[] = [];
-
-    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
-        const filepath = path.join(currentDir, entry.name);
-
-        if (entry.isDirectory()) {
-            files.push(...collectMarkdownFiles(rootDir, filepath));
-            continue;
-        }
-
-        if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
-
-        files.push({
-            filepath,
-            relativePath: normalizeProjectPathForGitignore(path.relative(rootDir, filepath)),
-        });
-    }
-
-    return files;
 }
 
 function demoteMarkdownHeadings(content: string) {

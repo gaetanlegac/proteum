@@ -80,12 +80,12 @@ Do not stop at static analysis for routing, controllers, generated code, SSR, cl
 
 - Run `npx proteum dev --no-cache --session-file var/run/proteum/dev/framework-<app>.json --port <free-3xxx-port>` in both reference apps on explicit free ports and with elevated permissions outside the sandbox.
 - If either reference app uses local `file:` connected projects for the affected flow, run those producer apps too on their own free ports before exercising the consumer.
-- When validating a concrete route, controller path, or failing page on a running dev server, prefer `proteum diagnose <path> --port <port>` first. Use raw `proteum trace ...` output when you need lower-level event detail beyond the diagnose summary.
+- When validating a concrete route, controller path, or failing page on a running dev server, prefer `proteum diagnose <path> --port <port>` first. Use `proteum trace show <requestId> --events` only when you need lower-level event detail beyond the compact diagnose summary.
 - When the issue is latency, CPU, SQL cost, render cost, or memory drift, inspect `proteum perf top`, `proteum perf request`, `proteum perf compare`, or `proteum perf memory` against the running dev server before adding custom instrumentation.
 - When a framework change can affect shipped client code size, run `proteum build --prod --analyze` for static bundle artifacts or `proteum build --prod --analyze --analyze-serve --analyze-port auto` when you need a local analyzer URL.
 - For protected browser or API flows in dev, prefer `npx proteum session <email> --role <role>` for browser MCP validation, or `npx proteum e2e --session-email <email> --session-role <role>` for automated end-to-end suites, instead of automating the login UI. Use the login UI only when login itself is the feature under test.
 - When a task needs browser execution instead of the higher-level verifier, use the browser MCP. Keep Playwright inside `npx proteum e2e --port <port>` for targeted or full end-to-end suites. Keep auth sourced from Proteum session helpers, not UI login or shared browser state.
-- For request-time behavior, arm traces with `proteum trace arm --capture deep`, reproduce once, then inspect `proteum trace latest` or `proteum trace show <requestId>`.
+- For request-time behavior, arm traces with `proteum trace arm --capture deep`, reproduce once, then inspect compact `proteum trace latest` or raw `proteum trace show <requestId> --events` only when needed.
 - When the framework-facing workflow itself changed, verify the CLI surface too with `proteum verify framework-change --crosspath-port <port> --product-port <port> --website-port <port>`.
 - Only the final verifier agent should usually run browser flows. Other agents should stay on `orient`, `verify owner`, `verify request`, and command-level checks unless browser execution is the only trustworthy surface.
 - Open the real pages with the browser MCP.

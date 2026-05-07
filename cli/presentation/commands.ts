@@ -21,6 +21,7 @@ export const proteumCommandNames = [
     'orient',
     'diagnose',
     'perf',
+    'runtime',
     'trace',
     'command',
     'session',
@@ -49,7 +50,7 @@ export type TProteumCommandDoc = {
 
 export const proteumRecommendedFlow: TRow[] = [
     { label: '1. proteum orient <query>', value: 'Start here for multi-repo, generated, or connected work before reading code.' },
-    { label: '2. proteum dev', value: 'Start the compiler, SSR server, and hot reload loop.' },
+    { label: '2. proteum runtime status', value: 'Reuse an existing tracked dev session before starting a new one.' },
     { label: '3. proteum diagnose <path> --hit <path>', value: 'Validate the smallest trustworthy request surface before broader checks.' },
     { label: '4. proteum check', value: 'Refresh, typecheck, and lint before you commit or push.' },
 ];
@@ -57,7 +58,7 @@ export const proteumRecommendedFlow: TRow[] = [
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check', 'e2e'] },
-    { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'trace', 'command', 'session', 'verify'] },
+    { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'runtime', 'trace', 'command', 'session', 'verify'] },
     { title: 'Project scaffolding', names: ['init', 'configure', 'create', 'migrate'] },
 ];
 
@@ -310,16 +311,17 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'connect',
         category: 'Manifest and contracts',
         summary: 'Inspect connected-project config, cached contracts, and imported controllers.',
-        usage: 'proteum connect [--controllers] [--json] [--strict]',
+        usage: 'proteum connect [--controllers] [--full|--human] [--strict]',
         bestFor:
             'Auditing the current app connect setup without manually stitching together refresh, explain, env inspection, and contract checks.',
         examples: [
-            { description: 'Print a human-readable connected-project summary', command: 'proteum connect' },
+            { description: 'Print a compact connected-project summary', command: 'proteum connect' },
             { description: 'Include imported connected controllers', command: 'proteum connect --controllers' },
-            { description: 'Emit machine-readable connect output', command: 'proteum connect --json' },
+            { description: 'Emit the full connect payload', command: 'proteum connect --full' },
             { description: 'Fail when connect diagnostics exist', command: 'proteum connect --strict' },
         ],
         notes: [
+            'Default output is compact `proteum-agent-v1` JSON.',
             'Proteum refreshes generated typings before reading the connect manifest state.',
             'This command inspects explicit `proteum.config.ts` connected sources and URLs, cached `.proteum/connected/*.json` files, and imported connected controllers.',
             '`--strict` is intended for CI or framework validation when connected contracts must be present and usable.',
@@ -330,27 +332,31 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'doctor',
         category: 'Manifest and contracts',
         summary: 'Inspect the generated Proteum manifest diagnostics.',
-        usage: 'proteum doctor [--contracts] [--json] [--strict]',
+        usage: 'proteum doctor [--contracts] [--full|--human] [--strict]',
         bestFor:
             'Auditing manifest warnings and errors, especially in CI or when route/controller generation behaves unexpectedly.',
         examples: [
-            { description: 'Print a human-readable diagnostic summary', command: 'proteum doctor' },
+            { description: 'Print a compact diagnostic summary', command: 'proteum doctor' },
             { description: 'Inspect missing generated contracts and source files', command: 'proteum doctor --contracts' },
             { description: 'Fail if any diagnostics exist', command: 'proteum doctor --strict' },
-            { description: 'Emit machine-readable diagnostics', command: 'proteum doctor --json' },
+            { description: 'Emit the full diagnostic payload', command: 'proteum doctor --full' },
         ],
-        notes: ['`--strict` is intended for CI and pre-release verification.', '`--contracts` checks manifest-owned source files and expected generated artifacts on disk.'],
+        notes: [
+            'Default output is compact `proteum-agent-v1` JSON.',
+            '`--strict` is intended for CI and pre-release verification.',
+            '`--contracts` checks manifest-owned source files and expected generated artifacts on disk.',
+        ],
         status: 'stable',
     },
     explain: {
         name: 'explain',
         category: 'Manifest and contracts',
         summary: 'Explain the generated Proteum manifest.',
-        usage: 'proteum explain [owner <query>] [--all|--app|--conventions|--env|--connected|--services|--controllers|--commands|--routes|--layouts|--diagnostics] [--json]',
+        usage: 'proteum explain [owner <query>] [--manifest|--full|--human|--all|--app|--conventions|--env|--connected|--services|--controllers|--commands|--routes|--layouts|--diagnostics]',
         bestFor:
-            'Inspecting how source files became generated routes, controllers, commands, layouts, services, and diagnostics without reading compiler internals.',
+            'Inspecting the compact generated-app summary first, then opening selected manifest sections only when needed.',
         examples: [
-            { description: 'Show the default human summary', command: 'proteum explain' },
+            { description: 'Show the default compact agent summary', command: 'proteum explain' },
             {
                 description: 'Inspect generated routes, controllers, and commands together',
                 command: 'proteum explain --routes --controllers --commands',
@@ -360,9 +366,11 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
                 command: 'proteum explain --connected --controllers',
             },
             { description: 'Resolve the most likely manifest owner for a path or file', command: 'proteum explain owner /api/Auth/CurrentUser' },
-            { description: 'Emit the selected manifest sections as JSON', command: 'proteum explain --routes --json' },
+            { description: 'Emit the full manifest only when needed', command: 'proteum explain --manifest' },
         ],
         notes: [
+            'Default output is compact `proteum-agent-v1` JSON because the CLI is optimized for agents.',
+            '`--full`, `--manifest`, or explicit section flags are the escape hatch for large details.',
             'Legacy positional section selection remains supported, for example `proteum explain routes services`.',
             '`proteum explain owner <query>` ranks matching routes, controllers, services, commands, layouts, and diagnostics from the manifest.',
             'Connected projects are emitted from explicit `proteum.config.ts` `connect.<Namespace>.*` values plus the resolved connected contract.',
@@ -373,17 +381,17 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'orient',
         category: 'Manifest and contracts',
         summary: 'Resolve owners, guidance files, connected boundaries, and next steps before opening code.',
-        usage: 'proteum orient <query> [--port <port>|--url <baseUrl>] [--json]',
+        usage: 'proteum orient <query> [--port <port>|--url <baseUrl>] [--full|--human]',
         bestFor:
             'Starting multi-repo, generated-artifact, or connected-project work with one explicit orientation step instead of guessing the first files to read.',
         examples: [
             { description: 'Orient around a generated controller path', command: 'proteum orient /api/Auth/CurrentUser' },
             { description: 'Orient around a connected namespace or route', command: 'proteum orient Product.Stats.general' },
-            { description: 'Use a running dev server when the local manifest is unavailable', command: 'proteum orient /domains --port 3101 --json' },
+            { description: 'Use a running dev server when the local manifest is unavailable', command: 'proteum orient /domains --port 3101' },
         ],
         notes: [
-            'This command combines manifest owner lookup, local or fallback guidance resolution, connected-boundary hints, and three recommended next commands.',
-            'Use it before reading source when the query might map to generated code, connected imports, or framework-owned files.',
+            'Default output is compact `proteum-agent-v1` JSON with `mustRead`, conditional docs, owner matches, and next commands.',
+            'Use it before reading source when the query might map to generated code, connected imports, framework-owned files, or area instructions.',
             'When `--port` or `--url` is provided, Proteum can read the manifest from a running dev server instead of only from disk.',
         ],
         status: 'experimental',
@@ -392,7 +400,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'diagnose',
         category: 'Manifest and contracts',
         summary: 'Combine owner lookup, doctor output, contract checks, traces, and server logs into one report.',
-        usage: 'proteum diagnose [<query>] [--hit <path>] [--method <verb>] [--data-json <json>] [--session-email <email>] [--session-role <role>] [--port <port>|--url <baseUrl>] [--json]',
+        usage: 'proteum diagnose [<query>] [--hit <path>] [--method <verb>] [--data-json <json>] [--session-email <email>] [--session-role <role>] [--port <port>|--url <baseUrl>] [--full|--human]',
         bestFor:
             'Collapsing the usual explain + doctor + trace + session + server log loop into one structured debugging pass.',
         examples: [
@@ -401,6 +409,8 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             { description: 'Diagnose an API call with a JSON payload', command: 'proteum diagnose /api/Auth/CurrentUser --hit /api/Auth/CurrentUser --method POST --data-json "{}"' },
         ],
         notes: [
+            'Default output is compact `proteum-agent-v1` JSON and omits raw request events, payloads, and SQL text.',
+            'Use `--full` only when the compact response says lower-level detail is required.',
             'This command talks to the running app over the dev-only diagnostics, trace, and session endpoints.',
             'When `--hit` is omitted, Proteum diagnoses the latest matching request trace if one already exists.',
         ],
@@ -410,7 +420,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'perf',
         category: 'Manifest and contracts',
         summary: 'Inspect shared performance rollups built from live request traces on a running Proteum dev server.',
-        usage: 'proteum perf [top|request <requestId|path>|compare|memory] [--since <window>] [--baseline <window>] [--target <window>] [--group-by <path|route|controller>] [--limit <n>] [--port <port>|--url <baseUrl>] [--json]',
+        usage: 'proteum perf [top|request <requestId|path>|compare|memory] [--since <window>] [--baseline <window>] [--target <window>] [--group-by <path|route|controller>] [--limit <n>] [--port <port>|--url <baseUrl>] [--full|--human]',
         bestFor:
             'Finding the routes or controllers with the biggest response-time, CPU, SQL, render, and memory impact without manually stitching traces together.',
         examples: [
@@ -426,9 +436,27 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             },
         ],
         notes: [
+            'Default output is compact `proteum-agent-v1` JSON with capped rows and next commands.',
             'Perf data is derived from the same dev-only request trace buffer used by `proteum trace` and the profiler.',
             'Window values accept `1h`, `6h`, `24h`, `today`, `yesterday`, or an ISO timestamp.',
             'Older traces captured before the perf runtime metrics were added may not include CPU or memory deltas.',
+        ],
+        status: 'experimental',
+    },
+    runtime: {
+        name: 'runtime',
+        category: 'Manifest and contracts',
+        summary: 'Inspect the current app manifest, tracked dev sessions, and runtime health in one compact response.',
+        usage: 'proteum runtime status [--session-file <path>] [--full]',
+        bestFor:
+            'Reusing a live dev session and avoiding repeated dev-list, manifest, and health-check commands before request diagnostics.',
+        examples: [
+            { description: 'Resolve the current runtime status', command: 'proteum runtime status' },
+            { description: 'Inspect one explicit session file', command: 'proteum runtime status --session-file var/run/proteum/dev/agents/task.json' },
+        ],
+        notes: [
+            'Default output is compact `proteum-agent-v1` JSON with the selected session, health, and next command.',
+            'Use `--full` to include every tracked session field.',
         ],
         status: 'experimental',
     },
@@ -436,7 +464,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'trace',
         category: 'Manifest and contracts',
         summary: 'Inspect live in-memory request traces from a running Proteum dev server.',
-        usage: 'proteum trace [latest|show <requestId>|requests|arm|export <requestId>] [--port <port>|--url <baseUrl>] [--json]',
+        usage: 'proteum trace [latest|show <requestId>|requests|arm|export <requestId>] [--port <port>|--url <baseUrl>] [--events|--full|--human]',
         bestFor:
             'Debugging route resolution, context creation, SSR payloads, renders, and runtime errors without attaching a debugger.',
         examples: [
@@ -447,6 +475,8 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             { description: 'Target a custom dev base URL directly', command: 'proteum trace latest --url http://127.0.0.1:3010' },
         ],
         notes: [
+            'Default output is compact `proteum-agent-v1` JSON with counts, errors, hot calls, and hot SQL only.',
+            'Use `--events` or `--full` to print the raw event stream, payload summaries, and SQL text.',
             'This command talks to the running app over the dev-only `__proteum/trace` HTTP endpoints.',
             'Traces are stored in a bounded in-memory buffer with payload summarization and sensitive-field redaction.',
             'Use `--port` when the app is not running on the router port declared in `PORT`, or `--url` when the host itself is non-standard.',

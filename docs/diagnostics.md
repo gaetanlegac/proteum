@@ -11,6 +11,8 @@ These are not separate models for different tools. `orient`, `explain`, and `doc
 
 Performance inspection is a sibling surface, not a separate instrumentation stack: `proteum perf` and the profiler `Perf` tab aggregate the same dev-only request traces that back `proteum trace`.
 
+The diagnostics and routing CLI surfaces are optimized for agents by default. They return compact decision-ready output first and expose large raw detail only through explicit flags such as `--full`, `--manifest`, or `--events`.
+
 ## Shared Contract
 
 The canonical snapshot lives in `./.proteum/manifest.json`.
@@ -39,11 +41,11 @@ proteum orient /api/Auth/CurrentUser
 proteum explain
 proteum explain owner /api/Auth/CurrentUser
 proteum explain --routes --controllers --commands
-proteum explain --all --json
+proteum explain --manifest
 
 proteum doctor
 proteum doctor --contracts
-proteum doctor --json
+proteum doctor --full
 proteum doctor --strict
 
 proteum diagnose /
@@ -59,44 +61,65 @@ proteum perf top --since today
 proteum perf request /dashboard --port 3101
 proteum perf compare --baseline yesterday --target today --group-by route
 proteum perf memory --since 1h --group-by controller
+
+proteum runtime status
 ```
 
-`proteum orient --json` emits:
+Default compact command output follows this shape:
+
+```json
+{
+  "ok": true,
+  "format": "proteum-agent-v1",
+  "summary": "...",
+  "data": {},
+  "nextActions": [],
+  "omitted": [],
+  "fullDetailCommand": "..."
+}
+```
+
+`proteum orient` emits compact agent JSON with:
 
 - `query`
-- `normalizedQuery`
 - `app`
-- `guidance`
 - `owner`
+- `instructions.mustRead`
+- `instructions.readWhen`
 - `connected`
-- `nextSteps`
+- `nextActions`
 - `warnings`
 
-`proteum explain --json` emits the selected manifest sections as machine-readable JSON.
+`proteum orient --full` emits the full orientation payload.
 
-`proteum explain owner <query> --json` keeps the existing owner ranking shape and adds:
+`proteum explain` emits a compact manifest summary. `proteum explain --manifest` emits the full generated manifest, and explicit section flags such as `--routes --controllers` emit those sections.
+
+`proteum explain owner <query>` emits compact owner ranking. `proteum explain owner <query> --full` keeps the existing full owner ranking shape and adds:
 
 - `scopeLabel`
 - `originHint`
 
-`proteum doctor --json` emits:
+`proteum doctor` emits compact diagnostics. `proteum doctor --full` emits:
 
 - `summary.errors`
 - `summary.warnings`
 - `summary.strictFailed`
 - `diagnostics`
 
-`proteum diagnose` emits a composite response with:
+`proteum runtime status` emits the current app manifest summary, tracked dev sessions, selected live session, health status, and a suggested next command. Use it before starting another dev server.
+
+`proteum diagnose` emits a compact composite response with:
 
 - `owner`
-- `orientation`
+- `instructions`
 - `chain`
 - `doctor`
 - `contracts`
 - `request`
-- `attribution`
 - `suspects`
 - `serverLogs`
+
+`proteum diagnose --full` emits the full lower-level composite response, including raw request trace payloads.
 
 `proteum verify owner|request|browser --json` emits:
 
@@ -114,6 +137,8 @@ proteum perf memory --since 1h --group-by controller
 - `request`: one traced request waterfall with stage timings, CPU, SQL, render, self time, payload sizes, chain attribution, and SQL fingerprints
 - `compare`: grouped baseline vs target deltas
 - `memory`: grouped heap and RSS drift summaries
+
+`proteum trace latest` and `proteum trace show <requestId>` emit compact trace summaries by default. Use `--events` or `--full` to print the raw event stream, payload summaries, and SQL text.
 
 Focused verification defaults to the smallest trustworthy surface first:
 
@@ -207,12 +232,13 @@ Treat these as framework contract failures first. The fix usually belongs at the
 
 For AI coding agents or automation:
 
-1. Start with `proteum orient <query>` when the target might be generated, connected, framework-owned, or multi-repo.
-2. Read `./.proteum/manifest.json` or run `proteum explain --json` only after you know which surface matters.
-3. Run `proteum doctor --json` and `proteum doctor --contracts --json` to inspect framework and generated-artifact diagnostics.
-4. Use `proteum verify owner <query>` or `proteum diagnose <path> --port <port>` for the smallest trustworthy runtime surface before broad checks.
-5. Use `proteum verify browser` for browser-visible verification, or `proteum e2e --port <port>` for targeted/full Playwright suites. Only drop to direct Playwright when the Proteum wrapper cannot express the needed control. Keep auth sourced from Proteum session helpers, and reserve browser flows for the final verifier agent unless they are the only trustworthy surface.
-6. For performance, CPU, SQL, render, cache, or connected-boundary questions, use `proteum perf request <requestId|path>` against the same running dev server.
-7. Use `proteum trace ...` when you need lower-level event detail than `diagnose` or `perf` provides.
-8. Run global checks second, not first. Unrelated diagnostics should remain visible but non-blocking during focused verification unless strict global mode is required.
-9. Open the profiler only when a human-readable view helps; it should agree with the CLI after refresh.
+1. Start with `proteum orient <query>` when the target might be generated, connected, framework-owned, multi-repo, or instruction-ambiguous.
+2. Read only `instructions.mustRead` from the compact orient response, plus conditional docs that match the task.
+3. Run `proteum runtime status` before starting another dev server.
+4. Use `proteum diagnose <path> --port <port>` or `proteum verify owner <query>` for the smallest trustworthy runtime surface before broad checks.
+5. Use `proteum perf request <requestId|path>` for performance, CPU, SQL, render, cache, or connected-boundary questions.
+6. Use `proteum trace show <requestId> --events` only when compact diagnose, perf, or trace output says lower-level event detail is needed.
+7. Use `proteum explain --manifest` or read `./.proteum/manifest.json` only when compact `orient`/`explain` cannot answer the specific manifest question.
+8. Use `proteum verify browser` for browser-visible verification, or `proteum e2e --port <port>` for targeted/full Playwright suites. Keep auth sourced from Proteum session helpers.
+9. Run global checks second, not first. Unrelated diagnostics should remain visible but non-blocking during focused verification unless strict global mode is required.
+10. Open the profiler only when a human-readable view helps; it should agree with the CLI after refresh.

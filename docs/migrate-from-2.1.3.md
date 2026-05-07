@@ -307,13 +307,17 @@ This is usually only needed for workspace or hoisted installs. Standalone apps w
 
 These are worth updating even though they are not core app-code migrations.
 
-### Use `--json` for automation
+### Use compact CLI output for automation
 
-Only bare `proteum build` and bare `proteum dev` runs print a banner. For scripts, CI helpers, or editor tooling, prefer:
+Only bare `proteum build` and bare `proteum dev` runs print a banner. Other CLI diagnostics are optimized for agents and return compact machine-readable output by default. For scripts, CI helpers, or editor tooling, prefer:
 
-- `npx proteum explain --json`
-- `npx proteum doctor --json`
-- `npx proteum connect --json`
+- `npx proteum orient <query>`
+- `npx proteum runtime status`
+- `npx proteum explain`
+- `npx proteum doctor`
+- `npx proteum connect`
+
+Use `npx proteum explain --manifest`, `npx proteum diagnose <target> --full`, or `npx proteum trace show <requestId> --events` only when the compact output is insufficient.
 
 ### Use tracked dev sessions
 
@@ -331,6 +335,7 @@ These are new capabilities, not migration requirements, but they are the fastest
 
 - `npx proteum connect --strict`
 - `npx proteum explain --connected --controllers`
+- `npx proteum runtime status`
 - `npx proteum diagnose / --port <port>`
 - `npx proteum perf top --port <port>`
 - `npx proteum trace latest --port <port>`
@@ -370,6 +375,7 @@ Then boot the app and verify the live runtime:
 
 ```bash
 npx proteum dev --port 3010
+npx proteum runtime status
 npx proteum diagnose / --port 3010
 npx proteum trace latest --port 3010
 ```

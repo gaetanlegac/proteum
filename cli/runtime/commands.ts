@@ -324,14 +324,16 @@ class ConnectCommand extends ProteumCommand {
     public controllers = Option.Boolean('--controllers', false, {
         description: 'Include imported connected controllers in the output.',
     });
-    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public json = Option.Boolean('--json', false, { description: 'Compatibility flag; compact JSON is the default output.' });
+    public full = Option.Boolean('--full', false, { description: 'Print the full connect payload.' });
+    public human = Option.Boolean('--human', false, { description: 'Print the legacy human-readable report.' });
     public strict = Option.Boolean('--strict', false, { description: 'Exit with failure if any connect diagnostics exist.' });
     public legacyArgs = Option.Rest();
 
     public async execute() {
-        const args = { controllers: this.controllers, json: this.json, strict: this.strict } satisfies TArgsObject;
+        const args = { controllers: this.controllers, full: this.full, human: this.human, json: this.json, strict: this.strict } satisfies TArgsObject;
 
-        applyLegacyBooleanArgs('connect', this.legacyArgs, ['controllers', 'json', 'strict'], args);
+        applyLegacyBooleanArgs('connect', this.legacyArgs, ['controllers', 'full', 'human', 'json', 'strict'], args);
         this.setCliArgs(args);
         await runCommandModule(() => import('../commands/connect'));
     }
@@ -345,14 +347,16 @@ class DoctorCommand extends ProteumCommand {
     public contracts = Option.Boolean('--contracts', false, {
         description: 'Run contract-focused diagnostics for generated artifacts and manifest-owned source files.',
     });
-    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public json = Option.Boolean('--json', false, { description: 'Compatibility flag; compact JSON is the default output.' });
+    public full = Option.Boolean('--full', false, { description: 'Print the full doctor payload.' });
+    public human = Option.Boolean('--human', false, { description: 'Print the legacy human-readable report.' });
     public strict = Option.Boolean('--strict', false, { description: 'Exit with failure if any diagnostics exist.' });
     public legacyArgs = Option.Rest();
 
     public async execute() {
-        const args = { contracts: this.contracts, json: this.json, strict: this.strict } satisfies TArgsObject;
+        const args = { contracts: this.contracts, full: this.full, human: this.human, json: this.json, strict: this.strict } satisfies TArgsObject;
 
-        applyLegacyBooleanArgs('doctor', this.legacyArgs, ['contracts', 'json', 'strict'], args);
+        applyLegacyBooleanArgs('doctor', this.legacyArgs, ['contracts', 'full', 'human', 'json', 'strict'], args);
         this.setCliArgs(args);
         await runCommandModule(() => import('../commands/doctor'));
     }
@@ -363,7 +367,10 @@ class ExplainCommand extends ProteumCommand {
 
     public static usage = buildUsage('explain');
 
-    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public json = Option.Boolean('--json', false, { description: 'Compatibility flag; compact JSON is the default output.' });
+    public full = Option.Boolean('--full', false, { description: 'Print the full selected machine-readable detail.' });
+    public human = Option.Boolean('--human', false, { description: 'Print the legacy human-readable report.' });
+    public manifest = Option.Boolean('--manifest', false, { description: 'Print the full generated manifest.' });
     public all = Option.Boolean('--all', false, { description: 'Include every explain section.' });
     public app = Option.Boolean('--app', false, { description: 'Include the app section.' });
     public conventions = Option.Boolean('--conventions', false, { description: 'Include the conventions section.' });
@@ -384,6 +391,9 @@ class ExplainCommand extends ProteumCommand {
         if (mode === 'owner') {
             this.setCliArgs({
                 json: this.json,
+                full: this.full,
+                human: this.human,
+                manifest: this.manifest,
                 ownerQuery: restArgs.join(' ').trim(),
             });
             await runCommandModule(() => import('../commands/explain'));
@@ -392,6 +402,9 @@ class ExplainCommand extends ProteumCommand {
 
         const args = {
             json: this.json,
+            full: this.full,
+            human: this.human,
+            manifest: this.manifest,
             all: this.all,
             app: this.app,
             conventions: this.conventions,
@@ -408,7 +421,7 @@ class ExplainCommand extends ProteumCommand {
         applyLegacyBooleanArgs(
             'explain',
             this.args,
-            ['json', 'all', 'app', 'conventions', 'env', 'connected', 'services', 'controllers', 'commands', 'routes', 'layouts', 'diagnostics'],
+            ['json', 'full', 'human', 'manifest', 'all', 'app', 'conventions', 'env', 'connected', 'services', 'controllers', 'commands', 'routes', 'layouts', 'diagnostics'],
             args,
         );
         this.setCliArgs(args);
@@ -423,7 +436,9 @@ class OrientCommand extends ProteumCommand {
 
     public port = Option.String('--port', { description: 'Target an existing dev server on the given port.' });
     public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL.' });
-    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public json = Option.Boolean('--json', false, { description: 'Compatibility flag; compact JSON is the default output.' });
+    public full = Option.Boolean('--full', false, { description: 'Print the full orientation payload.' });
+    public human = Option.Boolean('--human', false, { description: 'Print the legacy human-readable report.' });
     public args = Option.Rest();
 
     public async execute() {
@@ -431,6 +446,8 @@ class OrientCommand extends ProteumCommand {
 
         this.setCliArgs({
             json: this.json,
+            full: this.full,
+            human: this.human,
             port: this.port ?? '',
             query,
             url: this.url ?? '',
@@ -447,7 +464,10 @@ class TraceCommand extends ProteumCommand {
 
     public port = Option.String('--port', { description: 'Override the router port used to query the running dev server.' });
     public url = Option.String('--url', { description: 'Override the full base URL used to query the running dev server.' });
-    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public json = Option.Boolean('--json', false, { description: 'Compatibility flag; compact JSON is the default output.' });
+    public full = Option.Boolean('--full', false, { description: 'Print the full trace response.' });
+    public events = Option.Boolean('--events', false, { description: 'Include full event, call, SQL, and payload detail.' });
+    public human = Option.Boolean('--human', false, { description: 'Print the legacy human-readable trace report.' });
     public capture = Option.String('--capture', { description: 'Capture mode used by `proteum trace arm`.' });
     public output = Option.String('--output', { description: 'Output filepath used by `proteum trace export`.' });
     public args = Option.Rest();
@@ -461,6 +481,9 @@ class TraceCommand extends ProteumCommand {
             port: this.port ?? '',
             url: this.url ?? '',
             json: this.json,
+            full: this.full,
+            events: this.events,
+            human: this.human,
             capture: this.capture ?? '',
             output: this.output ?? '',
         });
@@ -526,7 +549,9 @@ class DiagnoseCommand extends ProteumCommand {
 
     public port = Option.String('--port', { description: 'Target an existing dev server on the given port.' });
     public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL.' });
-    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public json = Option.Boolean('--json', false, { description: 'Compatibility flag; compact JSON is the default output.' });
+    public full = Option.Boolean('--full', false, { description: 'Print the full diagnose payload.' });
+    public human = Option.Boolean('--human', false, { description: 'Print the legacy human-readable report.' });
     public hit = Option.String('--hit', { description: 'Issue one HTTP request before diagnosing. Defaults to the target path when it starts with /.' });
     public method = Option.String('--method', { description: 'HTTP method used with `--hit`.' });
     public dataJson = Option.String('--data-json', { description: 'JSON request body used with `--hit`.' });
@@ -547,6 +572,8 @@ class DiagnoseCommand extends ProteumCommand {
             dataJson: this.dataJson ?? '',
             hit: this.hit ?? '',
             json: this.json,
+            full: this.full,
+            human: this.human,
             logsLevel: this.logsLevel ?? '',
             logsLimit: this.logsLimit ?? '',
             method: this.method ?? '',
@@ -568,7 +595,9 @@ class PerfCommand extends ProteumCommand {
 
     public port = Option.String('--port', { description: 'Target an existing dev server on the given port.' });
     public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL.' });
-    public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
+    public json = Option.Boolean('--json', false, { description: 'Compatibility flag; compact JSON is the default output.' });
+    public full = Option.Boolean('--full', false, { description: 'Print the full perf payload.' });
+    public human = Option.Boolean('--human', false, { description: 'Print the legacy human-readable report.' });
     public since = Option.String('--since', { description: 'Window used by `top` and `memory`, for example `today`, `yesterday`, or `1h`.' });
     public baseline = Option.String('--baseline', { description: 'Baseline window used by `compare`.' });
     public target = Option.String('--target', { description: 'Target window used by `compare`.' });
@@ -584,6 +613,8 @@ class PerfCommand extends ProteumCommand {
             baseline: this.baseline ?? '',
             groupBy: this.groupBy ?? '',
             json: this.json,
+            full: this.full,
+            human: this.human,
             limit: this.limit ?? '',
             port: this.port ?? '',
             since: this.since ?? '',
@@ -593,6 +624,30 @@ class PerfCommand extends ProteumCommand {
         });
 
         await runCommandModule(() => import('../commands/perf'));
+    }
+}
+
+class RuntimeCommand extends ProteumCommand {
+    public static paths = [['runtime']];
+
+    public static usage = buildUsage('runtime');
+
+    public full = Option.Boolean('--full', false, { description: 'Print full tracked-session and health detail.' });
+    public sessionFile = Option.String('--session-file', {
+        description: 'Inspect one explicit dev session file instead of the app registry.',
+    });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [action = 'status'] = this.args;
+
+        this.setCliArgs({
+            action,
+            full: this.full,
+            sessionFile: this.sessionFile ?? '',
+        });
+
+        await runCommandModule(() => import('../commands/runtime'));
     }
 }
 
@@ -672,6 +727,7 @@ export const registeredCommands = {
     orient: OrientCommand,
     diagnose: DiagnoseCommand,
     perf: PerfCommand,
+    runtime: RuntimeCommand,
     trace: TraceCommand,
     command: CommandCommand,
     session: SessionCommand,
@@ -705,6 +761,7 @@ export const createCli = (version: string) => {
     clipanion.register(OrientCommand);
     clipanion.register(DiagnoseCommand);
     clipanion.register(PerfCommand);
+    clipanion.register(RuntimeCommand);
     clipanion.register(TraceCommand);
     clipanion.register(CommandCommand);
     clipanion.register(SessionCommand);
