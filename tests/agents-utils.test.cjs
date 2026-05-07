@@ -25,6 +25,11 @@ const createCoreFixture = () => {
     writeFile(path.join(agentsRoot, 'AGENTS.md'), '# Root Contract\n\n- Root rule\n');
     writeFile(path.join(agentsRoot, 'CODING_STYLE.md'), '# Coding Style\n\n- Style rule\n');
     writeFile(path.join(agentsRoot, 'client', 'AGENTS.md'), '# Client Rules\n\n- Client rule\n');
+    writeFile(path.join(agentsRoot, 'tests', 'e2e', 'AGENTS.md'), '# E2E Rules\n\n- E2E rule\n');
+    writeFile(
+        path.join(agentsRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'),
+        '# Real World Journey Tests\n\n- Journey rule\n',
+    );
 
     return root;
 };
@@ -67,6 +72,10 @@ test('standalone configure creates tracked instruction files with embedded corpu
     assert.match(agentsContent, /## Root Contract/);
     assert.match(agentsContent, /## Source: CODING_STYLE\.md/);
     assert.match(codingStyleContent, /## Source: client\/AGENTS\.md/);
+    assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'AGENTS.md')), true);
+    assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md')), true);
+    assert.match(fs.readFileSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /Journey rule/);
+    assert.doesNotMatch(fs.readFileSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
     assert.doesNotMatch(agentsContent, /Before reading or applying instructions from this file/);
     assert.doesNotMatch(gitignoreContent, /Proteum-managed instruction files/);
     assert.doesNotMatch(gitignoreContent, /^\/AGENTS\.md$/m);
@@ -169,6 +178,10 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'CODING_STYLE.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'diagnostics.md'), 'utf8'), /## Source: AGENTS\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'optimizations.md'), 'utf8'), /## Source: AGENTS\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'AGENTS.md'), 'utf8'), /## Source: AGENTS\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: tests\/e2e\/REAL_WORLD_JOURNEY_TESTS\.md/);
+    assert.doesNotMatch(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
+    assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'AGENTS.md')), false);
     assert.match(fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8'), /## Source: client\/AGENTS\.md/);
     assert.equal(fs.existsSync(path.join(appRoot, 'CODING_STYLE.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'diagnostics.md')), false);

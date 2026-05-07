@@ -23,3 +23,9 @@ Diagnostics source of truth: root-level `diagnostics.md`.
 - Keep end-to-end tests clean, well organized, and non-redundant. Prefer extending or reshaping the most relevant existing scenario over duplicating coverage, and remove or consolidate overlap when the suite becomes repetitive.
 - Reuse root catalog files from `/client/catalogs/**`, `/server/catalogs/**`, or `/common/catalogs/**` instead of duplicating catalog constants in tests.
 - For protected dev flows, prefer `npx proteum e2e --session-email <email> --session-role <role>` or `npx proteum session <email> --role <role>` over automating login unless the login flow itself is under test.
+
+### Real-World Journey E2E
+
+End-to-end tests must follow the workflow in `tests/e2e/REAL_WORLD_JOURNEY_TESTS.md`.
+
+Use E2E journeys for complete role-based flows, permissions, state transitions, derived metrics, filters, detail/edit surfaces, and cross-role visibility. Avoid replacing those journeys with isolated happy-path smoke checks when the feature has real workflow depth.

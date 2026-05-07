@@ -23,6 +23,7 @@ type TConfigureProjectAgentInstructionsArgs = {
 type TAgentInstructionDefinition = {
     projectPath: string;
     ensureParentDir?: boolean;
+    content?: 'embedded' | 'source';
 };
 
 type TEnsureInstructionFilesResult = {
@@ -65,28 +66,34 @@ const sharedRootDocumentInstructionDefinitions: TAgentInstructionDefinition[] = 
     { projectPath: 'optimizations.md' },
 ];
 
-const sharedAreaAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
+const sharedAppAreaAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: path.join('client', 'AGENTS.md') },
     { projectPath: path.join('client', 'pages', 'AGENTS.md') },
     { projectPath: path.join('server', 'services', 'AGENTS.md') },
     { projectPath: path.join('server', 'routes', 'AGENTS.md') },
-    { projectPath: path.join('tests', 'e2e', 'AGENTS.md') },
+];
+
+const sharedE2eAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
+    { projectPath: path.join('tests', 'e2e', 'AGENTS.md'), ensureParentDir: true },
+    { projectPath: path.join('tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), ensureParentDir: true, content: 'source' },
 ];
 
 const standaloneAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'AGENTS.md' },
     ...sharedRootDocumentInstructionDefinitions,
-    ...sharedAreaAgentInstructionDefinitions,
+    ...sharedAppAreaAgentInstructionDefinitions,
+    ...sharedE2eAgentInstructionDefinitions,
 ];
 
 const monorepoAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'AGENTS.md' },
-    ...sharedAreaAgentInstructionDefinitions,
+    ...sharedAppAreaAgentInstructionDefinitions,
 ];
 
 const monorepoRootAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'AGENTS.md' },
     ...sharedRootDocumentInstructionDefinitions,
+    ...sharedE2eAgentInstructionDefinitions,
 ];
 
 const legacyProjectInstructionGitignoreBlockStart = '# Proteum-managed instruction symlinks';
@@ -163,7 +170,7 @@ export function configureProjectAgentInstructions({
     if (mode === 'monorepo') {
         const retiredAppRootFiles = removeManagedInstructionFiles(
             normalizedAppRoot,
-            sharedRootDocumentInstructionDefinitions,
+            [...sharedRootDocumentInstructionDefinitions, ...sharedE2eAgentInstructionDefinitions],
             '[agents]',
             path.join(coreRoot, 'agents', 'project'),
             {
@@ -174,7 +181,9 @@ export function configureProjectAgentInstructions({
     }
 
     const appGitignoreCleanupInstructions =
-        mode === 'monorepo' ? [...appInstructions, ...sharedRootDocumentInstructionDefinitions] : appInstructions;
+        mode === 'monorepo'
+            ? [...appInstructions, ...sharedRootDocumentInstructionDefinitions, ...sharedE2eAgentInstructionDefinitions]
+            : appInstructions;
 
     if (
         !dryRun &&
@@ -299,13 +308,21 @@ function ensureInstructionFiles(
             continue;
         }
 
+        const instructionContent = renderProjectInstructionContent({
+            instructionDefinition,
+            managedSourceRoot,
+            managedSectionContent,
+        });
         const existingState = inspectExistingPath({
             managedSourceRoot,
             projectFilepath,
         });
 
         if (existingState.kind === 'file') {
-            const nextContent = upsertManagedInstructionSection(existingState.content, managedSectionContent);
+            const nextContent =
+                instructionDefinition.content === 'source'
+                    ? instructionContent
+                    : upsertManagedInstructionSection(existingState.content, instructionContent);
             if (nextContent === existingState.content) {
                 result.skipped.push(relativeProjectPath);
                 continue;
@@ -320,7 +337,7 @@ function ensureInstructionFiles(
         if (existingState.kind === 'managed-different') {
             if (!dryRun) {
                 fs.removeSync(projectFilepath);
-                fs.writeFileSync(projectFilepath, managedSectionContent);
+                fs.writeFileSync(projectFilepath, instructionContent);
             }
             result.updated.push(relativeProjectPath);
             logVerbose(`${logPrefix} Updated ${relativeProjectPath}`);
@@ -336,14 +353,14 @@ function ensureInstructionFiles(
         if (existingState.kind === 'blocked') {
             if (!dryRun) {
                 fs.removeSync(projectFilepath);
-                fs.writeFileSync(projectFilepath, managedSectionContent);
+                fs.writeFileSync(projectFilepath, instructionContent);
             }
             result.overwritten.push(relativeProjectPath);
             logVerbose(`${logPrefix} Replaced ${relativeProjectPath}`);
             continue;
         }
 
-        if (!dryRun) fs.writeFileSync(projectFilepath, managedSectionContent);
+        if (!dryRun) fs.writeFileSync(projectFilepath, instructionContent);
         result.created.push(relativeProjectPath);
         logVerbose(`${logPrefix} Created ${relativeProjectPath}`);
     }
@@ -480,6 +497,51 @@ function mergeInstructionResults(
     result.updated.push(...next.updated.map((entry) => formatResultPath(rootDir, entry)));
     result.skipped.push(...next.skipped.map((entry) => formatResultPath(rootDir, entry)));
     result.blocked.push(...next.blocked.map((entry) => formatResultPath(rootDir, entry)));
+}
+
+function renderProjectInstructionContent({
+    instructionDefinition,
+    managedSourceRoot,
+    managedSectionContent,
+}: {
+    instructionDefinition: TAgentInstructionDefinition;
+    managedSourceRoot: string;
+    managedSectionContent: string;
+}) {
+    if (instructionDefinition.content !== 'source') return managedSectionContent;
+
+    return renderSingleProjectInstruction({
+        managedSourceRoot,
+        projectPath: instructionDefinition.projectPath,
+    });
+}
+
+function renderSingleProjectInstruction({
+    managedSourceRoot,
+    projectPath,
+}: {
+    managedSourceRoot: string;
+    projectPath: string;
+}) {
+    const sourceFilepath = path.join(managedSourceRoot, projectPath);
+    if (!fs.existsSync(sourceFilepath)) throw new Error(`Missing project instruction source file: ${sourceFilepath}`);
+
+    const content = fs.readFileSync(sourceFilepath, 'utf8');
+    const demotedContent = demoteMarkdownHeadings(content).trim();
+    const lines = [
+        managedInstructionSectionHeader,
+        managedInstructionSectionStart,
+        '',
+        managedInstructionSectionIntro,
+        '',
+        `## Source: ${normalizeProjectPathForGitignore(projectPath)}`,
+        '',
+    ];
+
+    if (demotedContent) lines.push(demotedContent, '');
+    lines.push(managedInstructionSectionEnd, '');
+
+    return lines.join('\n');
 }
 
 function renderEmbeddedProjectInstructions({ coreRoot }: TProjectInstructionArgs) {

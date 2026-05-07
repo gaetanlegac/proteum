@@ -306,3 +306,32 @@ Edit these only when required, and keep changes minimal and explicit:
 - `PORT`, `ENV_*`, `URL`, `TRACE_*`, and `ENABLE_PROFILER` env setup
 - Prisma-generated files
 - symbolic links
+
+## Delivery Workflow
+
+Agents working in generated Proteum projects must use this delivery workflow for production code changes:
+
+1. BDD / ATDD: translate the requested behavior into acceptance scenarios before changing implementation code.
+2. TDD: write or update the smallest failing unit/integration test that proves the next behavior.
+3. Implementation: make the narrowest production change that satisfies the failing test while preserving Proteum boundaries.
+4. Proteum check: refresh and validate generated framework contracts after route, page, controller, service, command, or config changes.
+5. Validate unit + E2E: run the relevant unit tests and real-world journey E2E checks before calling the work complete.
+
+Unit test expectation: production package and service logic should target 100% meaningful unit coverage for touched behavior. Any excluded generated files, migrations, framework shims, or unreachable defensive branches must be documented in the completion note.
+
+E2E expectation: real-world journeys must follow the project-local instructions in `tests/e2e/REAL_WORLD_JOURNEY_TESTS.md`. These tests should model complete user workflows, role transitions, permissions, state changes, and cross-view consistency rather than isolated happy paths.
+
+Recommended validation sequence:
+
+```bash
+npm run refresh
+npm run typecheck
+npm run lint
+npm run test
+npm run test:integration
+npx proteum check
+npx proteum doctor --contracts --strict
+npx proteum e2e --port <port>
+```
+
+When bundling, SSR, server startup, routing, or build-time behavior changes, also run the project build command before finishing.
