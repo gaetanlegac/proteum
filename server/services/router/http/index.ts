@@ -40,6 +40,11 @@ import { profilerTraceRequestIdHeader } from '@common/dev/profiler';
 
 // Middlewaees (core)
 import { isMutipart, MiddlewareFormData } from './multipart';
+import {
+    resolveHttpCacheConfig,
+    resolvePublicAssetCacheControl,
+    type THttpCacheConfig,
+} from './cache';
 
 /*----------------------------------
 - CONFIG
@@ -58,11 +63,14 @@ export type Config = {
         maxSize: string; // Expression package bytes
     };
     csp: { default?: string[]; styles?: string[]; images?: string[]; scripts: string[] };
+    cache?: THttpCacheConfig;
     cors?: CorsOptions;
     helmet?: Parameters<typeof helmet>[0];
 };
 
 export type Hooks = {};
+
+export { resolveHttpCacheConfig, type THttpCacheConfig } from './cache';
 
 type TContentSecurityPolicyOptions = NonNullable<Parameters<typeof helmet.contentSecurityPolicy>[0]>;
 type TContentSecurityPolicyDirectives = NonNullable<TContentSecurityPolicyOptions['directives']>;
@@ -94,37 +102,9 @@ const createContentSecurityPolicy = (config: Config['csp']): TContentSecurityPol
     };
 };
 
-const immutablePublicAssetCacheControl = 'public, max-age=31536000, immutable';
-const devPublicAssetCacheControl = 'no-store';
-const revalidatedPublicAssetCacheControl = 'public, max-age=0, must-revalidate';
-const hashedPublicAssetPattern = /(^|[-_.])[a-f0-9]{6,}(?=(\.[^.]+)+$)/i;
 const connectedProjectBootRetryCount = 10;
 const connectedProjectBootRetryDelayMs = 5_000;
 
-const isVersionedPublicAssetRequest = (res: undefined | express.Response | http.ServerResponse, filePath: string) => {
-    const request =
-        res && typeof res === 'object' && 'req' in res
-            ? ((res as express.Response | (http.ServerResponse & { req?: express.Request })).req ?? undefined)
-            : undefined;
-    const requestUrl = request?.originalUrl || request?.url || '';
-    const searchParams = new URL(requestUrl, 'http://proteum.local').searchParams;
-    if (searchParams.has('v')) return true;
-
-    return hashedPublicAssetPattern.test(path.basename(filePath));
-};
-
-const resolvePublicAssetCacheControl = ({
-    res,
-    filePath,
-    profile,
-}: {
-    res: undefined | express.Response | http.ServerResponse;
-    filePath: string;
-    profile: string;
-}) => {
-    if (profile === 'dev') return devPublicAssetCacheControl;
-    return isVersionedPublicAssetRequest(res, filePath) ? immutablePublicAssetCacheControl : revalidatedPublicAssetCacheControl;
-};
 const wait = async (durationMs: number) =>
     await new Promise<void>((resolve) => {
         setTimeout(resolve, durationMs);
@@ -406,20 +386,22 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         // Normalement, seulement utile pour le mode production,
         // Quand mode debug, les ressources client semblent servies par le dev middlewae
         // Sauf que les ressources serveur ne semblent pas trouvées par le dev-middleware
-        const disablePublicAssetCaching = this.app.env.profile === 'dev';
+        const publicAssetCache = resolveHttpCacheConfig(this.config.cache).publicAssets;
+        const defaultPublicAssetValidators = this.app.env.profile !== 'dev';
+        const publicAssetEtag = publicAssetCache.etag ?? defaultPublicAssetValidators;
+        const publicAssetLastModified = publicAssetCache.lastModified ?? defaultPublicAssetValidators;
+
         routes.use(compression());
         routes.use('/public', cors());
         routes.use(
             '/public',
             express.static(path.join(Container.path.root, APP_OUTPUT_DIR, 'public'), {
                 dotfiles: 'deny',
-                etag: !disablePublicAssetCaching,
-                lastModified: !disablePublicAssetCaching,
+                etag: publicAssetEtag,
+                lastModified: publicAssetLastModified,
                 setHeaders: (res, filePath) => {
-                    if (disablePublicAssetCaching) {
-                        res.removeHeader('ETag');
-                        res.removeHeader('Last-Modified');
-                    }
+                    if (!publicAssetEtag) res.removeHeader('ETag');
+                    if (!publicAssetLastModified) res.removeHeader('Last-Modified');
 
                     res.setHeader(
                         'Cache-Control',
@@ -427,6 +409,7 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
                             res,
                             filePath,
                             profile: this.app.env.profile,
+                            cache: publicAssetCache,
                         }),
                     );
                 },

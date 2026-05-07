@@ -192,6 +192,42 @@ export default class MyApp extends Application {
 
 Proteum reads `server/index.ts` as the source of truth for installed root services and router plugins, and reads `server/config/*.ts` `Services.config(...)` exports for typed config such as service priority overrides.
 
+## Router Cache Policy
+
+Browser cache headers are configurable per app through the optional `routerBaseConfig.http.cache` object. Omit it to keep Proteum's defaults.
+
+```ts
+export const routerBaseConfig = {
+  currentDomain: AppContainer.Environment.router.currentDomain,
+  http: {
+    domain: 'example.com',
+    port: AppContainer.Environment.router.port,
+    ssl: true,
+    upload: { maxSize: '10mb' },
+    cache: {
+      html: {
+        dynamic: {
+          cacheControl: 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          surrogateControl: 'no-store',
+        },
+        static: {
+          cacheControl: 'public, max-age=0, must-revalidate',
+          surrogateControl: false,
+        },
+      },
+      publicAssets: {
+        dev: 'no-store',
+        versioned: 'public, max-age=31536000, immutable',
+        unversioned: 'public, max-age=0, must-revalidate',
+      },
+    },
+  },
+  context: () => ({}),
+} satisfies RouterBaseConfig;
+```
+
+Default public asset validators depend on the environment: dev disables `ETag` and `Last-Modified`, while non-dev enables them. Use `etag: false` and `lastModified: false` when an app needs to fully disable browser cache for `/public` assets.
+
 ## Example: Page
 
 Proteum pages are explicit SSR entrypoints.

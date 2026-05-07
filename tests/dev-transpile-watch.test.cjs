@@ -65,6 +65,33 @@ const findAssetContaining = (appRoot, extension, marker) => {
     return candidates.find((filepath) => fs.readFileSync(filepath, 'utf8').includes(marker));
 };
 
+const toPublicAssetUrl = (appRoot, filepath) => {
+    const publicRoot = path.join(appRoot, 'dev', 'public');
+    const relativePath = path.relative(publicRoot, filepath).split(path.sep).join('/');
+
+    return `/public/${relativePath}`;
+};
+
+const request = async (port, urlPath, headers = {}) => {
+    const response = await fetch(`http://127.0.0.1:${port}${urlPath}`, { headers });
+    const body = await response.text();
+
+    return { response, body };
+};
+
+const waitForHeader = async (port, urlPath, headerName, expectedValue, timeoutMs = 60000) => {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+        const { response } = await request(port, urlPath, { Accept: 'text/html' });
+        if (response.headers.get(headerName) === expectedValue) return response;
+
+        await sleep(250);
+    }
+
+    throw new Error(`Timed out waiting for ${urlPath} header ${headerName}=${expectedValue}.`);
+};
+
 const waitForAssetContaining = async (appRoot, extension, marker, timeoutMs = 60000) => {
     const deadline = Date.now() + timeoutMs;
 
@@ -172,9 +199,10 @@ const createSharedStyleSource = (marker) => `.shared-style-marker {
 }
 `;
 
-const createFixture = (root, port) => {
+const createFixture = (root, port, options = {}) => {
     const appRoot = path.join(root, 'app');
     const sharedRoot = path.join(root, 'shared');
+    const cacheConfigSource = options.routerCache ? `        cache: ${options.routerCache},\n` : '';
 
     fs.mkdirSync(path.join(appRoot, 'public'), { recursive: true });
     fs.mkdirSync(path.join(appRoot, 'client', 'assets', 'identity'), { recursive: true });
@@ -332,6 +360,7 @@ export const routerBaseConfig = {
         upload: {
             maxSize: '10mb',
         },
+${cacheConfigSource}
         csp: {
             scripts: [],
         },
@@ -403,6 +432,31 @@ Router.page(
 );
 `,
     );
+    if (options.staticPage) {
+        writeFile(
+            path.join(appRoot, 'client', 'pages', 'static-cache.tsx'),
+            `import Router from '@/client/router';
+import { SharedMarker } from '@test/shared';
+
+Router.page(
+    '/static-cache',
+    {
+        auth: false,
+        layout: false,
+        static: { urls: ['/static-cache'] },
+    },
+    null,
+    () => {
+        return (
+            <main>
+                <SharedMarker />
+            </main>
+        );
+    },
+);
+`,
+        );
+    }
 
     writeFile(
         path.join(sharedRoot, 'package.json'),
@@ -448,13 +502,8 @@ const stopDevServer = async (child) => {
     });
 };
 
-test('proteum dev invalidates client assets and reloads for transpiled package scripts and styles', { timeout: 180000 }, async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-transpile-watch-'));
-    const port = await resolvePortPair();
-    const { appRoot, sharedRoot } = createFixture(root, port);
-    const sessionFile = path.join(appRoot, 'var', 'run', 'proteum', 'dev', 'transpile-watch-test.json');
+const startDevServer = (appRoot, port, sessionFile) => {
     let output = '';
-
     const child = spawn(
         process.execPath,
         [cliBin, 'dev', '--cwd', appRoot, '--port', String(port), '--session-file', sessionFile, '--no-cache', '--verbose'],
@@ -476,8 +525,21 @@ test('proteum dev invalidates client assets and reloads for transpiled package s
         output += chunk.toString();
     });
 
+    return {
+        child,
+        getOutput: () => output,
+    };
+};
+
+test('proteum dev invalidates client assets and reloads for transpiled package scripts and styles', { timeout: 180000 }, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-transpile-watch-'));
+    const port = await resolvePortPair();
+    const { appRoot, sharedRoot } = createFixture(root, port);
+    const sessionFile = path.join(appRoot, 'var', 'run', 'proteum', 'dev', 'transpile-watch-test.json');
+    const { child, getOutput } = startDevServer(appRoot, port, sessionFile);
+
     try {
-        await waitForSessionReady(sessionFile, child, () => output);
+        await waitForSessionReady(sessionFile, child, getOutput);
 
         const initialScriptAsset = await waitForAssetContaining(appRoot, '.js', 'SCRIPT_MARKER_INITIAL');
         const initialScriptContent = fs.readFileSync(initialScriptAsset, 'utf8');
@@ -506,6 +568,53 @@ test('proteum dev invalidates client assets and reloads for transpiled package s
         assert.equal(updatedStyleAsset, initialStyleAsset);
         assert.notEqual(fs.readFileSync(updatedStyleAsset, 'utf8'), initialStyleContent);
         assert.equal(styleReloadEvent.type, 'reload');
+    } finally {
+        await stopDevServer(child);
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('proteum dev applies router HTTP cache config to HTML and public assets', { timeout: 180000 }, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-router-cache-'));
+    const port = await resolvePortPair();
+    const dynamicHtmlCacheControl = 'private, max-age=7';
+    const staticHtmlCacheControl = 'private, max-age=13';
+    const publicAssetCacheControl = 'private, max-age=17';
+    const { appRoot } = createFixture(root, port, {
+        staticPage: true,
+        routerCache: `{
+            html: {
+                dynamic: { cacheControl: '${dynamicHtmlCacheControl}', surrogateControl: 'dynamic-surrogate' },
+                static: { cacheControl: '${staticHtmlCacheControl}', surrogateControl: 'static-surrogate' },
+            },
+            publicAssets: {
+                dev: '${publicAssetCacheControl}',
+                versioned: '${publicAssetCacheControl}',
+                unversioned: '${publicAssetCacheControl}',
+                etag: false,
+                lastModified: false,
+            },
+        }`,
+    });
+    const sessionFile = path.join(appRoot, 'var', 'run', 'proteum', 'dev', 'router-cache-test.json');
+    const { child, getOutput } = startDevServer(appRoot, port, sessionFile);
+
+    try {
+        await waitForSessionReady(sessionFile, child, getOutput);
+
+        const { response: dynamicResponse } = await request(port, '/', { Accept: 'text/html' });
+        assert.equal(dynamicResponse.headers.get('cache-control'), dynamicHtmlCacheControl);
+        assert.equal(dynamicResponse.headers.get('surrogate-control'), 'dynamic-surrogate');
+
+        const staticResponse = await waitForHeader(port, '/static-cache', 'cache-control', staticHtmlCacheControl);
+        assert.equal(staticResponse.headers.get('surrogate-control'), 'static-surrogate');
+
+        const asset = await waitForAssetContaining(appRoot, '.js', 'SCRIPT_MARKER_INITIAL');
+        const { response: assetResponse } = await request(port, toPublicAssetUrl(appRoot, asset));
+
+        assert.equal(assetResponse.headers.get('cache-control'), publicAssetCacheControl);
+        assert.equal(assetResponse.headers.get('etag'), null);
+        assert.equal(assetResponse.headers.get('last-modified'), null);
     } finally {
         await stopDevServer(child);
         fs.rmSync(root, { recursive: true, force: true });

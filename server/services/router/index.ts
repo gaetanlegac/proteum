@@ -52,7 +52,7 @@ import { AnyRouterService } from './service';
 import ServerRequest from './request';
 import ServerResponse, { TRouterContext, TRouterContextServices } from './response';
 import Page from './response/page';
-import HTTP, { Config as HttpServiceConfig } from './http';
+import HTTP, { Config as HttpServiceConfig, resolveHttpCacheConfig } from './http';
 import DocumentRenderer from './response/page/document';
 import { loadGeneratedRuntimeBundle } from './generatedRuntime';
 
@@ -96,9 +96,6 @@ export type TRouteHttpMethod = HttpMethod | '*';
 export type TApiResponseData = { data: any; triggers?: { [cle: string]: any } };
 
 export type HttpHeaders = { [cle: string]: string };
-
-const dynamicHtmlCacheControl = 'no-store, no-cache, must-revalidate, proxy-revalidate';
-const staticHtmlCacheControl = 'public, max-age=0, must-revalidate';
 
 /*----------------------------------
 - SERVICE CONFIG
@@ -1136,15 +1133,15 @@ export default class ServerRouter<
     }
 
     private applyHtmlCacheHeaders(res: express.Response, isStaticHtml: boolean) {
-        if (isStaticHtml) {
+        const cache = resolveHttpCacheConfig(this.config.http.cache);
+        const htmlCache = isStaticHtml ? cache.html.static : cache.html.dynamic;
+
+        if (htmlCache.surrogateControl === false) {
             res.removeHeader('Surrogate-Control');
-            res.setHeader('Cache-Control', staticHtmlCacheControl);
-            return;
+        } else {
+            res.setHeader('Surrogate-Control', htmlCache.surrogateControl);
         }
 
-        // Don't cache dynamic HTML, because updated releases can change asset hashes.
-        // https://github.com/helmetjs/nocache/blob/main/index.ts
-        res.setHeader('Surrogate-Control', 'no-store');
-        res.setHeader('Cache-Control', dynamicHtmlCacheControl);
+        res.setHeader('Cache-Control', htmlCache.cacheControl);
     }
 }
