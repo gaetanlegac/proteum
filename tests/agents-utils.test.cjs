@@ -78,6 +78,10 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(agentsContent, /<!-- proteum-instructions:start -->/);
     assert.match(agentsContent, /## Agent Routing Contract/);
     assert.match(agentsContent, /npx proteum orient <query>/);
+    assert.match(agentsContent, /MCP `instructions_resolve`/);
+    assert.match(agentsContent, /\/__proteum\/mcp/);
+    assert.match(agentsContent, /proteum-mcp-v1/);
+    assert.match(agentsContent, /They are not deleted/);
     assert.doesNotMatch(agentsContent, /## Source: CODING_STYLE\.md/);
     assert.match(codingStyleContent, /## Source: CODING_STYLE\.md/);
     assert.match(codingStyleContent, /## Coding Style/);
