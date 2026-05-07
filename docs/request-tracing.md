@@ -33,12 +33,12 @@ proteum perf memory --since 1h --group-by controller
 
 Default trace output is compact `proteum-agent-v1` JSON with counts, failed calls, error events, hot calls, and hot SQL. Use `--events` or `--full` only when raw event details, payload summaries, or SQL text are needed.
 
-When an MCP client is available, use MCP `trace_latest`, `trace_show`, `perf_top`, and `perf_request` for repeated reads against the same running app. Keep the CLI commands for reproducible terminal evidence and final verification logs.
+When an MCP client is available, call `projects_list`, select the stable `projectId`, then use MCP `trace_latest`, `trace_show`, `perf_top`, and `perf_request` with that `projectId` for repeated reads against the same running app. Keep the CLI commands for reproducible terminal evidence and final verification logs.
 
 Before reproducing a bug or starting a new test pass:
 
 - run `proteum runtime status` to reuse a tracked dev session when possible
-- use MCP `runtime_status` for repeated status checks against the same running server
+- use MCP `runtime_status` with the selected `projectId` for repeated status checks against the same running server
 - if a server is already running, inspect `proteum trace requests`, `proteum trace latest`, and compact `proteum diagnose <path>` first so you can capture past errors without dumping raw events
 
 Typical debugging flow:

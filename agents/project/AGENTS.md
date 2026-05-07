@@ -24,8 +24,8 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
     - re-print the complete list of suggested fixes, but strike the ones we already implemented or not necessary anymore
 - If the user asks to implement a feature, first inspect the relevant existing surface and state any implementation problem, pain point, attention point, or question you see. If a concern is blocking, or it can materially change product behavior, API shape, architecture, data model, cost, privacy, security, or UX, ask before editing; otherwise state the assumption and continue implementing.
 - If the task is ambiguous, generated, connected, or multi-repo, start with `npx proteum orient <query>` before reading large parts of the codebase.
-- Treat Proteum CLI and MCP output as the workflow router. Read only the instruction files returned in `orient` `mustRead` or MCP `instructions_resolve`, plus conditional docs that match the current task. Do not read broad instruction folders or every managed instruction file up front.
-- When a Proteum MCP client is available, prefer read-only MCP tools for repeated runtime/status/orientation/trace/perf/log reads. Use CLI commands when you need reproducible terminal validation, dev/build/check workflows, or output to share with a human.
+- Treat Proteum CLI and MCP output as the workflow router. Read only the instruction files returned in `orient` `mustRead` or MCP `instructions_resolve { projectId }`, plus conditional docs that match the current task. Do not read broad instruction folders or every managed instruction file up front.
+- When a Proteum MCP client is available, first call MCP `projects_list`, select the stable `projectId` for this app, and pass that `projectId` to every app-bound MCP tool. `npx proteum dev` ensures one managed machine MCP daemon is running; do not start a second managed daemon. Prefer read-only MCP tools for repeated runtime/status/orientation/trace/perf/log reads. Use CLI commands when you need reproducible terminal validation, dev/build/check workflows, or output to share with a human.
 - MCP payloads are compact single-line `proteum-mcp-v1` JSON with capped and paginated detail. Do not expand MCP output for human readability.
 - For every non-trivial coding task, load and follow root-level `DOCUMENTATION.md` before coding.
 - If the user reports an issue, or the agent encounters one during exploration, implementation, verification, or runtime reproduction, load and follow root-level `diagnostics.md`.
@@ -61,6 +61,7 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 - After running `npx proteum create ...`, adapt the generated code to the real feature instead of leaving placeholder logic in place.
 - When starting a long-lived dev server for an agent task, always request elevated permissions and run `npx proteum dev` outside the sandbox. Use an explicit task/thread-scoped session file such as `var/run/proteum/dev/agents/<task>.json`, inspect `npx proteum dev list --json` plus current listeners first, for example with `lsof -nP -iTCP -sTCP:LISTEN`, then choose a port that is not currently used before starting `npx proteum dev --session-file <path> --port <port>`. After the server is ready, print the live server URL as a clickable Markdown link.
 - Use `--replace-existing` only when restarting the exact session file started by the current thread/task. Never replace another live session that belongs to a user, another thread, or an unknown owner.
+- Do not start a second `npx proteum dev` server in the same worktree, and do not start a second managed MCP daemon. If machine MCP routing fails, run `npx proteum mcp status` and `npx proteum runtime status`; if no live session exists, start `npx proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>`. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again. Then retry MCP `projects_list` and use the returned `projectId`.
 - If the current app depends on local `file:` connected projects, boot every connected producer app too, each with its own task-scoped session file and free port, and run every one of those `proteum dev` processes with elevated permissions outside the sandbox before starting or verifying the consumer app.
 - During `npx proteum dev`, the app exposes the read-only Proteum MCP runtime endpoint at `/__proteum/mcp`; use it for repeated agent reads instead of spawning equivalent diagnostics commands.
 - For browser validation, use the browser MCP against the running app. Keep Playwright inside `npx proteum e2e --port <port>` for targeted/full end-to-end suites. Bootstrap protected browser MCP state with `npx proteum session`; bootstrap protected E2E runs with `npx proteum e2e --session-email <email> --session-role <role>`.
@@ -283,7 +284,6 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - `npx proteum orient <query>`
 - `npx proteum runtime status`
 - `npx proteum mcp`
-- `npx proteum mcp --url http://localhost:<port>`
 - `npx proteum explain`
 - `npx proteum explain --manifest`
 - `npx proteum explain --connected --controllers`

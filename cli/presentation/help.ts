@@ -174,7 +174,7 @@ export const renderCommandHelp = async ({
     const notes = [...(command.notes ?? [])];
 
     if (commandName === 'init') notes.push(getInitAvailabilityNote(initAvailable));
-    if (commandName !== 'init' && !isLikelyProteumAppRoot(workdir)) {
+    if (commandName !== 'init' && commandName !== 'mcp' && !isLikelyProteumAppRoot(workdir)) {
         notes.push(
             'This command expects to run inside a Proteum app root. The current directory does not contain the usual `client/` and `server/` folders.',
         );

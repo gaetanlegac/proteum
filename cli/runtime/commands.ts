@@ -656,19 +656,30 @@ class McpCommand extends ProteumCommand {
 
     public static usage = buildUsage('mcp');
 
-    public cwd = Option.String('--cwd', { description: 'Run the MCP server against another Proteum app root.' });
-    public sessionFile = Option.String('--session-file', {
-        description: 'Inspect one explicit dev session file when resolving runtime data.',
+    public daemon = Option.Boolean('--daemon', false, {
+        description: 'Run the managed machine-scope MCP daemon over local HTTP.',
     });
-    public url = Option.String('--url', { description: 'Use a running Proteum dev server as the live runtime data source.' });
-    public legacyArgs = Option.Rest();
+    public stdio = Option.Boolean('--stdio', false, {
+        description: 'Force stdio MCP transport for an MCP client.',
+    });
+    public port = Option.String('--port', {
+        description: 'Port for the managed machine MCP daemon.',
+    });
+    public json = Option.Boolean('--json', false, {
+        description: 'Print machine-readable daemon status output.',
+    });
+    public args = Option.Rest();
 
     public async execute() {
-        assertNoLegacyArgs('mcp', this.legacyArgs);
+        const [action = 'start', ...restArgs] = this.args;
+
+        assertNoLegacyArgs('mcp', restArgs);
         this.setCliArgs({
-            sessionFile: this.sessionFile ?? '',
-            url: this.url ?? '',
-            workdir: this.cwd ?? '',
+            action,
+            daemon: this.daemon,
+            stdio: this.stdio,
+            port: this.port ?? '',
+            json: this.json,
         });
 
         await runCommandModule(() => import('../commands/mcp'));

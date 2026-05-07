@@ -316,7 +316,7 @@ Only bare `proteum build` and bare `proteum dev` runs print a banner. Other CLI 
 - `npx proteum explain`
 - `npx proteum doctor`
 - `npx proteum connect`
-- `npx proteum mcp --url http://localhost:<port>` for repeated agent reads against a running dev app
+- `npx proteum mcp` as the managed machine-scope MCP router; `proteum dev` ensures one daemon is running, agents call `projects_list`, then pass the selected `projectId` to repeated reads against a live dev app
 
 CLI output uses compact `proteum-agent-v1` JSON for reproducible command evidence. MCP output uses compact `proteum-mcp-v1` JSON for repeated runtime reads. Use `npx proteum explain --manifest`, `npx proteum diagnose <target> --full`, or `npx proteum trace show <requestId> --events` only when the compact output is insufficient.
 
@@ -328,7 +328,7 @@ Current `proteum dev` supports tracked session management:
 - `npx proteum dev list --json`
 - `npx proteum dev stop --session-file var/run/proteum/dev/app.json`
 
-If your local workflow starts multiple dev servers, this is the current supported model.
+`proteum dev` fails fast when another live tracked session already exists for the same app root. If runtime/MCP is unreachable, stop the listed session file first, then start dev again instead of launching a second server in the same worktree.
 
 ### New diagnostics are available
 
@@ -337,8 +337,7 @@ These are new capabilities, not migration requirements, but they are the fastest
 - `npx proteum connect --strict`
 - `npx proteum explain --connected --controllers`
 - `npx proteum runtime status`
-- `npx proteum mcp`
-- `npx proteum mcp --url http://localhost:<port>`
+- `npx proteum mcp status` plus MCP `projects_list`
 - `npx proteum diagnose / --port <port>`
 - `npx proteum perf top --port <port>`
 - `npx proteum trace latest --port <port>`
@@ -379,7 +378,6 @@ Then boot the app and verify the live runtime:
 ```bash
 npx proteum dev --port 3010
 npx proteum runtime status
-npx proteum mcp --url http://localhost:3010
 npx proteum diagnose / --port 3010
 npx proteum trace latest --port 3010
 ```

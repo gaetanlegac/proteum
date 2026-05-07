@@ -5,7 +5,7 @@ import { UsageError } from 'clipanion';
 
 import cli from '..';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
-import { listDevSessionInspections, type TDevSessionInspection } from '../runtime/devSessions';
+import { listDevSessionInspections, writeMachineDevSessionRecord, type TDevSessionInspection } from '../runtime/devSessions';
 import { printAgentResponse, printJson, quoteCommandArgument } from '../utils/agentOutput';
 import type { TDoctorResponse } from '@common/dev/diagnostics';
 import type { TProteumManifest } from '@common/dev/proteumManifest';
@@ -38,6 +38,11 @@ const getSessionUrl = (inspection: TDevSessionInspection) => {
     if (!inspection.record) return '';
     if (inspection.record.publicUrl) return inspection.record.publicUrl.replace(/\/+$/, '');
     return `http://localhost:${inspection.record.routerPort}`;
+};
+
+const getSessionMcpUrl = (inspection: TDevSessionInspection) => {
+    const sessionUrl = getSessionUrl(inspection);
+    return sessionUrl ? `${sessionUrl}/__proteum/mcp` : '';
 };
 
 const probeDoctor = async (baseUrl: string) => {
@@ -78,10 +83,52 @@ const compactSession = (inspection: TDevSessionInspection) => ({
     pid: inspection.record?.pid,
     routerPort: inspection.record?.routerPort,
     publicUrl: inspection.record?.publicUrl,
+    mcpUrl: inspection.record ? getSessionMcpUrl(inspection) : undefined,
     state: inspection.record?.state,
     startedAt: inspection.record?.startedAt,
     updatedAt: inspection.record?.updatedAt,
 });
+
+const getNextActions = ({
+    health,
+    selectedSession,
+}: {
+    health: { reachable: boolean };
+    selectedSession: TDevSessionInspection | undefined;
+}) => {
+    if (!selectedSession?.record || !selectedSession.live) {
+        return [
+            {
+                label: 'Start Dev',
+                command: 'proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>',
+                reason: 'Create a tracked dev session before request-time diagnostics.',
+            },
+        ];
+    }
+
+    if (!health.reachable) {
+        return [
+            {
+                label: 'Stop Unreachable Dev',
+                command: `proteum dev stop --session-file ${quoteCommandArgument(selectedSession.sessionFilePath)}`,
+                reason: 'A tracked session exists but the runtime and MCP endpoint are unreachable.',
+            },
+            {
+                label: 'Start Dev',
+                command: 'proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>',
+                reason: 'Start a fresh tracked session after stopping the unreachable one.',
+            },
+        ];
+    }
+
+    return [
+        {
+            label: 'Diagnose Root',
+            command: `proteum diagnose ${quoteCommandArgument('/')} --port ${selectedSession.record.routerPort}`,
+            reason: 'Use the selected runtime for the smallest request-level diagnostic pass.',
+        },
+    ];
+};
 
 export const run = async () => {
     const action = getAction();
@@ -93,6 +140,11 @@ export const run = async () => {
         sessionFilePath: typeof cli.args.sessionFile === 'string' && cli.args.sessionFile ? cli.args.sessionFile : undefined,
     });
     const liveSessions = sessions.filter((inspection) => inspection.live && inspection.record);
+    await Promise.allSettled(
+        liveSessions.map((inspection) =>
+            inspection.record ? writeMachineDevSessionRecord(inspection.record) : Promise.resolve(undefined),
+        ),
+    );
     const selectedSession =
         liveSessions.find((inspection) => inspection.record?.state === 'ready') || liveSessions[0] || sessions.find((inspection) => inspection.record);
     const selectedBaseUrl = selectedSession ? getSessionUrl(selectedSession) : '';
@@ -131,21 +183,7 @@ export const run = async () => {
             ? `${selectedSession.live ? 'live' : 'stale'} dev session on ${selectedSession.record?.routerPort || 'unknown port'}; health=${health.reachable ? 'reachable' : 'unreachable'}`
             : 'No tracked Proteum dev session found.',
         data: payload,
-        nextActions: selectedSession?.record
-            ? [
-                  {
-                      label: 'Diagnose Root',
-                      command: `proteum diagnose ${quoteCommandArgument('/')} --port ${selectedSession.record.routerPort}`,
-                      reason: 'Use the selected runtime for the smallest request-level diagnostic pass.',
-                  },
-              ]
-            : [
-                  {
-                      label: 'Start Dev',
-                      command: 'proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>',
-                      reason: 'Create a tracked dev session before request-time diagnostics.',
-                  },
-              ],
+        nextActions: getNextActions({ health, selectedSession }),
         fullDetailCommand: 'proteum runtime status --full',
     });
 };

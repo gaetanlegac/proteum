@@ -378,7 +378,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum diagnose` | Combine owner lookup, diagnostics, trace data, and server logs for one concrete route or request target |
 | `proteum perf` | Aggregate request-trace performance into hot paths, one-request waterfalls, regressions, and memory drift views |
 | `proteum trace` | Inspect live dev-only request traces from the running SSR server |
-| `proteum mcp` | Start the read-only MCP server for compact agent diagnostics and runtime reads |
+| `proteum mcp` | Start, inspect, or attach to the machine-scope MCP router that routes live app reads by `projectId` |
 | `proteum command` | Run a dev-only internal command locally or against a running dev server |
 | `proteum session` | Mint a dev-only auth session token and Playwright-ready cookie payload |
 | `proteum e2e` | Run Playwright with Proteum-managed `E2E_*` values instead of shell-leading env assignments |
@@ -420,7 +420,8 @@ proteum perf top --since today
 proteum perf request /dashboard --port 3101
 proteum perf compare --baseline yesterday --target today --group-by route
 proteum perf memory --since 1h --group-by controller
-proteum mcp --url http://localhost:3101
+proteum mcp
+proteum mcp status
 proteum command proteum/diagnostics/ping
 proteum command proteum/diagnostics/ping --port 3101
 proteum session admin@example.com --role ADMIN --port 3101
@@ -442,11 +443,11 @@ proteum create controller Founder/projects --method list
 proteum create service Conversion/Plans
 ```
 
-`proteum configure agents` embeds the full Proteum project instruction corpus into the managed `# Proteum Instructions` section of each tracked instruction file. Standalone mode writes root documents into the app root; monorepo mode writes shared root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root and keeps only app-local instruction files in the Proteum app root. It preserves content outside managed sections and asks before replacing directories or foreign symlinks. If you decline, that path is left untouched.
+`proteum configure agents` writes a compact managed `# Proteum Instructions` router plus the task-specific instruction files that router points to. Standalone mode writes root documents into the app root; monorepo mode writes shared root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root and keeps only app-local instruction files in the Proteum app root. It preserves content outside managed sections and asks before replacing directories or foreign symlinks. If you decline, that path is left untouched.
 
 Every `proteum dev` start runs the same idempotent instruction check. It updates missing or stale managed sections automatically and prompts only when a blocked path would need to be replaced.
 
-`proteum connect`, `proteum explain`, `proteum doctor`, `proteum diagnose`, and `proteum mcp` share the same generated manifest and contract state. `proteum perf` uses the same dev request-trace store as the profiler `Perf` tab. `proteum dev` also exposes the same read-only MCP contract at `/__proteum/mcp` for repeated agent reads against the live runtime. For the full diagnostics and tracing model, see [docs/diagnostics.md](docs/diagnostics.md), [docs/mcp.md](docs/mcp.md), and [docs/request-tracing.md](docs/request-tracing.md).
+`proteum connect`, `proteum explain`, `proteum doctor`, and `proteum diagnose` share the same generated manifest and contract state. `proteum perf` uses the same dev request-trace store as the profiler `Perf` tab. `proteum dev` exposes the app-root MCP contract at `/__proteum/mcp` and ensures one managed machine MCP daemon is running; `proteum mcp` is the machine-scope router agents register once to route repeated reads by `projectId`. For the full diagnostics and tracing model, see [docs/diagnostics.md](docs/diagnostics.md), [docs/mcp.md](docs/mcp.md), and [docs/request-tracing.md](docs/request-tracing.md).
 
 ## Dev Commands
 
@@ -488,7 +489,7 @@ The CLI talks to the running app over the dev-only `__proteum/session/start` end
 
 Proteum includes a dev-only in-memory request trace buffer for auth, routing, controller, context, SSR, API, Prisma SQL, and render debugging.
 
-This is separate from `proteum explain` and `proteum doctor`: tracing is live request-time data, while explain/doctor are manifest-backed structure and diagnostics. `proteum perf` aggregates the same trace buffer into hot-path, waterfall, compare, and memory views. When you already know the failing path and want the fastest suspect list, start with `proteum diagnose`; when the issue is performance, start with `proteum perf`; then drop into raw trace output only if needed. When an agent needs repeated trace, perf, diagnose, status, or instruction-routing reads from the same running app, use `proteum mcp --url <dev-url>` or the dev-hosted `/__proteum/mcp` endpoint.
+This is separate from `proteum explain` and `proteum doctor`: tracing is live request-time data, while explain/doctor are manifest-backed structure and diagnostics. `proteum perf` aggregates the same trace buffer into hot-path, waterfall, compare, and memory views. When you already know the failing path and want the fastest suspect list, start with `proteum diagnose`; when the issue is performance, start with `proteum perf`; then drop into raw trace output only if needed. When an agent needs repeated trace, perf, diagnose, status, or instruction-routing reads from the same running app, use machine MCP `projects_list`, then pass the selected `projectId` to app-bound MCP tools.
 
 When diagnosing or testing against an app, first read the default port from `PORT` or `./.proteum/manifest.json` and check whether a server is already running there. If it is, inspect the existing traces before reproducing the issue so you can collect past errors and their context.
 
@@ -560,7 +561,8 @@ Proteum answers those questions with explicit artifacts:
 - `proteum explain owner <query>` for fast ownership lookup over routes, controllers, files, and generated artifacts
 - `proteum diagnose <path>` for a one-shot request diagnosis surface
 - `proteum perf top|request|compare|memory` for request-trace performance rollups
-- `proteum mcp` or `/__proteum/mcp` for repeated low-token agent reads over the same compact `proteum-mcp-v1` runtime/diagnostic contract
+- `proteum mcp` for one managed machine-scope MCP router that routes repeated low-token agent reads by `projectId`
+- `/__proteum/mcp` from a running `proteum dev` server as the app-root runtime endpoint behind that router
 - the profiler `Explain`, `Doctor`, `Diagnose`, and `Perf` tabs for a human-readable view over the same diagnostics and trace-derived perf contracts
 - `proteum command ...` plus the profiler `Commands` tab for dev-only internal execution
 - `proteum session ...` for explicit authenticated dev browser or API bootstrapping without login UI automation
@@ -568,13 +570,14 @@ Proteum answers those questions with explicit artifacts:
 
 If you are an LLM or automation agent, start here:
 
-1. Run `proteum orient <query>` or MCP `orient` before broad source reads.
+1. Run `proteum orient <query>` or MCP `orient { projectId, query }` before broad source reads.
 2. Read only the returned `instructions.mustRead` files, plus conditional docs for documentation, diagnostics, coding style, or optimization when they apply.
-3. Run `proteum runtime status` once before starting a dev server; use MCP `runtime_status` for repeated status reads.
+3. Run `proteum runtime status` once before starting a dev server; use MCP `projects_list` and then `runtime_status { projectId }` for repeated status reads.
 4. Use `proteum diagnose`, `proteum perf`, and compact `proteum trace` for reproducible command evidence.
-5. Use `proteum mcp --url <dev-url>` or `/__proteum/mcp` for repeated live status, instruction, diagnose, trace, perf, and log reads.
-6. Inspect `server/index.ts`, controllers, services, or pages only after the routing/diagnostic surfaces identify the relevant owner.
-7. If the task touches a protected route or controller in dev and login UX is not the feature under test, use `proteum e2e --session-email <email> --session-role <role>` for Playwright suites or `proteum session <email> --role <role>` before direct HTTP calls.
+5. Use `proteum mcp` as the one registered MCP server; `proteum dev` ensures the managed machine daemon is running, and agents call `projects_list`, select `projectId`, then pass it to repeated live status, instruction, diagnose, trace, perf, and log reads.
+6. If machine MCP routing fails, run `proteum mcp status` and `proteum runtime status`; if no live session exists, start `proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>`. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again and retry `projects_list`.
+7. Inspect `server/index.ts`, controllers, services, or pages only after the routing/diagnostic surfaces identify the relevant owner.
+8. If the task touches a protected route or controller in dev and login UX is not the feature under test, use `proteum e2e --session-email <email> --session-role <role>` for Playwright suites or `proteum session <email> --role <role>` before direct HTTP calls.
 
 For implementation rules in a real Proteum app, treat the routed local `AGENTS.md` files plus `proteum orient`, compact CLI diagnostics, and MCP repeated-read surfaces as the task contract. This README is the framework overview, not the project-local instruction layer.
 

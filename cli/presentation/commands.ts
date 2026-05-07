@@ -170,11 +170,14 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             { description: 'Start the app on its configured router port', command: 'proteum dev' },
             {
                 description: 'Start a worktree or sibling checkout without changing your shell directory',
-                command: 'proteum dev --cwd /path/to/platform-worktree --port 3101 --replace-existing',
+                command: 'proteum dev --cwd /path/to/platform-worktree --port 3101',
             },
-            { description: 'Replace the tracked dev session on another port', command: 'proteum dev --port 3101 --replace-existing' },
             {
                 description: 'Start a tracked dev session with an explicit session file for an agent task',
+                command: 'proteum dev --port 3101 --session-file var/run/proteum/dev/agents/task.json',
+            },
+            {
+                description: 'Restart the exact tracked session file from the current task',
                 command: 'proteum dev --port 3101 --session-file var/run/proteum/dev/agents/task.json --replace-existing',
             },
             {
@@ -193,8 +196,9 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         notes: [
             'Use `--cwd` when the target Proteum app lives in another worktree or checkout and you do not want to `cd` first.',
             'Proteum writes a machine-readable dev session file under `var/run/proteum/dev/<port>.json` by default; override it with `--session-file` when an agent needs a stable path.',
+            'Before registering a new session, Proteum removes stale same-worktree session files and fails fast if another live tracked session remains.',
             'Before the dev loop starts, Proteum ensures tracked instruction files contain the current managed `# Proteum Instructions` section.',
-            'Use `--replace-existing` when retries should stop the previously tracked matching session before starting a new one.',
+            'Use `--replace-existing` only when retrying the exact requested session file.',
             '`proteum dev list` inspects tracked sessions for the current app root. Add `--stale` to show only orphaned or dead sessions.',
             '`proteum dev stop` targets the current session file by default. Add `--all` to stop every tracked session for the current app root.',
             '`proteum dev` clears the interactive terminal once at startup, then shows `CTRL+R` reload and `CTRL+C` shutdown hotkeys in the session banner.',
@@ -457,6 +461,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         ],
         notes: [
             'Default output is compact `proteum-agent-v1` JSON with the selected session, health, and next command.',
+            'The selected live session includes its dev-hosted MCP URL when available.',
             'Use `--full` to include every tracked session field.',
         ],
         status: 'experimental',
@@ -464,26 +469,22 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
     mcp: {
         name: 'mcp',
         category: 'Manifest and contracts',
-        summary: 'Start a read-only Proteum MCP server for compact agent diagnostics and runtime data.',
-        usage: 'proteum mcp [--cwd <path>] [--url <baseUrl>] [--session-file <path>]',
+        summary: 'Start or attach to the machine-scope MCP router for live Proteum dev projects.',
+        usage: 'proteum mcp [status|stop] [--stdio|--daemon] [--port <port>]',
         bestFor:
-            'Agent integrations that need repeated low-token access to Proteum manifest, instruction routing, runtime status, trace, perf, diagnose, and log summaries.',
+            'Registering a single MCP server in an LLM and keeping one managed machine daemon available while dev servers run.',
         examples: [
-            { description: 'Start the MCP server for the current app over stdio', command: 'proteum mcp' },
-            {
-                description: 'Point the MCP server at a running dev server',
-                command: 'proteum mcp --url http://localhost:3101',
-            },
-            {
-                description: 'Resolve runtime data from an explicit tracked session file',
-                command: 'proteum mcp --session-file var/run/proteum/dev/agents/task.json',
-            },
+            { description: 'Start or reuse the managed machine MCP daemon from a terminal', command: 'proteum mcp' },
+            { description: 'Force stdio MCP transport for an MCP client', command: 'proteum mcp --stdio' },
+            { description: 'Inspect the managed machine MCP daemon', command: 'proteum mcp status' },
         ],
         notes: [
-            '`proteum mcp` is read-only in v1 and does not start/stop dev servers, refresh generated code, write files, or mutate traces.',
-            'Tool and resource payloads are compact single-line `proteum-mcp-v1` JSON for low-token agent reads.',
-            'Use the CLI for reproducible build/dev/check workflows; use MCP for repeated agent reads and progressive detail loading.',
-            'A running `proteum dev` server also exposes the same tool contract at `/__proteum/mcp` for runtime-adjacent access.',
+            '`proteum dev` ensures one managed machine MCP daemon is running before the app dev loop starts.',
+            '`proteum mcp` is a router, not an app dev server. It discovers live `proteum dev` sessions from the machine registry.',
+            'Agents should call MCP `projects_list`, pick the stable `projectId`, then pass that `projectId` to every app-bound MCP tool.',
+            'App runtime data still comes from the selected dev-hosted `/__proteum/mcp` endpoint.',
+            'Only one managed machine MCP daemon may run at a time; stale daemon records are cleaned automatically.',
+            'MCP remains read-only and optimized for compact `proteum-mcp-v1` payloads.',
         ],
         status: 'experimental',
     },

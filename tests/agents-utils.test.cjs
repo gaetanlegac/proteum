@@ -78,9 +78,13 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(agentsContent, /<!-- proteum-instructions:start -->/);
     assert.match(agentsContent, /## Agent Routing Contract/);
     assert.match(agentsContent, /npx proteum orient <query>/);
-    assert.match(agentsContent, /MCP `instructions_resolve`/);
+    assert.match(agentsContent, /MCP `projects_list`/);
+    assert.match(agentsContent, /instructions_resolve \{ projectId \}/);
     assert.match(agentsContent, /\/__proteum\/mcp/);
     assert.match(agentsContent, /proteum-mcp-v1/);
+    assert.match(agentsContent, /## Always-On Git Workflow/);
+    assert.match(agentsContent, /Conventional Commits/);
+    assert.match(agentsContent, /recent `git log`/);
     assert.match(agentsContent, /They are not deleted/);
     assert.doesNotMatch(agentsContent, /## Source: CODING_STYLE\.md/);
     assert.match(codingStyleContent, /## Source: CODING_STYLE\.md/);

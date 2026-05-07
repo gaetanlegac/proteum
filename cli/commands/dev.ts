@@ -28,19 +28,23 @@ import { clearInteractiveConsole } from '../presentation/welcome';
 import { renderWarning } from '../presentation/ink';
 import {
     createDevSessionRecord,
-    inspectDevSessionFile,
     listDevSessionInspections,
+    prepareDevSessionStart,
     removeDevSessionRecord,
     removeDevSessionRecordSync,
     resolveDevSessionFilePath,
     stopDevSessionFile,
     updateDevSessionRecord,
+    writeDevSessionRecord,
+    writeMachineDevSessionRecord,
     type TDevSessionInspection,
     type TStopDevSessionResult,
 } from '../runtime/devSessions';
 import { resolveFrameworkInstallInfo } from '../paths';
 import { logVerbose } from '../runtime/verbose';
+import { ensureMachineMcpDaemonProcess } from '../runtime/mcpDaemon';
 import { configureProjectAgentInstructions, resolveProjectAgentMonorepoRoot } from '../utils/agents';
+import { quoteCommandArgument } from '../utils/agentOutput';
 
 // Core
 import { app, App } from '../app';
@@ -335,6 +339,40 @@ const describeStopResult = (result: TStopDevSessionResult) => {
         .join(' | ');
 };
 
+const describeBlockingDevSession = (inspection: TDevSessionInspection) => {
+    if (!inspection.record) {
+        return [
+            '- invalid session',
+            inspection.sessionFilePath,
+            inspection.parseError || 'Unreadable session file.',
+        ]
+            .filter(Boolean)
+            .join(' | ');
+    }
+
+    const publicUrl = inspection.record.publicUrl || `http://localhost:${inspection.record.routerPort}`;
+
+    return [
+        `- pid ${inspection.record.pid}`,
+        `port ${inspection.record.routerPort}`,
+        publicUrl,
+        `session ${inspection.sessionFilePath}`,
+    ].join(' | ');
+};
+
+const createBlockingDevSessionMessage = (blocking: TDevSessionInspection[]) => {
+    const firstSessionFilePath = blocking[0]?.sessionFilePath || '<session-file>';
+
+    return [
+        `A Proteum dev session is already running for ${app.paths.root}.`,
+        'Stop the existing session before starting another server in the same worktree:',
+        ...blocking.map(describeBlockingDevSession),
+        '',
+        `Run: npx proteum dev stop --session-file ${quoteCommandArgument(firstSessionFilePath)}`,
+        'Then start dev again with the intended session file and port.',
+    ].join('\n');
+};
+
 const printJson = (payload: unknown) => {
     process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
 };
@@ -400,38 +438,56 @@ const runStopCommand = async () => {
 
 const ensureDevSessionSlot = async () => {
     const sessionFilePath = getResolvedDevSessionFilePath();
-    const existingInspection = await inspectDevSessionFile(sessionFilePath);
+    const startPreparation = await prepareDevSessionStart({
+        appRoot: app.paths.root,
+        replaceExisting: cli.args.replaceExisting === true,
+        sessionFilePath,
+    });
 
-    if (existingInspection?.record && existingInspection.live && existingInspection.record.pid !== process.pid) {
-        if (cli.args.replaceExisting !== true) {
-            throw new Error(
-                `A Proteum dev session is already registered at ${sessionFilePath} (pid ${existingInspection.record.pid}, port ${existingInspection.record.routerPort}). ` +
-                    'Use `proteum dev stop` or restart with `proteum dev --replace-existing`.',
-            );
-        }
-
-        const stopResult = await stopDevSessionFile(sessionFilePath);
-        if (!stopResult.stopped) {
-            throw new Error(`Could not stop the existing Proteum dev session registered at ${sessionFilePath}.`);
-        }
-    } else if (existingInspection) {
-        await stopDevSessionFile(sessionFilePath);
+    if (startPreparation.blocking.length > 0) {
+        throw new Error(createBlockingDevSessionMessage(startPreparation.blocking));
     }
 
     currentDevSessionFilePath = sessionFilePath;
     registerDevSessionExitCleanup();
-    await fs.ensureDir(path.dirname(sessionFilePath));
-    await fs.writeJson(
+    const sessionRecord = createDevSessionRecord({
+        appRoot: app.paths.root,
+        port: app.env.router.port,
         sessionFilePath,
-        createDevSessionRecord({
-            appRoot: app.paths.root,
-            port: app.env.router.port,
-            sessionFilePath,
-        }),
-        { spaces: 2 },
-    );
+    });
+
+    await writeDevSessionRecord(sessionRecord);
+    await writeMachineDevSessionRecord(sessionRecord);
 
     logVerbose(`Registered Proteum dev session at ${sessionFilePath}.`);
+    if (startPreparation.cleaned.length > 0) {
+        logVerbose(
+            `Cleaned ${startPreparation.cleaned.length} stale Proteum dev session file${startPreparation.cleaned.length === 1 ? '' : 's'}.`,
+        );
+    }
+    if (startPreparation.replaced) {
+        logVerbose(`Replaced Proteum dev session at ${startPreparation.replaced.sessionFilePath}.`);
+    }
+};
+
+const ensureMachineMcpDaemonForDev = async () => {
+    try {
+        const result = await ensureMachineMcpDaemonProcess({ coreRoot: cli.paths.core.root });
+        const record = result.inspection.record;
+        if (!record) return;
+
+        logVerbose(
+            result.started
+                ? `Started Proteum machine MCP daemon at ${record.mcpUrl}.`
+                : `Proteum machine MCP daemon already running at ${record.mcpUrl}.`,
+        );
+    } catch (error) {
+        console.warn(
+            `Warning: Proteum could not ensure the machine MCP daemon. ${
+                error instanceof Error ? error.message : String(error)
+            }`,
+        );
+    }
 };
 
 async function startApp(app: App) {
@@ -759,6 +815,7 @@ const runDevLoop = async () => {
     devSessionStopping = false;
     clearInteractiveConsole();
     await ensureDevSessionSlot();
+    await ensureMachineMcpDaemonForDev();
     const proteumInstall = resolveFrameworkInstallInfo({
         appRoot: app.paths.root,
         framework: cli.paths.framework,

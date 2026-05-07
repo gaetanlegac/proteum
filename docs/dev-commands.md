@@ -79,7 +79,7 @@ The profiler also exposes the shared diagnostics surfaces for humans:
 
 For the shared diagnostics contract, trace-derived perf contract, and the corresponding dev HTTP endpoints, see [diagnostics.md](diagnostics.md) and [request-tracing.md](request-tracing.md).
 
-Command execution stays in the CLI, profiler, and dev command HTTP endpoints. The Proteum MCP surfaces are read-only; use MCP for repeated diagnostics, trace, perf, status, and log reads, not for running commands.
+Command execution stays in the CLI, profiler, and dev command HTTP endpoints. The Proteum MCP surfaces are read-only; use MCP with the selected `projectId` for repeated diagnostics, trace, perf, status, and log reads, not for running commands.
 
 ### HTTP Endpoints
 
