@@ -19,6 +19,7 @@ When tradeoffs exist inside optimization work, optimize in this order:
 - Prefer established, flexible, well-typed, widely adopted, actively maintained packages.
 - Build custom or keep custom infrastructure only when packages would clearly hurt bundle size, SSR behavior, performance, typing quality, flexibility, licensing, explicit contracts, or long-term maintainability.
 - If you choose custom over a package, state briefly why.
+- For agent-facing repeated diagnostics, prefer the read-only Proteum MCP surface over adding broader CLI output. MCP should expose compact single-line `proteum-mcp-v1` JSON with capped, typed, paginated reads; the CLI should stay compact and reproducible.
 
 ## SSR And Page Size
 

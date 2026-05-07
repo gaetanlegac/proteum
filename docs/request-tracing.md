@@ -10,7 +10,7 @@ The same API and SQL instrumentation feeds both shapes. Dev trace keeps the in-m
 ## Scope
 
 - retained dev tracing is available only when the app runs with `profile: dev`
-- traces are exposed through `proteum trace`, `proteum perf`, and the dev-only `__proteum/trace` and `__proteum/perf` HTTP endpoints
+- traces are exposed through `proteum trace`, `proteum perf`, MCP `trace_*`/`perf_*` tools, and the dev-only `__proteum/trace`, `__proteum/perf`, and `/__proteum/mcp` HTTP endpoints
 - `proteum diagnose` is a separate composite surface that reads the same framework diagnostics plus one matching request trace and buffered server logs; see [diagnostics.md](diagnostics.md)
 - `ENABLE_PROFILER=true` enables reduced request-local profiling in any environment, including production
 
@@ -33,9 +33,12 @@ proteum perf memory --since 1h --group-by controller
 
 Default trace output is compact `proteum-agent-v1` JSON with counts, failed calls, error events, hot calls, and hot SQL. Use `--events` or `--full` only when raw event details, payload summaries, or SQL text are needed.
 
+When an MCP client is available, use MCP `trace_latest`, `trace_show`, `perf_top`, and `perf_request` for repeated reads against the same running app. Keep the CLI commands for reproducible terminal evidence and final verification logs.
+
 Before reproducing a bug or starting a new test pass:
 
 - run `proteum runtime status` to reuse a tracked dev session when possible
+- use MCP `runtime_status` for repeated status checks against the same running server
 - if a server is already running, inspect `proteum trace requests`, `proteum trace latest`, and compact `proteum diagnose <path>` first so you can capture past errors without dumping raw events
 
 Typical debugging flow:

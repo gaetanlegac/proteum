@@ -651,6 +651,30 @@ class RuntimeCommand extends ProteumCommand {
     }
 }
 
+class McpCommand extends ProteumCommand {
+    public static paths = [['mcp']];
+
+    public static usage = buildUsage('mcp');
+
+    public cwd = Option.String('--cwd', { description: 'Run the MCP server against another Proteum app root.' });
+    public sessionFile = Option.String('--session-file', {
+        description: 'Inspect one explicit dev session file when resolving runtime data.',
+    });
+    public url = Option.String('--url', { description: 'Use a running Proteum dev server as the live runtime data source.' });
+    public legacyArgs = Option.Rest();
+
+    public async execute() {
+        assertNoLegacyArgs('mcp', this.legacyArgs);
+        this.setCliArgs({
+            sessionFile: this.sessionFile ?? '',
+            url: this.url ?? '',
+            workdir: this.cwd ?? '',
+        });
+
+        await runCommandModule(() => import('../commands/mcp'));
+    }
+}
+
 class VerifyCommand extends ProteumCommand {
     public static paths = [['verify']];
 
@@ -728,6 +752,7 @@ export const registeredCommands = {
     diagnose: DiagnoseCommand,
     perf: PerfCommand,
     runtime: RuntimeCommand,
+    mcp: McpCommand,
     trace: TraceCommand,
     command: CommandCommand,
     session: SessionCommand,
@@ -762,6 +787,7 @@ export const createCli = (version: string) => {
     clipanion.register(DiagnoseCommand);
     clipanion.register(PerfCommand);
     clipanion.register(RuntimeCommand);
+    clipanion.register(McpCommand);
     clipanion.register(TraceCommand);
     clipanion.register(CommandCommand);
     clipanion.register(SessionCommand);

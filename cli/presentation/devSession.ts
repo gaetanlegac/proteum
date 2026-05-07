@@ -35,6 +35,7 @@ export const renderDevSession = async ({
                 { label: 'root', value: appRoot },
                 { label: 'router', value: `http://localhost:${routerPort}` },
                 { label: 'hmr', value: `http://localhost:${devEventPort}/__proteum_hmr` },
+                { label: 'mcp', value: `http://localhost:${routerPort}/__proteum/mcp` },
                 ...(connectedProjects && connectedProjects.length > 0
                     ? connectedProjects.map((connectedProject) => ({
                           label: `connect ${connectedProject.namespace}`,
@@ -91,6 +92,7 @@ export const renderServerReadyBanner = async ({
             createElement(Text, { dimColor: true }, `Diagnose /: proteum diagnose / --port ${routerPort}`),
             createElement(Text, { dimColor: true }, `Perf top: proteum perf top --port ${routerPort}`),
             createElement(Text, { dimColor: true }, `Trace latest: proteum trace latest --port ${routerPort}`),
+            createElement(Text, { dimColor: true }, `MCP: ${publicUrl}/__proteum/mcp`),
         );
     });
 

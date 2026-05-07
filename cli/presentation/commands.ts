@@ -22,6 +22,7 @@ export const proteumCommandNames = [
     'diagnose',
     'perf',
     'runtime',
+    'mcp',
     'trace',
     'command',
     'session',
@@ -58,7 +59,7 @@ export const proteumRecommendedFlow: TRow[] = [
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check', 'e2e'] },
-    { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'runtime', 'trace', 'command', 'session', 'verify'] },
+    { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'runtime', 'mcp', 'trace', 'command', 'session', 'verify'] },
     { title: 'Project scaffolding', names: ['init', 'configure', 'create', 'migrate'] },
 ];
 
@@ -457,6 +458,32 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         notes: [
             'Default output is compact `proteum-agent-v1` JSON with the selected session, health, and next command.',
             'Use `--full` to include every tracked session field.',
+        ],
+        status: 'experimental',
+    },
+    mcp: {
+        name: 'mcp',
+        category: 'Manifest and contracts',
+        summary: 'Start a read-only Proteum MCP server for compact agent diagnostics and runtime data.',
+        usage: 'proteum mcp [--cwd <path>] [--url <baseUrl>] [--session-file <path>]',
+        bestFor:
+            'Agent integrations that need repeated low-token access to Proteum manifest, instruction routing, runtime status, trace, perf, diagnose, and log summaries.',
+        examples: [
+            { description: 'Start the MCP server for the current app over stdio', command: 'proteum mcp' },
+            {
+                description: 'Point the MCP server at a running dev server',
+                command: 'proteum mcp --url http://localhost:3101',
+            },
+            {
+                description: 'Resolve runtime data from an explicit tracked session file',
+                command: 'proteum mcp --session-file var/run/proteum/dev/agents/task.json',
+            },
+        ],
+        notes: [
+            '`proteum mcp` is read-only in v1 and does not start/stop dev servers, refresh generated code, write files, or mutate traces.',
+            'Tool and resource payloads are compact single-line `proteum-mcp-v1` JSON for low-token agent reads.',
+            'Use the CLI for reproducible build/dev/check workflows; use MCP for repeated agent reads and progressive detail loading.',
+            'A running `proteum dev` server also exposes the same tool contract at `/__proteum/mcp` for runtime-adjacent access.',
         ],
         status: 'experimental',
     },

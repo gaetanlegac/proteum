@@ -23,7 +23,9 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
     - re-print the complete list of suggested fixes, but strike the ones we already implemented or not necessary anymore
 - If the user asks to implement a feature, first inspect the relevant existing surface and state any implementation problem, pain point, attention point, or question you see. If a concern is blocking, or it can materially change product behavior, API shape, architecture, data model, cost, privacy, security, or UX, ask before editing; otherwise state the assumption and continue implementing.
 - If the task is ambiguous, generated, connected, or multi-repo, start with `npx proteum orient <query>` before reading large parts of the codebase.
-- Treat Proteum CLI output as the workflow router. Read only the instruction files returned in `orient` `mustRead`, plus conditional docs that match the current task. Do not read broad instruction folders or every managed instruction file up front.
+- Treat Proteum CLI and MCP output as the workflow router. Read only the instruction files returned in `orient` `mustRead` or MCP `instructions_resolve`, plus conditional docs that match the current task. Do not read broad instruction folders or every managed instruction file up front.
+- When a Proteum MCP client is available, prefer read-only MCP tools for repeated runtime/status/orientation/trace/perf/log reads. Use CLI commands when you need reproducible terminal validation, dev/build/check workflows, or output to share with a human.
+- MCP payloads are compact single-line `proteum-mcp-v1` JSON with capped and paginated detail. Do not expand MCP output for human readability.
 - If the user reports an issue, or the agent encounters one during exploration, implementation, verification, or runtime reproduction, load and follow root-level `diagnostics.md`.
 - If the task touches client-side files, especially `client/**` and page files, load and apply root-level `optimizations.md` only after implementation for post-implementation checking and optimization. Skip it at task start and skip it for server-only, test-only, doc-only, and non-client refactor tasks unless the user explicitly asks for optimization work.
 - If the task changes UX, copy, onboarding, pricing, product semantics, or commercial positioning, read the relevant files under `./docs/` first, especially `docs/PERSONAS.md`, `docs/PRODUCT.md`, and `docs/MARKETING.md` when they exist. If a dev server is already running, print the live dev server URL as a clickable Markdown link.
@@ -58,6 +60,7 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 - When starting a long-lived dev server for an agent task, always request elevated permissions and run `npx proteum dev` outside the sandbox. Use an explicit task/thread-scoped session file such as `var/run/proteum/dev/agents/<task>.json`, inspect `npx proteum dev list --json` plus current listeners first, for example with `lsof -nP -iTCP -sTCP:LISTEN`, then choose a port that is not currently used before starting `npx proteum dev --session-file <path> --port <port>`. After the server is ready, print the live server URL as a clickable Markdown link.
 - Use `--replace-existing` only when restarting the exact session file started by the current thread/task. Never replace another live session that belongs to a user, another thread, or an unknown owner.
 - If the current app depends on local `file:` connected projects, boot every connected producer app too, each with its own task-scoped session file and free port, and run every one of those `proteum dev` processes with elevated permissions outside the sandbox before starting or verifying the consumer app.
+- During `npx proteum dev`, the app exposes the read-only Proteum MCP runtime endpoint at `/__proteum/mcp`; use it for repeated agent reads instead of spawning equivalent diagnostics commands.
 - For browser validation, use the browser MCP against the running app. Keep Playwright inside `npx proteum e2e --port <port>` for targeted/full end-to-end suites. Bootstrap protected browser MCP state with `npx proteum session`; bootstrap protected E2E runs with `npx proteum e2e --session-email <email> --session-role <role>`.
 - Current CLI banner contract: only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. Only `proteum dev` clears the interactive terminal before rendering, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI, and reports connected app names plus successful connected `/ping` checks in the ready banner. Every `proteum dev` start ensures tracked instruction files contain the current managed `# Proteum Instructions` section before the dev loop begins.
 
@@ -277,6 +280,8 @@ Prefer structured CLI surfaces over re-deriving framework facts from source:
 - `npx proteum connect --controllers --strict`
 - `npx proteum orient <query>`
 - `npx proteum runtime status`
+- `npx proteum mcp`
+- `npx proteum mcp --url http://localhost:<port>`
 - `npx proteum explain`
 - `npx proteum explain --manifest`
 - `npx proteum explain --connected --controllers`

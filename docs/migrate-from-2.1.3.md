@@ -316,8 +316,9 @@ Only bare `proteum build` and bare `proteum dev` runs print a banner. Other CLI 
 - `npx proteum explain`
 - `npx proteum doctor`
 - `npx proteum connect`
+- `npx proteum mcp --url http://localhost:<port>` for repeated agent reads against a running dev app
 
-Use `npx proteum explain --manifest`, `npx proteum diagnose <target> --full`, or `npx proteum trace show <requestId> --events` only when the compact output is insufficient.
+CLI output uses compact `proteum-agent-v1` JSON for reproducible command evidence. MCP output uses compact `proteum-mcp-v1` JSON for repeated runtime reads. Use `npx proteum explain --manifest`, `npx proteum diagnose <target> --full`, or `npx proteum trace show <requestId> --events` only when the compact output is insufficient.
 
 ### Use tracked dev sessions
 
@@ -336,6 +337,8 @@ These are new capabilities, not migration requirements, but they are the fastest
 - `npx proteum connect --strict`
 - `npx proteum explain --connected --controllers`
 - `npx proteum runtime status`
+- `npx proteum mcp`
+- `npx proteum mcp --url http://localhost:<port>`
 - `npx proteum diagnose / --port <port>`
 - `npx proteum perf top --port <port>`
 - `npx proteum trace latest --port <port>`
@@ -376,6 +379,7 @@ Then boot the app and verify the live runtime:
 ```bash
 npx proteum dev --port 3010
 npx proteum runtime status
+npx proteum mcp --url http://localhost:3010
 npx proteum diagnose / --port 3010
 npx proteum trace latest --port 3010
 ```

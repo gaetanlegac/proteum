@@ -8,7 +8,10 @@ import express from 'express';
 import http from 'http';
 import https from 'https';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import cors, { CorsOptions } from 'cors';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 // Middlewares (npm)
 import morgan from 'morgan';
@@ -37,6 +40,8 @@ import {
     parseConnectedProjectProxyPath,
 } from '@common/connectedProjects';
 import { profilerTraceRequestIdHeader } from '@common/dev/profiler';
+import { createProteumMcpServer } from '@common/dev/mcpServer';
+import { createRuntimeProteumMcpProvider } from '@server/app/devMcp';
 
 // Middlewaees (core)
 import { isMutipart, MiddlewareFormData } from './multipart';
@@ -493,6 +498,8 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
     private registerDevTraceRoutes(routes: express.Express) {
         if (!__DEV__ || this.app.env.profile !== 'dev') return;
 
+        this.registerDevMcpRoute(routes);
+
         if (this.app.container.Trace.isDevTraceEnabled()) {
             routes.get('/__proteum/trace/requests', (req, res) => {
                 const rawLimit = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
@@ -818,5 +825,74 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
 
     private getCronManager() {
         return (this.app as typeof this.app & { Cron?: CronManager }).Cron;
+    }
+
+    private registerDevMcpRoute(routes: express.Express) {
+        type TMcpTransportEntry = {
+            server: ReturnType<typeof createProteumMcpServer>;
+            transport: StreamableHTTPServerTransport;
+        };
+        const transports = new Map<string, TMcpTransportEntry>();
+        const readSessionId = (req: express.Request) => {
+            const value = req.headers['mcp-session-id'];
+            if (Array.isArray(value)) return value[0];
+            return typeof value === 'string' && value.trim() ? value : undefined;
+        };
+        const writeJsonRpcError = (res: express.Response, statusCode: number, message: string) => {
+            res.status(statusCode).json({
+                jsonrpc: '2.0',
+                error: {
+                    code: -32000,
+                    message,
+                },
+                id: null,
+            });
+        };
+
+        routes.all('/__proteum/mcp', async (req, res) => {
+            const sessionId = readSessionId(req);
+            let entry = sessionId ? transports.get(sessionId) : undefined;
+
+            try {
+                if (!entry && !sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
+                    const provider = createRuntimeProteumMcpProvider({
+                        app: this.app,
+                        publicUrl: this.publicUrl,
+                        routerPort: this.config.port,
+                    });
+                    const server = createProteumMcpServer({
+                        provider,
+                        version: String(process.env.npm_package_version || 'runtime'),
+                    });
+                    const transport = new StreamableHTTPServerTransport({
+                        sessionIdGenerator: () => randomUUID(),
+                        onsessioninitialized: (initializedSessionId) => {
+                            transports.set(initializedSessionId, { server, transport });
+                        },
+                    });
+
+                    transport.onclose = () => {
+                        const transportSessionId = transport.sessionId;
+                        if (transportSessionId) transports.delete(transportSessionId);
+                        void server.close().catch(() => undefined);
+                    };
+
+                    await server.connect(transport);
+                    entry = { server, transport };
+                }
+
+                if (!entry) {
+                    writeJsonRpcError(res, 400, 'Bad Request: initialize the Proteum MCP session before sending tool or resource requests.');
+                    return;
+                }
+
+                await entry.transport.handleRequest(req, res, req.body);
+            } catch (error) {
+                console.error('Error handling Proteum MCP request:', error);
+                if (!res.headersSent) {
+                    writeJsonRpcError(res, 500, 'Internal Proteum MCP server error.');
+                }
+            }
+        });
     }
 }
