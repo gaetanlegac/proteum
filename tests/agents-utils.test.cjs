@@ -24,6 +24,7 @@ const createCoreFixture = () => {
 
     writeFile(path.join(agentsRoot, 'AGENTS.md'), '# Root Contract\n\n- Root rule\n');
     writeFile(path.join(agentsRoot, 'CODING_STYLE.md'), '# Coding Style\n\n- Style rule\n');
+    writeFile(path.join(agentsRoot, 'DOCUMENTATION.md'), '# Documentation\n\n- Documentation rule\n');
     writeFile(path.join(agentsRoot, 'diagnostics.md'), '# Diagnostics\n\n- Diagnostics rule\n');
     writeFile(path.join(agentsRoot, 'optimizations.md'), '# Optimizations\n\n- Optimization rule\n');
     writeFile(path.join(agentsRoot, 'client', 'AGENTS.md'), '# Client Rules\n\n- Client rule\n');
@@ -53,6 +54,7 @@ const createAppFixture = () => {
             '# Proteum-managed instruction files',
             '/AGENTS.md',
             '/CODING_STYLE.md',
+            '/DOCUMENTATION.md',
             '# End Proteum-managed instruction files',
             '/.proteum',
             '',
@@ -68,6 +70,7 @@ test('standalone configure creates tracked instruction files with routing contra
     const result = configureProjectAgentInstructions({ appRoot, coreRoot });
     const agentsContent = fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8');
     const codingStyleContent = fs.readFileSync(path.join(appRoot, 'CODING_STYLE.md'), 'utf8');
+    const documentationContent = fs.readFileSync(path.join(appRoot, 'DOCUMENTATION.md'), 'utf8');
     const gitignoreContent = fs.readFileSync(path.join(appRoot, '.gitignore'), 'utf8');
 
     assert.equal(result.blocked.length, 0);
@@ -79,6 +82,8 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(codingStyleContent, /## Source: CODING_STYLE\.md/);
     assert.match(codingStyleContent, /## Coding Style/);
     assert.doesNotMatch(codingStyleContent, /## Source: client\/AGENTS\.md/);
+    assert.match(documentationContent, /## Source: DOCUMENTATION\.md/);
+    assert.match(documentationContent, /## Documentation/);
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'AGENTS.md')), true);
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md')), true);
     assert.match(fs.readFileSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /Journey rule/);
@@ -86,6 +91,7 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.doesNotMatch(agentsContent, /Before reading or applying instructions from this file/);
     assert.doesNotMatch(gitignoreContent, /Proteum-managed instruction files/);
     assert.doesNotMatch(gitignoreContent, /^\/AGENTS\.md$/m);
+    assert.doesNotMatch(gitignoreContent, /^\/DOCUMENTATION\.md$/m);
 });
 
 test('configure preserves project content outside the managed section', () => {
@@ -185,6 +191,7 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.equal(resolveProjectAgentMonorepoRoot(appRoot), fs.realpathSync(monorepoRoot));
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /## Agent Routing Contract/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'CODING_STYLE.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'DOCUMENTATION.md'), 'utf8'), /## Source: DOCUMENTATION\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'diagnostics.md'), 'utf8'), /## Source: diagnostics\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'optimizations.md'), 'utf8'), /## Source: optimizations\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'AGENTS.md'), 'utf8'), /## Source: tests\/e2e\/AGENTS\.md/);
@@ -194,6 +201,7 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.match(fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8'), /## Agent Routing Contract/);
     assert.match(fs.readFileSync(path.join(appRoot, 'client', 'AGENTS.md'), 'utf8'), /## Source: client\/AGENTS\.md/);
     assert.equal(fs.existsSync(path.join(appRoot, 'CODING_STYLE.md')), false);
+    assert.equal(fs.existsSync(path.join(appRoot, 'DOCUMENTATION.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'diagnostics.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'optimizations.md')), false);
     assert.equal(result.removed.some((entry) => entry.endsWith('/apps/product/CODING_STYLE.md')), true);

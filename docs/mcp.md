@@ -144,6 +144,6 @@ The Product `/domains` diagnostic loop measured on May 7, 2026 used `ceil(UTF-8 
 | Compact CLI repeated reads x3 | 11,660 | 9,572 ms |
 | Dev-hosted HTTP MCP repeated reads x3 | 10,537 | 214 ms |
 
-The benchmark included the routed instruction docs separately. Reading the four selected instruction files once was about 4,881 estimated output tokens; refreshing the instruction routing through MCP `instructions_resolve` was about 722 estimated output tokens.
+The benchmark included the routed instruction docs separately. Reading the selected instruction files once was about 4,881 estimated output tokens; refreshing the instruction routing through MCP `instructions_resolve` was about 722 estimated output tokens.
 
 The practical rule from the benchmark is: use CLI for the first reproducible check and validation record, then use MCP for repeated reads against the same app/runtime.

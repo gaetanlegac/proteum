@@ -61,6 +61,7 @@ export type TTraceAttributionResponse = {
 
 export type TOrientGuidance = {
     agents: string;
+    documentation: string;
     diagnostics: string;
     optimizations: string;
     codingStyle: string;
@@ -791,6 +792,11 @@ const resolveGuidance = ({
         fallbackFilepath: joinPath(fallbackRoot, 'diagnostics.md'),
         relativePath: 'diagnostics.md',
     });
+    const documentation = resolveGuidanceFile({
+        appRoot: manifest.app.root,
+        fallbackFilepath: joinPath(fallbackRoot, 'DOCUMENTATION.md'),
+        relativePath: 'DOCUMENTATION.md',
+    });
     const optimizations = resolveGuidanceFile({
         appRoot: manifest.app.root,
         fallbackFilepath: joinPath(fallbackRoot, 'optimizations.md'),
@@ -802,13 +808,14 @@ const resolveGuidance = ({
         relativePath: 'CODING_STYLE.md',
     });
 
-    for (const warning of [agents.warning, diagnostics.warning, optimizations.warning, codingStyle.warning]) {
+    for (const warning of [agents.warning, documentation.warning, diagnostics.warning, optimizations.warning, codingStyle.warning]) {
         if (warning) warnings.push(warning);
     }
 
     return {
         guidance: {
             agents: agents.filepath,
+            documentation: documentation.filepath,
             diagnostics: diagnostics.filepath,
             optimizations: optimizations.filepath,
             codingStyle: codingStyle.filepath,

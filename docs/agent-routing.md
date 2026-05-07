@@ -92,6 +92,7 @@ Managed `AGENTS.md` files now carry a compact router instead of the full instruc
 
 Area files carry only their own source content:
 
+- `DOCUMENTATION.md`: documentation-driven coding, `/docs` source-of-truth routing, and docs update expectations
 - `diagnostics.md`: raw errors, failing routes, traces, perf, reproduction
 - `optimizations.md`: package, runtime, build, and optimization decisions
 - `CODING_STYLE.md`: implementation style before editing

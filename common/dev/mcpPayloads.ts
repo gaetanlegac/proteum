@@ -193,6 +193,10 @@ export const compactOrientationResponse = (response: TOrientResponse) => {
                 mustRead: [...new Set([response.guidance.agents, ...response.guidance.areaAgents])],
                 readWhen: [
                     {
+                        file: response.guidance.documentation,
+                        when: 'Non-trivial coding tasks that need the smallest `/docs` pack and post-change docs updates.',
+                    },
+                    {
                         file: response.guidance.diagnostics,
                         when: 'Raw errors, failing requests, traces, perf regressions, or reproduction work.',
                     },
@@ -320,6 +324,7 @@ export const compactDiagnoseResponse = (response: TDiagnoseResponse) => {
             instructions: response.orientation
                 ? {
                       mustRead: [...new Set([response.orientation.guidance.agents, ...response.orientation.guidance.areaAgents])],
+                      documentation: response.orientation.guidance.documentation,
                       diagnostics: response.orientation.guidance.diagnostics,
                       codingStyle: response.orientation.guidance.codingStyle,
                       optimizations: response.orientation.guidance.optimizations,
@@ -670,6 +675,10 @@ export const resolveInstructionRouting = ({
         addInstruction('tests/e2e/REAL_WORLD_JOURNEY_TESTS.md', 'Real-world journey coverage may be in scope.');
     }
 
+    addReadWhen(
+        'DOCUMENTATION.md',
+        'Read before non-trivial coding tasks to choose the smallest `/docs` pack and update docs after changes.',
+    );
     addReadWhen('diagnostics.md', 'Read for raw errors, failing requests, traces, perf regressions, or reproduction work.');
     addReadWhen('CODING_STYLE.md', 'Read before editing implementation files.');
     addReadWhen('optimizations.md', 'Read for client-side implementation, packages, build, runtime, or performance work.');

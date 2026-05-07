@@ -442,7 +442,7 @@ proteum create controller Founder/projects --method list
 proteum create service Conversion/Plans
 ```
 
-`proteum configure agents` embeds the full Proteum project instruction corpus into the managed `# Proteum Instructions` section of each tracked instruction file. Standalone mode writes root documents into the app root; monorepo mode writes shared root documents such as `AGENTS.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root and keeps only app-local instruction files in the Proteum app root. It preserves content outside managed sections and asks before replacing directories or foreign symlinks. If you decline, that path is left untouched.
+`proteum configure agents` embeds the full Proteum project instruction corpus into the managed `# Proteum Instructions` section of each tracked instruction file. Standalone mode writes root documents into the app root; monorepo mode writes shared root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root and keeps only app-local instruction files in the Proteum app root. It preserves content outside managed sections and asks before replacing directories or foreign symlinks. If you decline, that path is left untouched.
 
 Every `proteum dev` start runs the same idempotent instruction check. It updates missing or stale managed sections automatically and prompts only when a blocked path would need to be replaced.
 
@@ -569,7 +569,7 @@ Proteum answers those questions with explicit artifacts:
 If you are an LLM or automation agent, start here:
 
 1. Run `proteum orient <query>` or MCP `orient` before broad source reads.
-2. Read only the returned `instructions.mustRead` files, plus conditional docs for diagnostics, coding style, or optimization when they apply.
+2. Read only the returned `instructions.mustRead` files, plus conditional docs for documentation, diagnostics, coding style, or optimization when they apply.
 3. Run `proteum runtime status` once before starting a dev server; use MCP `runtime_status` for repeated status reads.
 4. Use `proteum diagnose`, `proteum perf`, and compact `proteum trace` for reproducible command evidence.
 5. Use `proteum mcp --url <dev-url>` or `/__proteum/mcp` for repeated live status, instruction, diagnose, trace, perf, and log reads.

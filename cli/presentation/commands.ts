@@ -128,7 +128,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         notes: [
             'This command is interactive. It asks whether the current Proteum app belongs to a monorepo and, if so, which ancestor path should receive the reusable root instruction files.',
             'Standalone mode writes tracked instruction files into the current Proteum app root.',
-            'Monorepo mode writes reusable root documents such as `AGENTS.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root, then writes only app-root and area instruction files into the current Proteum app root.',
+            'Monorepo mode writes reusable root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root, then writes only app-root and area instruction files into the current Proteum app root.',
             'Every managed instruction file contains a `# Proteum Instructions` section with the full embedded Proteum project instruction corpus.',
             'Existing content outside `# Proteum Instructions` is preserved. Directories and foreign symlinks are replaced only after confirmation.',
         ],

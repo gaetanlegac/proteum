@@ -61,6 +61,7 @@ const managedInstructionSectionEnd = '<!-- proteum-instructions:end -->';
 const managedInstructionSectionIntro = 'This section is managed by `proteum configure agents`.';
 
 const sharedRootDocumentInstructionDefinitions: TAgentInstructionDefinition[] = [
+    { projectPath: 'DOCUMENTATION.md', content: 'source' },
     { projectPath: 'CODING_STYLE.md', content: 'source' },
     { projectPath: 'diagnostics.md', content: 'source' },
     { projectPath: 'optimizations.md', content: 'source' },
@@ -575,6 +576,7 @@ function renderEmbeddedProjectInstructions({ coreRoot }: TProjectInstructionArgs
         '',
         '## Routing Table',
         '',
+        '- Non-trivial coding tasks, feature docs, product intent, acceptance criteria, or docs updates: read `DOCUMENTATION.md`.',
         '- Raw errors, failing requests, traces, perf, or reproduction: read `diagnostics.md`.',
         '- Implementation edits: read `CODING_STYLE.md` before editing.',
         '- Client files or pages: read `client/AGENTS.md`; for page route/data/render work also read `client/pages/AGENTS.md`.',
@@ -586,6 +588,7 @@ function renderEmbeddedProjectInstructions({ coreRoot }: TProjectInstructionArgs
         '## Canonical Source Map',
         '',
         `- Root contract fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'AGENTS.md'))}`,
+        `- Documentation fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'DOCUMENTATION.md'))}`,
         `- Diagnostics fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'diagnostics.md'))}`,
         `- Optimization fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'optimizations.md'))}`,
         `- Coding style fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'CODING_STYLE.md'))}`,

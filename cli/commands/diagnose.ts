@@ -187,6 +187,7 @@ const renderOrientation = (response: TDiagnoseResponse) =>
         : [
               'Orientation',
               `- agents=${response.orientation.guidance.agents}`,
+              `- documentation=${response.orientation.guidance.documentation}`,
               `- diagnostics=${response.orientation.guidance.diagnostics}`,
               `- optimizations=${response.orientation.guidance.optimizations}`,
               `- codingStyle=${response.orientation.guidance.codingStyle}`,
@@ -343,6 +344,7 @@ const printCompactDiagnose = ({
             instructions: response.orientation
                 ? {
                       mustRead: [...new Set([response.orientation.guidance.agents, ...response.orientation.guidance.areaAgents])],
+                      documentation: response.orientation.guidance.documentation,
                       diagnostics: response.orientation.guidance.diagnostics,
                       codingStyle: response.orientation.guidance.codingStyle,
                       optimizations: response.orientation.guidance.optimizations,

@@ -4,8 +4,9 @@ This is the canonical standalone-app contract for Proteum-based projects shipped
 When splitting instructions across a monorepo, put the Proteum-wide rules in the monorepo-root `AGENTS.md` and keep only app-root-specific additions in each Proteum app root `AGENTS.md`.
 Role: keep only project-wide app rules here when one root `AGENTS.md` must carry both the reusable Proteum contract and the app-root addendum.
 Keep here: cross-cutting project workflow, architecture contracts, shared typing rules, and rules that apply across client, server, pages, and tests.
-Do not put here: detailed diagnostics workflow, optimization checklists, coding-style details, or narrow area-specific instructions that belong in `diagnostics.md`, `optimizations.md`, `CODING_STYLE.md`, `client/AGENTS.md`, `client/pages/AGENTS.md`, `server/routes/AGENTS.md`, `server/services/AGENTS.md`, or `tests/AGENTS.md`.
+Do not put here: documentation-driven coding workflow, detailed diagnostics workflow, optimization checklists, coding-style details, or narrow area-specific instructions that belong in `DOCUMENTATION.md`, `diagnostics.md`, `optimizations.md`, `CODING_STYLE.md`, `client/AGENTS.md`, `client/pages/AGENTS.md`, `server/routes/AGENTS.md`, `server/services/AGENTS.md`, or `tests/AGENTS.md`.
 
+Documentation source of truth: root-level `DOCUMENTATION.md`.
 Optimization source of truth: root-level `optimizations.md`.
 Diagnostics source of truth: root-level `diagnostics.md`.
 Coding style source of truth: root-level `CODING_STYLE.md`.
@@ -26,9 +27,10 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 - Treat Proteum CLI and MCP output as the workflow router. Read only the instruction files returned in `orient` `mustRead` or MCP `instructions_resolve`, plus conditional docs that match the current task. Do not read broad instruction folders or every managed instruction file up front.
 - When a Proteum MCP client is available, prefer read-only MCP tools for repeated runtime/status/orientation/trace/perf/log reads. Use CLI commands when you need reproducible terminal validation, dev/build/check workflows, or output to share with a human.
 - MCP payloads are compact single-line `proteum-mcp-v1` JSON with capped and paginated detail. Do not expand MCP output for human readability.
+- For every non-trivial coding task, load and follow root-level `DOCUMENTATION.md` before coding.
 - If the user reports an issue, or the agent encounters one during exploration, implementation, verification, or runtime reproduction, load and follow root-level `diagnostics.md`.
 - If the task touches client-side files, especially `client/**` and page files, load and apply root-level `optimizations.md` only after implementation for post-implementation checking and optimization. Skip it at task start and skip it for server-only, test-only, doc-only, and non-client refactor tasks unless the user explicitly asks for optimization work.
-- If the task changes UX, copy, onboarding, pricing, product semantics, or commercial positioning, read the relevant files under `./docs/` first, especially `docs/PERSONAS.md`, `docs/PRODUCT.md`, and `docs/MARKETING.md` when they exist. If a dev server is already running, print the live dev server URL as a clickable Markdown link.
+- If the task changes UX, copy, onboarding, pricing, product semantics, or commercial positioning, use root-level `DOCUMENTATION.md` to choose the smallest relevant `./docs/` pack before editing. If a dev server is already running, print the live dev server URL as a clickable Markdown link.
 - If the task needs new app or artifact boilerplate, prefer `npx proteum init ...` and `npx proteum create ...` before creating files by hand. Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.
 - If you changed `schema.prisma`, do not start testing or validation yet. Ask the user to run the following command in the affected worktree directory, replacing the placeholders, and wait for the user to reply exactly `continue` before resuming validation or tests:
   ```

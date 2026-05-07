@@ -125,6 +125,7 @@ const renderHuman = (response: TOrientResponse) =>
         ...(response.app.routerPort ? [`- routerPort=${response.app.routerPort}`] : []),
         'Guidance',
         `- agents=${response.guidance.agents}`,
+        `- documentation=${response.guidance.documentation}`,
         `- diagnostics=${response.guidance.diagnostics}`,
         `- optimizations=${response.guidance.optimizations}`,
         `- codingStyle=${response.guidance.codingStyle}`,
@@ -166,6 +167,10 @@ const compactOwnerMatch = (match: TOrientResponse['owner']['matches'][number]) =
 const buildInstructionPlan = (response: TOrientResponse) => ({
     mustRead: [...new Set([response.guidance.agents, ...response.guidance.areaAgents])],
     readWhen: [
+        {
+            file: response.guidance.documentation,
+            when: 'Read before non-trivial coding tasks to choose the smallest `/docs` pack and update docs after changes.',
+        },
         {
             file: response.guidance.diagnostics,
             when: 'Read only for raw errors, failing requests, traces, perf regressions, or reproduction work.',

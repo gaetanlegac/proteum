@@ -26,6 +26,7 @@ test('instruction routing returns compact selected files for a page query', () =
     writeFile(path.join(appRoot, 'AGENTS.md'), '# App Agents\n\n- root\n');
     writeFile(path.join(appRoot, 'client', 'AGENTS.md'), '# Client Agents\n\n- client\n');
     writeFile(path.join(appRoot, 'client', 'pages', 'AGENTS.md'), '# Page Agents\n\n- pages\n');
+    writeFile(path.join(appRoot, 'DOCUMENTATION.md'), '# Documentation\n\n- docs\n');
     writeFile(path.join(appRoot, 'diagnostics.md'), '# Diagnostics\n\n- diagnose\n');
 
     const payload = resolveInstructionRouting({ appRoot, query: '/domains/:slug client/pages/domain.tsx' });
@@ -36,6 +37,7 @@ test('instruction routing returns compact selected files for a page query', () =
         payload.data.selected.map((entry) => path.relative(appRoot, entry.file)).sort(),
         ['AGENTS.md', 'client/AGENTS.md', 'client/pages/AGENTS.md'],
     );
+    assert.equal(payload.data.readWhen.some((entry) => entry.file && entry.file.endsWith('DOCUMENTATION.md')), true);
     assert.equal(payload.data.readWhen.some((entry) => entry.file && entry.file.endsWith('diagnostics.md')), true);
 });
 
