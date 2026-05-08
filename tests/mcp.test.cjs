@@ -3,7 +3,6 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const test = require('node:test');
 
 const coreRoot = path.resolve(__dirname, '..');
 process.env.TS_NODE_PROJECT = path.join(coreRoot, 'cli', 'tsconfig.json');
@@ -418,7 +417,7 @@ test('machine registry cleans stale sessions and preserves live sessions', async
     const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
     const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-registry-'));
     process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
-    t.after(() => {
+    t.onTestFinished(() => {
         if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
         else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
     });
@@ -461,7 +460,7 @@ test('machine MCP daemon registry cleans stale records and resolves port overrid
     const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-daemon-'));
     process.env.PROTEUM_MACHINE_MCP_DIR = registryDir;
     process.env.PROTEUM_MCP_PORT = '4567';
-    t.after(() => {
+    t.onTestFinished(() => {
         if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_MCP_DIR;
         else process.env.PROTEUM_MACHINE_MCP_DIR = previousRegistryDir;
         if (previousPort === undefined) delete process.env.PROTEUM_MCP_PORT;
@@ -514,7 +513,7 @@ test('machine MCP router forwards app tools without leaking projectId', async (t
     const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
     const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-router-'));
     process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
-    t.after(() => {
+    t.onTestFinished(() => {
         if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
         else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
     });
@@ -579,7 +578,7 @@ test('machine MCP router resolves projects by cwd and bootstraps workflow withou
     const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
     const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-workflow-router-'));
     process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
-    t.after(() => {
+    t.onTestFinished(() => {
         if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
         else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
     });
@@ -670,7 +669,7 @@ test('machine MCP router resolves offline monorepo app candidates before dev is 
     const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
     const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-offline-registry-'));
     process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
-    t.after(() => {
+    t.onTestFinished(() => {
         if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
         else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
     });
@@ -749,7 +748,7 @@ test('machine MCP offline resolution inspects occupied ports before suggesting d
     const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
     const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-offline-port-registry-'));
     process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
-    t.after(() => {
+    t.onTestFinished(() => {
         if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
         else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
     });
@@ -815,7 +814,7 @@ test('machine MCP offline resolution does not start a second server for an untra
     const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
     const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-same-port-registry-'));
     process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
-    t.after(() => {
+    t.onTestFinished(() => {
         if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
         else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
     });

@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const test = require('node:test');
 
 require('ts-node/register/transpile-only');
 

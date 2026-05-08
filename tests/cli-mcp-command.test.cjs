@@ -4,7 +4,6 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const test = require('node:test');
 
 const coreRoot = path.resolve(__dirname, '..');
 const cliBin = path.join(coreRoot, 'cli', 'bin.js');

@@ -3,7 +3,6 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const test = require('node:test');
 
 const coreRoot = path.resolve(__dirname, '..');
 process.env.TS_NODE_PROJECT = path.join(coreRoot, 'cli', 'tsconfig.json');

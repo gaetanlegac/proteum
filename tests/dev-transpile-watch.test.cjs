@@ -5,7 +5,6 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const test = require('node:test');
 
 const coreRoot = path.resolve(__dirname, '..');
 const cliBin = path.join(coreRoot, 'cli', 'bin.js');

@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const test = require('node:test');
 
 const { resolveRequestIp } = require('./ip.ts');
 

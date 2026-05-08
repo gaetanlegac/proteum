@@ -179,3 +179,28 @@ The Product `/domains` diagnostic loop measured on May 7, 2026 used `ceil(UTF-8 
 | Dev-hosted HTTP MCP repeated reads x3 | 10,537 | 214 ms |
 
 Machine routing adds one lightweight `projects_list` lookup but keeps repeated app reads on the dev-hosted runtime endpoint. The practical rule is: use CLI for reproducible checks and final evidence, then use MCP with `projectId` for repeated reads against the same app/runtime.
+
+## Codex Usage Test
+
+Proteum core uses Vitest for framework tests. The live Codex MCP usage test is opt-in because it runs the real Codex CLI, may spend model tokens, and depends on the developer machine's Codex auth plus MCP registration.
+
+```bash
+PROTEUM_CODEX_MCP_USAGE_CWD=/absolute/path/to/proteum/app npm run test:codex-mcp
+```
+
+The test sends a read-only runtime health prompt to `codex exec --json`, stores the JSONL transcript, stderr, last message, and `summary.json`, then asserts:
+
+- token usage was reported and quantified
+- at least one Proteum MCP `workflow_start` call happened
+- total Proteum MCP calls meet `PROTEUM_CODEX_MCP_MIN_MCP_CALLS` (`4` by default)
+- Proteum CLI fallback calls stay under `PROTEUM_CODEX_MCP_MAX_CLI_CALLS` (`4` by default)
+
+Useful optional variables:
+
+```bash
+CODEX_CLI=/path/to/codex
+PROTEUM_CODEX_MCP_USAGE_OUTPUT_DIR=/tmp/proteum-codex-mcp-usage
+PROTEUM_CODEX_MCP_USAGE_TIMEOUT_MS=1200000
+PROTEUM_CODEX_MCP_MIN_MCP_CALLS=4
+PROTEUM_CODEX_MCP_MAX_CLI_CALLS=4
+```

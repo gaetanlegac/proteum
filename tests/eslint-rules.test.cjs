@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const test = require('node:test');
 const { Linter } = require('eslint');
 
 const { createProteumEslintConfig } = require('../eslint.js');

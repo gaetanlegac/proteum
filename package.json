@@ -12,6 +12,12 @@
 	"keywords": [
 		"framework"
 	],
+	"scripts": {
+		"test": "vitest run",
+		"test:codex-mcp": "PROTEUM_RUN_CODEX_MCP_USAGE_TEST=1 vitest run tests/codex-mcp-usage.test.cjs",
+		"test:integration": "vitest run tests/dev-transpile-watch.test.cjs",
+		"test:unit": "vitest run --exclude tests/dev-transpile-watch.test.cjs"
+	},
 	"bin": {
 		"proteum": "cli/bin.js"
 	},
@@ -104,13 +110,14 @@
 		"@types/fs-extra": "^9.0.12",
 		"@types/markdown-it": "^12.2.3",
 		"@types/mime-types": "^2.1.1",
-		"@types/node": "^16.9.1",
+		"@types/node": "^20.19.40",
 		"@types/nodemailer": "^6.4.4",
 		"@types/pg": "^8.6.1",
 		"@types/pg-escape": "^0.2.1",
 		"@types/prompts": "^2.0.14",
 		"@types/sharp": "^0.31.1",
 		"@types/universal-analytics": "^0.4.5",
-		"schema-dts": "^1.1.2"
+		"schema-dts": "^1.1.2",
+		"vitest": "^4.1.5"
 	}
 }
