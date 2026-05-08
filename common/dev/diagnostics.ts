@@ -125,7 +125,7 @@ export const buildExplainSummaryItems = (manifest: TProteumManifest) => {
         `Routes: ${manifest.routes.client.length} client, ${manifest.routes.server.length} server`,
         `Layouts: ${manifest.layouts.length}`,
         `Diagnostics: ${errorsCount} errors, ${warningsCount} warnings`,
-        'Use `proteum explain --json` for the full machine-readable manifest or pass section flags like `routes` and `services`.',
+        'Use `proteum explain --manifest` for the full manifest or pass section flags with `--full` when raw arrays are required.',
     ];
 };
 

@@ -363,11 +363,15 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         examples: [
             { description: 'Show the default compact agent summary', command: 'proteum explain' },
             {
-                description: 'Inspect generated routes, controllers, and commands together',
+                description: 'Summarize generated routes, controllers, and commands together',
                 command: 'proteum explain --routes --controllers --commands',
             },
             {
-                description: 'Inspect configured connected projects and imported controllers',
+                description: 'Emit selected route/controller/command arrays only when needed',
+                command: 'proteum explain --routes --controllers --commands --full',
+            },
+            {
+                description: 'Summarize configured connected projects and imported controllers',
                 command: 'proteum explain --connected --controllers',
             },
             { description: 'Resolve the most likely manifest owner for a path or file', command: 'proteum explain owner /api/Auth/CurrentUser' },
@@ -375,7 +379,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         ],
         notes: [
             'Default output is compact `proteum-agent-v1` JSON because the CLI is optimized for agents.',
-            '`--full`, `--manifest`, or explicit section flags are the escape hatch for large details.',
+            'Explicit section flags summarize those sections by default; add `--full` or use `--manifest` for raw manifest arrays.',
             'Legacy positional section selection remains supported, for example `proteum explain routes services`.',
             '`proteum explain owner <query>` ranks matching routes, controllers, services, commands, layouts, and diagnostics from the manifest.',
             'Connected projects are emitted from explicit `proteum.config.ts` `connect.<Namespace>.*` values plus the resolved connected contract.',
@@ -395,7 +399,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             { description: 'Use a running dev server when the local manifest is unavailable', command: 'proteum orient /domains --port 3101' },
         ],
         notes: [
-            'Default output is compact `proteum-agent-v1` JSON with `mustRead`, conditional docs, owner matches, and next commands.',
+            'Default output is compact `proteum-agent-v1` JSON with `mustRead`, triggered instruction files, conditional docs, owner matches, and next commands.',
             'Use it before reading source when the query might map to generated code, connected imports, framework-owned files, or area instructions.',
             'When `--port` or `--url` is provided, Proteum can read the manifest from a running dev server instead of only from disk.',
         ],
@@ -461,7 +465,10 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         ],
         notes: [
             'Default output is compact `proteum-agent-v1` JSON with the selected session, health, and next command.',
+            'When no tracked session exists, the configured router and HMR ports are inspected before suggesting Start Dev.',
+            'If the same app already responds on the configured port, the next action uses or repairs that runtime instead of starting a second server.',
             'The selected live session includes its dev-hosted MCP URL when available.',
+            'Use this command instead of curling page routes to identify port ownership.',
             'Use `--full` to include every tracked session field.',
         ],
         status: 'experimental',
@@ -480,8 +487,10 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         ],
         notes: [
             '`proteum dev` ensures one managed machine MCP daemon is running before the app dev loop starts.',
-            '`proteum mcp` is a router, not an app dev server. It discovers live `proteum dev` sessions from the machine registry.',
-            'Agents should call MCP `projects_list`, pick the stable `projectId`, then pass that `projectId` to every app-bound MCP tool.',
+            '`proteum mcp` is a router, not an app dev server. It discovers live `proteum dev` sessions from the machine registry and can resolve offline app candidates from `cwd`.',
+            'Agents should call MCP `workflow_start` with `cwd` or a known `projectId`; use `project_resolve { cwd }` when routing is ambiguous or no live dev server exists yet.',
+            'When an offline app candidate is returned, start exactly one `proteum dev` from that app root before runtime diagnose, trace, or perf reads.',
+            'After an MCP read succeeds, agents should not run the equivalent CLI command or broad owner search for the same runtime state.',
             'App runtime data still comes from the selected dev-hosted `/__proteum/mcp` endpoint.',
             'Only one managed machine MCP daemon may run at a time; stale daemon records are cleaned automatically.',
             'MCP remains read-only and optimized for compact `proteum-mcp-v1` payloads.',

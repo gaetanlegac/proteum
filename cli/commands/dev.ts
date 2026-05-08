@@ -43,6 +43,7 @@ import {
 import { resolveFrameworkInstallInfo } from '../paths';
 import { logVerbose } from '../runtime/verbose';
 import { ensureMachineMcpDaemonProcess } from '../runtime/mcpDaemon';
+import { inspectDevPort, type TDevPortInspection } from '../runtime/ports';
 import { configureProjectAgentInstructions, resolveProjectAgentMonorepoRoot } from '../utils/agents';
 import { quoteCommandArgument } from '../utils/agentOutput';
 
@@ -490,6 +491,70 @@ const ensureMachineMcpDaemonForDev = async () => {
     }
 };
 
+const describeDevPortBlocker = (inspection: TDevPortInspection) => {
+    const lines = [
+        `Proteum cannot start this dev server on port ${inspection.router.port}.`,
+        `Router port ${inspection.router.port}: ${inspection.router.available ? 'free' : 'occupied'}.`,
+        `HMR port ${inspection.hmr.port}: ${inspection.hmr.available ? 'free' : 'occupied'}.`,
+    ];
+
+    if (!inspection.router.available && inspection.router.proteum && inspection.router.matchesApp) {
+        lines.push(
+            `The router port is already serving this Proteum app${inspection.router.app?.appRoot ? ` from ${inspection.router.app.appRoot}` : ''}.`,
+        );
+        lines.push('Next action: run `npx proteum runtime status`, use or stop the existing runtime, then start one tracked dev session.');
+        lines.push('Do not start a second dev server for the same worktree.');
+    } else if (!inspection.router.available && inspection.router.proteum) {
+        lines.push(
+            `The router port is already serving ${inspection.router.app?.identifier || inspection.router.app?.name || 'another Proteum app'}${inspection.router.app?.appRoot ? ` from ${inspection.router.app.appRoot}` : ''}.`,
+        );
+        lines.push(
+            inspection.recommendedPort
+                ? `Next action: npx proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port ${inspection.recommendedPort}`
+                : 'Next action: choose a free router/HMR port pair, then rerun proteum dev with --port <free-port>.',
+        );
+    } else if (!inspection.router.available) {
+        lines.push('The router port is occupied by a non-Proteum or unrecognized process.');
+        lines.push(
+            inspection.recommendedPort
+                ? `Next action: npx proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port ${inspection.recommendedPort}`
+                : 'Next action: choose a free router/HMR port pair, then rerun proteum dev with --port <free-port>.',
+        );
+    } else if (!inspection.hmr.available) {
+        lines.push('The HMR port is occupied.');
+        lines.push(
+            inspection.recommendedPort
+                ? `Next action: npx proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port ${inspection.recommendedPort}`
+                : 'Next action: choose a free router/HMR port pair, then rerun proteum dev with --port <free-port>.',
+        );
+    }
+
+    lines.push('Do not inspect page bodies to identify the owner; use `npx proteum runtime status` for compact port/runtime state.');
+
+    return lines.join('\n');
+};
+
+const ensureConfiguredDevPortsAvailable = async () => {
+    const inspection = await inspectDevPort({
+        appRoot: app.paths.root,
+        port: app.env.router.port,
+    });
+
+    if (inspection.canStartOnConfiguredPort) return;
+
+    if (cli.args.replaceExisting === true) {
+        const requestedSessionFilePath = getResolvedDevSessionFilePath();
+        const [requestedSession] = await listDevSessionInspections({
+            appRoot: app.paths.root,
+            sessionFilePath: requestedSessionFilePath,
+        });
+
+        if (requestedSession?.record && requestedSession.live) return;
+    }
+
+    throw new Error(describeDevPortBlocker(inspection));
+};
+
 async function startApp(app: App) {
     await runSerializedAppProcessOperation(async () => {
         if (devSessionStopping) return;
@@ -813,6 +878,7 @@ const createIndexedSourceWatching = ({
 
 const runDevLoop = async () => {
     devSessionStopping = false;
+    await ensureConfiguredDevPortsAvailable();
     clearInteractiveConsole();
     await ensureDevSessionSlot();
     await ensureMachineMcpDaemonForDev();

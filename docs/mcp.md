@@ -5,7 +5,7 @@ Proteum exposes MCP through two coordinated surfaces:
 - `proteum mcp`: one machine-scope router for live Proteum dev projects.
 - `proteum dev`: one app-root runtime endpoint at `http://localhost:<port>/__proteum/mcp`.
 
-Agents should normally connect to `proteum mcp`. The router discovers live `proteum dev` sessions from the machine registry, returns stable `projectId` values, and forwards app-bound reads to the selected dev-hosted endpoint.
+Agents should normally connect to `proteum mcp`. The router discovers live `proteum dev` sessions from the machine registry, can resolve offline Proteum app roots from a supplied `cwd`, returns stable `projectId` values for live projects, and forwards app-bound reads to the selected dev-hosted endpoint.
 
 ## Machine Router
 
@@ -27,20 +27,26 @@ The router is read-only. It does not start or stop dev servers, mutate files, re
 
 Use this flow:
 
-1. Call MCP `projects_list`.
-2. Pick the stable `projectId` for the intended app.
-3. Pass that `projectId` to every app-bound MCP call.
+1. Call MCP `workflow_start` with `cwd` or a known `projectId`.
+2. If the result is ambiguous or returns offline app candidates, call `project_resolve { cwd }`, pick the intended app root, start exactly one `proteum dev` server from that app root when needed, then retry `workflow_start`.
+3. Pass the returned live `projectId` to every follow-up app-bound MCP call.
+4. After an MCP read succeeds, do not run the equivalent CLI command or broad source search for the same state; keep CLI for fallback, validation, and final terminal evidence.
 
 Example tool calls:
 
 ```json
+{"tool":"workflow_start","arguments":{"cwd":"/repo/apps/product","task":"read-only runtime health pass","route":"/dashboard"}}
 {"tool":"projects_list","arguments":{}}
+{"tool":"project_resolve","arguments":{"cwd":"/repo/apps/product/client/pages"}}
+{"tool":"workflow_start","arguments":{"projectId":"prj_0123abcd4567","route":"/dashboard"}}
 {"tool":"runtime_status","arguments":{"projectId":"prj_0123abcd4567"}}
 {"tool":"orient","arguments":{"projectId":"prj_0123abcd4567","query":"/dashboard"}}
+{"tool":"route_candidates","arguments":{"projectId":"prj_0123abcd4567","query":"dashboard","limit":8}}
+{"tool":"explain_summary","arguments":{"projectId":"prj_0123abcd4567","query":"/dashboard"}}
 {"tool":"diagnose","arguments":{"projectId":"prj_0123abcd4567","path":"/dashboard"}}
 ```
 
-If a tool omits `projectId`, the router returns a compact error that tells the agent to call `projects_list`. There is no single-project fallback, because wrong-project reads are worse than an explicit routing retry.
+`workflow_start` is the only app-bound bootstrap tool that may resolve from `cwd` when `projectId` is not known. It may return offline app candidates when no matching dev server is running yet. Other app-bound tools require a live `projectId`; if they omit it, the router returns a compact error that tells the agent to call `projects_list` or `project_resolve`. There is no single-project fallback, because wrong-project reads are worse than an explicit routing retry.
 
 ## Dev Runtime Endpoint
 
@@ -52,7 +58,7 @@ GET /__proteum/mcp
 DELETE /__proteum/mcp
 ```
 
-This endpoint is dev-only and local-tooling-only. It is already rooted to the running app, so its tools do not require `projectId`. The machine router strips `projectId` before forwarding a call here.
+This endpoint is dev-only and local-tooling-only. It is already rooted to the running app, so its tools do not require `projectId` or `cwd`. The machine router strips routing fields before forwarding a call here.
 
 The dev session UI and ready banner print:
 
@@ -67,16 +73,20 @@ MCP: http://localhost:<port>/__proteum/mcp
 
 If machine MCP routing fails:
 
-1. Run `proteum runtime status` in the intended app.
-2. Run `proteum mcp status`; if no daemon is live, run `proteum mcp` or start `proteum dev` in the intended app.
-3. If no live app session exists, start `proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>`.
+1. Run `proteum mcp status`.
+2. Run `proteum runtime status` from the intended app root. If you are in a monorepo wrapper, use the returned app candidates and exact next action instead of starting dev from the wrapper.
+3. If no live app session exists, use the exact Start Dev next action returned by runtime status. It checks the configured router/HMR ports and suggests an alternate free port when the manifest default is occupied.
 4. If a live session exists but runtime/MCP is unreachable, stop the listed session file with `proteum dev stop --session-file <path>`, then start dev again.
-5. Retry MCP `projects_list` and use the returned `projectId`.
+5. Retry MCP `workflow_start` and use the returned `projectId`.
+
+Offline `project_resolve` and `workflow_start` candidates also inspect configured router/HMR ports before returning `nextAction`. If the configured port already serves the same app but no live machine project is registered, the next action is runtime tracking repair, not starting a second dev server.
 
 `proteum runtime status` refreshes the machine registry for live tracked sessions, so this recovery path also repairs missing router records after an upgrade.
 
 Do not start a second `proteum dev` server in the same worktree. `proteum dev` fails fast when another live tracked session already exists for the same app root.
 Do not start a second managed `proteum mcp` daemon. `proteum mcp` reuses the live daemon or reports its current URL.
+Do not call `diagnose`, `trace_*`, or `perf_*` while runtime health is unreachable; repair or start dev first.
+Do not `curl` normal page routes to identify port ownership; use `proteum runtime status` or Proteum dev-only `/__proteum/*` endpoints so wrong-app HTML is never dumped into agent context.
 
 ## Output Contract
 
@@ -102,15 +112,17 @@ Machine-only tools:
 | Tool | Purpose |
 | --- | --- |
 | `projects_list` | List live Proteum dev projects and stable `projectId` values |
-| `project_resolve` | Resolve a live project by `projectId` or app-root substring |
+| `project_resolve` | Resolve a live project or offline app candidate by `projectId`, `cwd`, app root, or app-root substring |
 
 App-bound tools require `projectId` when called through `proteum mcp`:
 
 | Tool | Purpose |
 | --- | --- |
+| `workflow_start` | One-call bootstrap with resolved project, runtime, selected instruction previews, owner summary, doctor summaries, duplicate-avoidance rules, and next actions |
 | `runtime_status` | Manifest summary, selected runtime, tracked sessions, health, and MCP URL |
 | `orient` | Owner, instruction routing, connected boundaries, and next actions |
-| `instructions_resolve` | Selected instruction files for a query, with short previews |
+| `instructions_resolve` | Selected instruction files for a query, with short previews and full-read policy |
+| `route_candidates` | Compact route/controller/page matches for a query without dumping the raw route table |
 | `explain_summary` | Compact manifest summary or owner lookup |
 | `doctor` | Compact manifest and optional contract diagnostics |
 | `diagnose` | Composite diagnosis for an existing route, query, or request trace |
@@ -132,20 +144,28 @@ proteum refresh
 proteum diagnose /dashboard --port 3101
 proteum verify request /dashboard --port 3101
 proteum trace show <requestId> --events --port 3101
+proteum explain owner /dashboard
+proteum explain --routes --controllers --full # only when the raw route/controller arrays are required
 ```
 
 Use MCP when an agent is asking a running app for repeated state:
 
 ```text
-projects_list
+workflow_start { cwd, task, route? }
 runtime_status { projectId }
-instructions_resolve { projectId }
+instructions_resolve { projectId, query }
 orient { projectId, query }
+route_candidates { projectId, query }
+explain_summary { projectId, query }
+doctor { projectId }
 diagnose { projectId, path }
+trace_show { projectId, requestId }
 trace_latest { projectId }
 perf_request { projectId, query }
 logs_tail { projectId }
 ```
+
+After an MCP read succeeds, do not run the equivalent CLI command for the same state, and do not run broad source searches for ownership that MCP already returned. CLI output is for fallback, validation, command evidence, and human-shareable reproductions.
 
 ## Benchmark
 

@@ -77,14 +77,20 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(agentsContent, /^# Proteum Instructions/m);
     assert.match(agentsContent, /<!-- proteum-instructions:start -->/);
     assert.match(agentsContent, /## Agent Routing Contract/);
-    assert.match(agentsContent, /npx proteum orient <query>/);
-    assert.match(agentsContent, /MCP `projects_list`/);
+    assert.match(agentsContent, /npx proteum runtime status/);
+    assert.match(agentsContent, /MCP `workflow_start`/);
+    assert.match(agentsContent, /project_resolve \{ cwd \}/);
     assert.match(agentsContent, /instructions_resolve \{ projectId \}/);
+    assert.match(agentsContent, /Do not run CLI equivalents after a successful MCP result/);
+    assert.match(agentsContent, /Read full files only before edits or git writes/);
+    assert.match(agentsContent, /explain_summary/);
     assert.match(agentsContent, /\/__proteum\/mcp/);
     assert.match(agentsContent, /proteum-mcp-v1/);
-    assert.match(agentsContent, /## Always-On Git Workflow/);
-    assert.match(agentsContent, /Conventional Commits/);
-    assert.match(agentsContent, /recent `git log`/);
+    assert.match(agentsContent, /## Triggered Instruction Reads/);
+    assert.match(agentsContent, /Git lifecycle/);
+    assert.match(agentsContent, /read Root contract fallback before any git write/);
+    assert.match(agentsContent, /MCP-selected previews are enough/);
+    assert.doesNotMatch(agentsContent, /Conventional Commits/);
     assert.match(agentsContent, /They are not deleted/);
     assert.doesNotMatch(agentsContent, /## Source: CODING_STYLE\.md/);
     assert.match(codingStyleContent, /## Source: CODING_STYLE\.md/);
@@ -190,6 +196,10 @@ test('monorepo configure writes root and app instruction files', () => {
 
     fs.mkdirSync(path.join(monorepoRoot, '.git'));
     fs.mkdirSync(path.join(appRoot, 'client'), { recursive: true });
+    fs.mkdirSync(path.join(appRoot, 'server'), { recursive: true });
+    writeFile(path.join(appRoot, 'package.json'), '{"name":"product"}\n');
+    writeFile(path.join(appRoot, 'identity.config.ts'), 'export default {};\n');
+    writeFile(path.join(appRoot, 'proteum.config.ts'), 'export default {};\n');
 
     configureProjectAgentInstructions({ appRoot, coreRoot });
 
@@ -198,6 +208,9 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.equal(result.mode, 'monorepo');
     assert.equal(resolveProjectAgentMonorepoRoot(appRoot), fs.realpathSync(monorepoRoot));
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /## Agent Routing Contract/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /## Known Proteum Apps/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /apps\/product/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /Do not start `npx proteum dev` from this root/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'CODING_STYLE.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'DOCUMENTATION.md'), 'utf8'), /## Source: DOCUMENTATION\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'diagnostics.md'), 'utf8'), /## Source: diagnostics\.md/);
@@ -206,7 +219,10 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: tests\/e2e\/REAL_WORLD_JOURNEY_TESTS\.md/);
     assert.doesNotMatch(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'AGENTS.md')), false);
-    assert.match(fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8'), /## Agent Routing Contract/);
+    const appAgentsContent = fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8');
+    assert.match(appAgentsContent, /## Agent Routing Contract/);
+    assert.doesNotMatch(appAgentsContent, /## Known Proteum Apps/);
+    assert.doesNotMatch(appAgentsContent, /Do not start `npx proteum dev` from this root/);
     assert.match(fs.readFileSync(path.join(appRoot, 'client', 'AGENTS.md'), 'utf8'), /## Source: client\/AGENTS\.md/);
     assert.equal(fs.existsSync(path.join(appRoot, 'CODING_STYLE.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'DOCUMENTATION.md')), false);

@@ -6,12 +6,13 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { logVerbose } from '../runtime/verbose';
+import { createStartDevCommand, findProteumAppRootsUnder, readProteumAppRootSummary } from './appRoots';
 
 /*----------------------------------
 - TYPES
 ----------------------------------*/
 
-type TProjectInstructionArgs = { coreRoot: string };
+type TProjectInstructionArgs = { appRoot?: string; coreRoot: string; includeMonorepoRegistry?: boolean; monorepoRoot?: string };
 type TConfigureProjectAgentInstructionsArgs = {
     appRoot: string;
     coreRoot: string;
@@ -131,7 +132,20 @@ export function configureProjectAgentInstructions({
         updated: [],
         updatedGitignores: [],
     };
-    const embeddedInstructions = renderEmbeddedProjectInstructions({ coreRoot });
+    const appEmbeddedInstructions = renderEmbeddedProjectInstructions({
+        appRoot: normalizedAppRoot,
+        coreRoot,
+        monorepoRoot: normalizedMonorepoRoot,
+    });
+    const rootEmbeddedInstructions =
+        mode === 'monorepo'
+            ? renderEmbeddedProjectInstructions({
+                  appRoot: normalizedAppRoot,
+                  coreRoot,
+                  includeMonorepoRegistry: true,
+                  monorepoRoot: normalizedMonorepoRoot,
+              })
+            : appEmbeddedInstructions;
 
     if (mode === 'monorepo' && normalizedMonorepoRoot) {
         result.monorepoRoot = normalizedMonorepoRoot;
@@ -142,7 +156,7 @@ export function configureProjectAgentInstructions({
             rootInstructions,
             '[agents]',
             path.join(coreRoot, 'agents', 'project'),
-            embeddedInstructions,
+            rootEmbeddedInstructions,
             {
                 dryRun,
                 overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
@@ -160,7 +174,7 @@ export function configureProjectAgentInstructions({
         appInstructions,
         '[agents]',
         path.join(coreRoot, 'agents', 'project'),
-        embeddedInstructions,
+        appEmbeddedInstructions,
         {
             dryRun,
             overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
@@ -545,7 +559,41 @@ function renderSingleProjectInstruction({
     return lines.join('\n');
 }
 
-function renderEmbeddedProjectInstructions({ coreRoot }: TProjectInstructionArgs) {
+function renderMonorepoAppRegistry({
+    appRoot,
+    monorepoRoot,
+}: {
+    appRoot?: string;
+    monorepoRoot?: string;
+}) {
+    if (!monorepoRoot || !appRoot || path.resolve(monorepoRoot) === path.resolve(appRoot)) return [];
+
+    const appRoots = findProteumAppRootsUnder(monorepoRoot);
+    if (appRoots.length === 0) return [];
+
+    const summaries = appRoots.map((candidate) => readProteumAppRootSummary(candidate, monorepoRoot));
+
+    return [
+        '## Known Proteum Apps',
+        '',
+        'This is a monorepo root wrapper. Do not start `npx proteum dev` from this root; start it from one app root below.',
+        '',
+        ...summaries.map((summary) => {
+            const marker = path.resolve(summary.appRoot) === path.resolve(appRoot) ? ' (current configured app)' : '';
+            const port = summary.manifest?.routerPort ? `, default port ${summary.manifest.routerPort}` : '';
+            const command = createStartDevCommand({
+                appRoot: summary.appRoot,
+                baseRoot: monorepoRoot,
+                port: summary.manifest?.routerPort,
+            });
+
+            return `- ${summary.relativeAppRoot || summary.appRoot}${marker}${port}: ${command}`;
+        }),
+        '',
+    ];
+}
+
+function renderEmbeddedProjectInstructions({ appRoot, coreRoot, includeMonorepoRegistry = false, monorepoRoot }: TProjectInstructionArgs) {
     const agentSourceRoot = path.join(coreRoot, 'agents', 'project');
     if (!fs.existsSync(agentSourceRoot)) throw new Error(`Missing project instruction source root: ${agentSourceRoot}`);
 
@@ -559,20 +607,24 @@ function renderEmbeddedProjectInstructions({ coreRoot }: TProjectInstructionArgs
         '',
         'Proteum CLI and MCP outputs are optimized for agents. Do not load the whole instruction corpus up front.',
         '',
-        'Detailed Proteum contracts are intentionally split into the files listed in the routing table below. They are not deleted; load only the file that matches the current task, or use MCP `instructions_resolve { projectId }` to get the routed set.',
+        'Detailed Proteum contracts are intentionally split into the files listed in the routing table below. They are not deleted; load only the file that matches the current task, or use MCP `workflow_start` / `instructions_resolve { projectId }` to get the routed set.',
         '',
-        '1. Start ambiguous, generated, connected, route, controller, file, or error work with `npx proteum orient <query>`.',
-        '2. When a Proteum MCP client is available, call MCP `projects_list`, select the stable `projectId` for this app, and pass that `projectId` to every app-bound MCP tool.',
-        '3. Read only the files returned in `mustRead` or MCP `instructions_resolve { projectId }`, plus the conditional docs that match the current task.',
-        '4. Use `npx proteum runtime status` before starting a dev server, so an existing tracked session can be reused.',
-        '5. During `npx proteum dev`, Proteum ensures one managed machine MCP daemon is running and routes app-bound reads to the read-only runtime endpoint at `/__proteum/mcp` instead of spawning equivalent CLI diagnostics.',
-        '6. If machine MCP routing fails, run `npx proteum mcp status` and `npx proteum runtime status`; if no live session exists, start `npx proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>`.',
-        '7. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again. Do not start a second dev server in the same worktree or a second managed MCP daemon. Then retry MCP `projects_list`.',
-        '8. Use `npx proteum diagnose <target>` for request-time issues before raw trace, perf, browser, or broad source search.',
-        '9. Use `--full`, `--manifest`, `--events`, or MCP `detail: "full"` only when compact output says the omitted detail is needed.',
+        '1. When a Proteum MCP client is available, call MCP `workflow_start` first. Pass `cwd` when `projectId` is not known, or pass the stable `projectId` from `projects_list` when it is known.',
+        '2. Use the `projectId` returned by live `workflow_start` for every follow-up app-bound MCP tool. If `workflow_start` is ambiguous or returns offline candidates, call MCP `project_resolve { cwd }`, select the intended app root, follow its port-inspected next action when needed, then retry `workflow_start`.',
+        '3. After `projectId` is selected, use MCP `runtime_status`, `orient`, `instructions_resolve`, `explain_summary`, `route_candidates`, `doctor`, `diagnose`, `trace_show`, `perf_request`, and `logs_tail` for read-only runtime, owner, instruction, route, trace, perf, and log reads.',
+        '4. Do not run CLI equivalents after a successful MCP result for the same read. Do not run broad source searches for route/page/controller ownership after `workflow_start`, `orient`, or `explain_summary` already returned the owner.',
+        '5. Treat selected instruction previews returned by MCP as the instruction source for read-only discovery and diagnostics. Read full files only before edits or git writes, when the returned `fullRead`/`fullReadPolicy` requires it, or when the preview is insufficient.',
+        '6. Use `npx proteum runtime status` before starting a dev server only when MCP runtime status is unavailable, so an existing tracked session can be reused and the configured router/HMR ports can be checked without probing page bodies. If it says health is unreachable, do not run `diagnose`, `trace`, or `perf`; stop/repair/start the dev session first.',
+        '7. During `npx proteum dev`, Proteum ensures one managed machine MCP daemon is running and routes app-bound reads to the read-only runtime endpoint at `/__proteum/mcp` instead of spawning equivalent CLI diagnostics.',
+        '8. If machine MCP routing fails, run `npx proteum mcp status` and `npx proteum runtime status`; if no live session exists, use the exact next action from MCP offline routing or runtime status instead of assuming the manifest default port. If the same app already responds on the configured port without live tracking, use or repair that runtime instead of starting another server.',
+        '9. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again. Do not start a second dev server in the same worktree or a second managed MCP daemon. Then retry MCP `workflow_start`.',
+        '10. Use MCP `diagnose { projectId, path }` for request-time issues before raw trace, perf, browser, or broad source search; use `npx proteum diagnose <target>` only as fallback or final terminal evidence.',
+        '11. Use `route_candidates`, `explain_summary`, or `npx proteum explain owner <query>` to pick routes. Do not run `npx proteum explain --routes --full` unless compact route/owner tools explicitly cannot answer the raw route-array question.',
+        '12. Use `--full`, `--manifest`, `--events`, or MCP `detail: "full"` only when compact output says the omitted detail is needed.',
         '',
         'CLI remains the reproducible surface for `dev`, `build`, `check`, `verify`, migrations, and final command evidence. MCP remains read-only and returns compact `proteum-mcp-v1` JSON.',
         '',
+        ...(includeMonorepoRegistry ? renderMonorepoAppRegistry({ appRoot, monorepoRoot }) : []),
         '## Always-On Safety',
         '',
         '- Never edit generated files under `.proteum`.',
@@ -582,12 +634,15 @@ function renderEmbeddedProjectInstructions({ coreRoot }: TProjectInstructionArgs
         '- Do not run `git restore` or `git reset`.',
         '- Keep `proteum dev` sessions tracked with explicit session files and do not replace another live session.',
         '',
-        '## Always-On Git Workflow',
+        '## Triggered Instruction Reads',
         '',
-        '- Treat `commit`, `and commit`, `stage`, `push`, `PR`, and pull-request requests as git lifecycle work in addition to the feature task.',
-        '- Before any requested commit, use Conventional Commits: `<type>[optional scope]: <description>`.',
-        '- Stage only conversation-related files and keep unrelated pre-existing user changes or incidental untracked files unstaged.',
-        '- If the commit scope or type is unclear, inspect recent `git log` before choosing the message.',
+        'Keep this root file as a router. MCP-selected previews are enough for read-only discovery and diagnostics. Read the referenced full instruction file only before edits or git writes, when `fullRead`/`fullReadPolicy` requires it, or when the preview is insufficient.',
+        '',
+        '- Git lifecycle (`commit`, `and commit`, `stage`, `push`, `PR`, pull request): read Root contract fallback before any git write.',
+        '- Before finishing production code changes: read Root contract fallback, `CODING_STYLE.md`, and any touched area `AGENTS.md`.',
+        '- Runtime-visible, request-time, router, SSR, browser, or controller behavior: read Root contract fallback and `diagnostics.md` for verification routing.',
+        '- Non-trivial feature, product, business-rule, UX, copy, or docs changes: read `DOCUMENTATION.md` before editing.',
+        '- Implementation edits: read `CODING_STYLE.md` before editing, plus the matching area file from the routing table.',
         '',
         '## Routing Table',
         '',

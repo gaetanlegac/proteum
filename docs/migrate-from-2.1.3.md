@@ -316,7 +316,7 @@ Only bare `proteum build` and bare `proteum dev` runs print a banner. Other CLI 
 - `npx proteum explain`
 - `npx proteum doctor`
 - `npx proteum connect`
-- `npx proteum mcp` as the managed machine-scope MCP router; `proteum dev` ensures one daemon is running, agents call `projects_list`, then pass the selected `projectId` to repeated reads against a live dev app
+- `npx proteum mcp` as the managed machine-scope MCP router; `proteum dev` ensures one daemon is running, agents call `workflow_start` first, use offline candidates to choose the correct app root when needed, then pass the returned live `projectId` to repeated reads against a live dev app
 
 CLI output uses compact `proteum-agent-v1` JSON for reproducible command evidence. MCP output uses compact `proteum-mcp-v1` JSON for repeated runtime reads. Use `npx proteum explain --manifest`, `npx proteum diagnose <target> --full`, or `npx proteum trace show <requestId> --events` only when the compact output is insufficient.
 
@@ -337,7 +337,7 @@ These are new capabilities, not migration requirements, but they are the fastest
 - `npx proteum connect --strict`
 - `npx proteum explain --connected --controllers`
 - `npx proteum runtime status`
-- `npx proteum mcp status` plus MCP `projects_list`
+- `npx proteum mcp status` plus MCP `workflow_start`, `project_resolve`, or `projects_list`
 - `npx proteum diagnose / --port <port>`
 - `npx proteum perf top --port <port>`
 - `npx proteum trace latest --port <port>`

@@ -4,11 +4,18 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import fs from 'fs-extra';
 import http from 'http';
 import { randomUUID } from 'crypto';
+import path from 'path';
+import { realpath } from 'fs/promises';
 import { z } from 'zod/v4';
 
-import { createMcpPayload, stringifyMcpPayload } from '../../common/dev/mcpPayloads';
+import { buildContractsDoctorResponse } from '../../common/dev/contractsDoctor';
+import { buildDoctorResponse } from '../../common/dev/diagnostics';
+import { explainOwner } from '../../common/dev/inspection';
+import { compactWorkflowStartResponse, createMcpPayload, stringifyMcpPayload } from '../../common/dev/mcpPayloads';
+import { readProteumManifest } from '../compiler/common/proteumManifest';
 import {
     createMachineMcpDaemonRecord,
     removeMachineMcpDaemonRecord,
@@ -17,9 +24,19 @@ import {
 } from '../runtime/mcpDaemon';
 import {
     listMachineDevSessionInspections,
+    resolveProteumProjectId,
     resolveMachineDevSessionInspection,
     type TMachineDevSessionRecord,
 } from '../runtime/devSessions';
+import {
+    createStartDevCommand,
+    createRuntimeStatusCommand,
+    findNearestProteumAppRoot,
+    findProteumAppRootsUnder,
+    readProteumAppRootSummary,
+    type TProteumAppRootSummary,
+} from '../utils/appRoots';
+import { inspectDevPort, type TDevPortInspection } from '../runtime/ports';
 
 type TDevMcpClient = {
     callTool: (input: { arguments?: Record<string, unknown>; name: string }) => Promise<CallToolResult>;
@@ -71,7 +88,7 @@ const errorToolResult = (summary: string, data: Record<string, unknown> = {}) =>
                 {
                     label: 'List Projects',
                     tool: 'projects_list',
-                    reason: 'Resolve the live Proteum dev projectId before calling app-bound tools.',
+                    reason: 'Resolve the Proteum project before calling app-bound tools.',
                 },
             ],
         },
@@ -81,6 +98,7 @@ const errorToolResult = (summary: string, data: Record<string, unknown> = {}) =>
 const compactProject = (record: TMachineDevSessionRecord) => ({
     projectId: record.projectId,
     appRoot: record.appRoot,
+    live: true,
     pid: record.pid,
     routerPort: record.routerPort,
     publicUrl: record.publicUrl,
@@ -90,6 +108,97 @@ const compactProject = (record: TMachineDevSessionRecord) => ({
     startedAt: record.startedAt,
     updatedAt: record.updatedAt,
 });
+
+const compactProjectMatch = (record: TMachineDevSessionRecord, matchReason: string) => ({
+    ...compactProject(record),
+    matchReason,
+});
+
+type TOfflineProject = TProteumAppRootSummary & {
+    devPort?: TDevPortInspection;
+    live: false;
+    matchReason: string;
+    nextAction: {
+        command: string;
+        label: string;
+        reason: string;
+    };
+    projectId: string;
+    state: 'offline';
+};
+
+const createOfflineNextAction = async ({
+    appRoot,
+    baseRoot,
+    portInspection,
+    summary,
+}: {
+    appRoot: string;
+    baseRoot?: string;
+    portInspection?: TDevPortInspection;
+    summary: TProteumAppRootSummary;
+}) => {
+    if (!summary.manifest) {
+        return {
+            label: 'Check Runtime Status',
+            command: createRuntimeStatusCommand({ appRoot, baseRoot }),
+            reason: 'Resolve the app manifest and exact dev-session recovery action before runtime diagnosis.',
+        };
+    }
+
+    if (portInspection?.router.proteum && portInspection.router.matchesApp) {
+        return {
+            label: 'Repair Runtime Tracking',
+            command: createRuntimeStatusCommand({ appRoot, baseRoot }),
+            reason:
+                'A Proteum runtime for this app already responds on the configured port but is not registered as a live machine project. Do not start a second dev server; use runtime status to repair or stop it before retrying workflow_start.',
+        };
+    }
+
+    const startPort =
+        portInspection && !portInspection.canStartOnConfiguredPort ? portInspection.recommendedPort : summary.manifest.routerPort;
+
+    return {
+        label: 'Start Dev',
+        command: createStartDevCommand({
+            appRoot: summary.appRoot,
+            baseRoot,
+            port: startPort,
+        }),
+        reason:
+            portInspection && !portInspection.canStartOnConfiguredPort
+                ? 'The configured router/HMR port pair is occupied; start exactly one tracked Proteum dev server on this alternate free pair before runtime diagnosis.'
+                : 'Start exactly one tracked Proteum dev server from this app root before runtime diagnosis.',
+    };
+};
+
+const compactOfflineProject = async ({
+    appRoot,
+    baseRoot,
+    matchReason,
+}: {
+    appRoot: string;
+    baseRoot?: string;
+    matchReason: string;
+}): Promise<TOfflineProject> => {
+    const summary = readProteumAppRootSummary(appRoot, baseRoot);
+    const portInspection = summary.manifest
+        ? await inspectDevPort({
+              appRoot: summary.appRoot,
+              port: summary.manifest.routerPort,
+          })
+        : undefined;
+
+    return {
+        ...summary,
+        devPort: portInspection,
+        live: false,
+        matchReason,
+        nextAction: await createOfflineNextAction({ appRoot: summary.appRoot, baseRoot, portInspection, summary }),
+        projectId: await resolveProteumProjectId(summary.appRoot),
+        state: 'offline',
+    };
+};
 
 const createHttpDevMcpClient = (version: string): TCreateDevMcpClient => async (record) => {
     const client = new Client({ name: 'proteum-machine-router', version });
@@ -103,7 +212,22 @@ const createHttpDevMcpClient = (version: string): TCreateDevMcpClient => async (
     };
 };
 
-const stripProjectId = ({ projectId: _projectId, ...input }: Record<string, unknown>) => input;
+const stripProjectRouting = ({ cwd: _cwd, projectId: _projectId, ...input }: Record<string, unknown>) => input;
+
+const normalizeExistingPath = async (value: string) => {
+    const resolved = path.resolve(value);
+
+    try {
+        return path.normalize(await realpath(resolved));
+    } catch (_error) {
+        return path.normalize(resolved);
+    }
+};
+
+const withTrailingSeparator = (value: string) => (value.endsWith(path.sep) ? value : `${value}${path.sep}`);
+
+const isSameOrDescendant = (candidate: string, ancestor: string) =>
+    candidate === ancestor || candidate.startsWith(withTrailingSeparator(ancestor));
 
 export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: TCreateProteumMachineMcpServerArgs) => {
     const server = new McpServer(
@@ -139,6 +263,106 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
         if (client) await client.close().catch(() => undefined);
     };
 
+    const closeAllClients = async () => {
+        const cachedClients = [...clients.values()];
+        clients.clear();
+        await Promise.all(cachedClients.map(async (client) => await client.close().catch(() => undefined)));
+    };
+
+    const listLiveRecords = async () =>
+        (await listMachineDevSessionInspections())
+            .map((inspection) => inspection.record)
+            .filter((record): record is TMachineDevSessionRecord => record !== null);
+
+    type TProjectMatch = {
+        offline?: TOfflineProject;
+        project: ReturnType<typeof compactProjectMatch> | TOfflineProject;
+        record?: TMachineDevSessionRecord;
+    };
+
+    const resolveProjectMatches = async ({
+        cwd,
+        projectId,
+        query,
+    }: {
+        cwd?: unknown;
+        projectId?: unknown;
+        query?: unknown;
+    }) => {
+        const records = await listLiveRecords();
+        const matches = new Map<string, TProjectMatch>();
+        const addMatch = (record: TMachineDevSessionRecord, reason: string) => {
+            if (!matches.has(record.projectId)) matches.set(record.projectId, { project: compactProjectMatch(record, reason), record });
+        };
+        const addOfflineMatch = async (appRoot: string, reason: string, baseRoot?: string) => {
+            const offline = await compactOfflineProject({ appRoot, baseRoot, matchReason: reason });
+            if (!matches.has(offline.projectId)) matches.set(offline.projectId, { offline, project: offline });
+        };
+        const normalizedProjectId = typeof projectId === 'string' ? projectId.trim() : '';
+        const normalizedQuery = typeof query === 'string' ? query.trim() : '';
+
+        if (normalizedProjectId) {
+            const record = records.find((candidate) => candidate.projectId === normalizedProjectId);
+            if (record) addMatch(record, 'projectId');
+        }
+
+        if (normalizedQuery) {
+            const queryIsExistingAbsolutePath = path.isAbsolute(normalizedQuery) && fs.pathExistsSync(normalizedQuery);
+            const normalizedQueryPath = queryIsExistingAbsolutePath ? await normalizeExistingPath(normalizedQuery) : '';
+
+            for (const record of records) {
+                if (
+                    record.projectId === normalizedQuery ||
+                    record.appRoot === normalizedQuery ||
+                    record.appRoot.includes(normalizedQuery) ||
+                    (normalizedQueryPath &&
+                        (isSameOrDescendant(normalizedQueryPath, path.normalize(record.appRoot)) ||
+                            isSameOrDescendant(path.normalize(record.appRoot), normalizedQueryPath)))
+                ) {
+                    addMatch(record, 'query');
+                }
+            }
+
+            if (queryIsExistingAbsolutePath) {
+                const nearestAppRoot = findNearestProteumAppRoot(normalizedQueryPath);
+                if (nearestAppRoot) await addOfflineMatch(nearestAppRoot, 'query-inside-app', nearestAppRoot);
+                else {
+                    for (const appRoot of findProteumAppRootsUnder(normalizedQueryPath)) {
+                        await addOfflineMatch(appRoot, 'app-under-query', normalizedQueryPath);
+                    }
+                }
+            }
+        }
+
+        if (typeof cwd === 'string' && cwd.trim()) {
+            const normalizedCwd = await normalizeExistingPath(cwd.trim());
+            const directMatches = records
+                .filter((record) => isSameOrDescendant(normalizedCwd, path.normalize(record.appRoot)))
+                .sort((left, right) => right.appRoot.length - left.appRoot.length);
+
+            for (const record of directMatches) addMatch(record, 'cwd-inside-app');
+
+            if (directMatches.length === 0) {
+                const childMatches = records
+                    .filter((record) => isSameOrDescendant(path.normalize(record.appRoot), normalizedCwd))
+                    .sort((left, right) => left.appRoot.localeCompare(right.appRoot));
+
+                for (const record of childMatches) addMatch(record, 'app-under-cwd');
+            }
+
+            const nearestAppRoot = findNearestProteumAppRoot(normalizedCwd);
+            if (nearestAppRoot) {
+                await addOfflineMatch(nearestAppRoot, 'cwd-inside-app', normalizedCwd);
+            } else {
+                for (const appRoot of findProteumAppRootsUnder(normalizedCwd)) {
+                    await addOfflineMatch(appRoot, 'app-under-cwd', normalizedCwd);
+                }
+            }
+        }
+
+        return [...matches.values()];
+    };
+
     const resolveProject = async (projectId: unknown) => {
         if (typeof projectId !== 'string' || !projectId.trim()) {
             return {
@@ -167,7 +391,7 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
         try {
             const client = await getClient(resolution.record);
             return await client.callTool({
-                arguments: stripProjectId(input),
+                arguments: stripProjectRouting(input),
                 name,
             });
         } catch (error) {
@@ -176,6 +400,139 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
                 error: error instanceof Error ? error.message : String(error),
                 mcpUrl: resolution.record.mcpUrl,
                 projectId: resolution.record.projectId,
+            });
+        }
+    };
+
+    const createOfflineWorkflowStartResult = (offline: TOfflineProject, input: Record<string, unknown>) => {
+        let manifest: ReturnType<typeof readProteumManifest>;
+        try {
+            manifest = readProteumManifest(offline.appRoot);
+        } catch (error) {
+            return jsonToolResult(
+                createMcpPayload({
+                    summary: `Matched offline Proteum app ${offline.appRoot}, but no readable manifest is available.`,
+                    data: {
+                        project: offline,
+                        error: error instanceof Error ? error.message : String(error),
+                    },
+                    nextActions: [
+                        offline.nextAction,
+                        {
+                            label: 'Refresh Manifest',
+                            command: 'npx proteum refresh',
+                            reason: 'Generate the compact manifest before owner, route, or instruction routing reads.',
+                        },
+                    ],
+                }),
+            );
+        }
+
+        const doctor = buildDoctorResponse(manifest);
+        const contracts = buildContractsDoctorResponse(manifest);
+        const route = typeof input.route === 'string' ? input.route : undefined;
+        const file = typeof input.file === 'string' ? input.file : undefined;
+        const query = typeof input.query === 'string' ? input.query : undefined;
+        const task = typeof input.task === 'string' ? input.task : undefined;
+        const ownerQuery = [route, file, query]
+            .map((value) => value?.trim())
+            .find((value): value is string => Boolean(value));
+        const payload = compactWorkflowStartResponse({
+            contracts,
+            doctor,
+            file,
+            health: {
+                reachable: false,
+                error: 'No live tracked Proteum dev session is available for this app.',
+            },
+            manifest,
+            owner: ownerQuery ? explainOwner(manifest, ownerQuery) : undefined,
+            query,
+            route,
+            task,
+        });
+
+        return jsonToolResult({
+            ...payload,
+            data: {
+                project: offline,
+                ...payload.data,
+            },
+            nextActions: [
+                offline.nextAction,
+                ...(Array.isArray(payload.nextActions)
+                    ? payload.nextActions.filter((action: { label?: unknown }) => action.label !== 'Start Dev')
+                    : []),
+            ],
+        });
+    };
+
+    const workflowStart = async (input: Record<string, unknown>) => {
+        const matches = await resolveProjectMatches({
+            cwd: input.cwd,
+            projectId: input.projectId,
+            query: input.projectId ? undefined : input.cwd ? undefined : input.query,
+        });
+
+        if (matches.length !== 1) {
+            return errorToolResult(
+                matches.length === 0
+                    ? 'Could not resolve a live or offline Proteum project for workflow_start. Pass projectId or cwd, or call project_resolve.'
+                    : 'workflow_start matched multiple Proteum projects. Pass the intended projectId or app cwd.',
+                {
+                    matches: matches.map((match) => match.project),
+                },
+            );
+        }
+
+        const selectedMatch = matches[0];
+        const record = selectedMatch.record;
+
+        if (!record && selectedMatch.offline) return createOfflineWorkflowStartResult(selectedMatch.offline, input);
+        if (!record) {
+            return errorToolResult('Could not resolve a live Proteum project for workflow_start. Call projects_list or project_resolve.', {
+                matches: matches.map((match) => match.project),
+            });
+        }
+
+        try {
+            const client = await getClient(record);
+            const result = await client.callTool({
+                arguments: stripProjectRouting(input),
+                name: 'workflow_start',
+            });
+
+            if (result.content[0]?.type !== 'text') return result;
+
+            const payload = JSON.parse(result.content[0].text);
+            const routedNextActions = Array.isArray(payload.nextActions)
+                ? payload.nextActions.map((action: Record<string, unknown>) =>
+                      action.tool && typeof action.tool === 'string'
+                          ? {
+                                ...action,
+                                toolArgs: {
+                                    projectId: record.projectId,
+                                    ...((action.toolArgs as Record<string, unknown> | undefined) || {}),
+                                },
+                            }
+                          : action,
+                  )
+                : undefined;
+
+            return jsonToolResult({
+                ...payload,
+                data: {
+                    project: compactProject(record),
+                    ...payload.data,
+                },
+                ...(routedNextActions && routedNextActions.length > 0 ? { nextActions: routedNextActions } : {}),
+            });
+        } catch (error) {
+            await closeClient(record);
+            return errorToolResult(`Could not reach Proteum dev MCP for ${record.projectId}.`, {
+                error: error instanceof Error ? error.message : String(error),
+                mcpUrl: record.mcpUrl,
+                projectId: record.projectId,
             });
         }
     };
@@ -206,10 +563,10 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
                         projects.length === 0
                             ? [
                                   {
-                                      label: 'Start Dev',
-                                      command:
-                                          'proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>',
-                                      reason: 'Start exactly one tracked Proteum dev server in the intended worktree.',
+                                      label: 'Resolve Project',
+                                      tool: 'project_resolve',
+                                      reason:
+                                          'Pass the intended cwd so Proteum can choose the app root and inspect configured ports before suggesting a dev start.',
                                   },
                               ]
                             : [],
@@ -222,46 +579,71 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
         'project_resolve',
         {
             annotations: readOnlyAnnotations,
-            description: 'Resolve a Proteum project by projectId or appRoot substring from the live machine registry.',
+            description:
+                'Resolve a Proteum project by projectId, cwd, app root, or app-root substring from live sessions or offline app roots.',
             inputSchema: {
-                query: z.string().min(1).describe('Project id, app root, or distinctive app root substring.'),
+                cwd: z.string().optional().describe('Current working directory to match to the nearest live app root.'),
+                projectId: z.string().optional().describe('Optional exact project id from projects_list.'),
+                query: z.string().optional().describe('Project id, app root, or distinctive app root substring.'),
             },
             title: 'Proteum Project Resolve',
         },
-        async ({ query }) => {
-            const normalizedQuery = query.trim();
-            const inspections = await listMachineDevSessionInspections();
-            const projects = inspections
-                .map((inspection) => inspection.record)
-                .filter((record): record is TMachineDevSessionRecord => record !== null)
-                .filter(
-                    (record) =>
-                        record.projectId === normalizedQuery ||
-                        record.appRoot === normalizedQuery ||
-                        record.appRoot.includes(normalizedQuery),
-                )
-                .map(compactProject);
+        async ({ cwd, projectId, query }) => {
+            const normalizedQuery = query?.trim() || projectId?.trim() || cwd?.trim() || '';
+            const matches = await resolveProjectMatches({ cwd, projectId, query });
+            const projects = matches.map((match) => match.project);
 
             return jsonToolResult(
                 createMcpPayload({
                     summary:
                         projects.length === 0
-                            ? `No live Proteum dev project matched ${normalizedQuery}.`
-                            : `Matched ${projects.length} live Proteum dev project${projects.length === 1 ? '' : 's'}.`,
-                    data: { projects, query: normalizedQuery },
+                            ? `No live or offline Proteum project matched ${normalizedQuery || 'the provided project selector'}.`
+                            : `Matched ${projects.length} Proteum project${projects.length === 1 ? '' : 's'}.`,
+                    data: { cwd, projectId, projects, query: normalizedQuery },
                     nextActions:
-                        projects.length === 0
+                        projects.length === 1
                             ? [
                                   {
-                                      label: 'List Projects',
-                                      tool: 'projects_list',
-                                      reason: 'Inspect all live Proteum dev projectId values.',
+                                      label: 'Workflow Start',
+                                      tool: 'workflow_start',
+                                      toolArgs:
+                                          projects[0].live === true
+                                              ? { projectId: projects[0].projectId }
+                                              : { cwd: projects[0].appRoot },
+                                      reason: 'Bootstrap compact runtime, instruction, owner, and next-action context in one MCP call.',
                                   },
                               ]
-                            : [],
+                            : projects.length === 0
+                              ? [
+                                    {
+                                        label: 'List Projects',
+                                        tool: 'projects_list',
+                                        reason: 'Inspect all live Proteum dev projectId values.',
+                                    },
+                                ]
+                              : [],
                 }),
             );
         },
+    );
+
+    server.registerTool(
+        'workflow_start',
+        {
+            annotations: readOnlyAnnotations,
+            description:
+                'Resolve one live or offline project and return compact runtime, instruction, owner, doctor, and next-action context in one read.',
+            inputSchema: {
+                cwd: z.string().optional().describe('Current working directory. Used only to resolve projectId.'),
+                file: z.string().optional().describe('Optional source file or generated artifact path in scope.'),
+                projectId: projectIdSchema,
+                query: z.string().optional().describe('Optional task, route, controller, file, or owner query.'),
+                route: z.string().optional().describe('Optional route path in scope.'),
+                task: z.string().optional().describe('Optional short natural-language task description.'),
+            },
+            title: 'Proteum Workflow Start',
+        },
+        async (input) => await workflowStart(input),
     );
 
     server.registerTool(
@@ -315,6 +697,21 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
             title: 'Proteum Explain Summary',
         },
         async (input) => await forwardTool('explain_summary', input),
+    );
+
+    server.registerTool(
+        'route_candidates',
+        {
+            annotations: readOnlyAnnotations,
+            description: 'Return compact route candidates for a live project without dumping raw route arrays.',
+            inputSchema: {
+                limit: z.number().int().min(1).max(50).optional(),
+                projectId: projectIdSchema,
+                query: z.string().min(1).describe('Route path or route-like search query.'),
+            },
+            title: 'Proteum Route Candidates',
+        },
+        async (input) => await forwardTool('route_candidates', input),
     );
 
     server.registerTool(
@@ -426,6 +823,12 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
         },
         async (input) => await forwardTool('logs_tail', input),
     );
+
+    const closeServer = server.close.bind(server);
+    server.close = async () => {
+        await closeAllClients();
+        await closeServer();
+    };
 
     return server;
 };

@@ -6,6 +6,7 @@ import { UsageError } from 'clipanion';
 import cli from '..';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
 import { listDevSessionInspections, writeMachineDevSessionRecord, type TDevSessionInspection } from '../runtime/devSessions';
+import { inspectDevPort, type TDevPortInspection } from '../runtime/ports';
 import { printAgentResponse, printJson, quoteCommandArgument } from '../utils/agentOutput';
 import type { TDoctorResponse } from '@common/dev/diagnostics';
 import type { TProteumManifest } from '@common/dev/proteumManifest';
@@ -89,19 +90,56 @@ const compactSession = (inspection: TDevSessionInspection) => ({
     updatedAt: inspection.record?.updatedAt,
 });
 
+const createStartDevCommand = (port?: number) =>
+    `proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port ${port || '<free-port>'}`;
+
+const describePortOwner = (portInspection?: TDevPortInspection) => {
+    if (!portInspection || portInspection.router.available) return '';
+    if (portInspection.router.proteum) {
+        const appLabel =
+            portInspection.router.app?.identifier ||
+            portInspection.router.app?.name ||
+            portInspection.router.app?.appRoot ||
+            'another Proteum app';
+        return `Configured router port ${portInspection.router.port} is already occupied by ${appLabel}.`;
+    }
+
+    return `Configured router port ${portInspection.router.port} is already occupied by a non-Proteum or unrecognized process.`;
+};
+
 const getNextActions = ({
     health,
+    portInspection,
     selectedSession,
 }: {
     health: { reachable: boolean };
+    portInspection?: TDevPortInspection;
     selectedSession: TDevSessionInspection | undefined;
 }) => {
     if (!selectedSession?.record || !selectedSession.live) {
+        const portOwner = describePortOwner(portInspection);
+
+        if (portInspection?.router.proteum && portInspection.router.matchesApp) {
+            return [
+                {
+                    label: 'Use Existing Runtime',
+                    command: `proteum diagnose ${quoteCommandArgument('/')} --port ${portInspection.router.port}`,
+                    reason:
+                        'A Proteum runtime for this app already responds on the configured router port, but no tracked session file is live. Do not start a second dev server; use this port for CLI evidence or stop the owning process before starting a tracked session.',
+                },
+            ];
+        }
+
+        const startPort =
+            portInspection && !portInspection.canStartOnConfiguredPort ? portInspection.recommendedPort : portInspection?.router.port;
+
         return [
             {
                 label: 'Start Dev',
-                command: 'proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>',
-                reason: 'Create a tracked dev session before request-time diagnostics.',
+                command: createStartDevCommand(startPort),
+                reason: portOwner
+                    ? `${portOwner} Use an alternate free router/HMR port pair; do not probe page bodies to identify port owners.`
+                    : 'Create a tracked dev session before request-time diagnostics.',
             },
         ];
     }
@@ -115,7 +153,7 @@ const getNextActions = ({
             },
             {
                 label: 'Start Dev',
-                command: 'proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>',
+                command: createStartDevCommand(portInspection?.recommendedPort),
                 reason: 'Start a fresh tracked session after stopping the unreachable one.',
             },
         ];
@@ -149,6 +187,12 @@ export const run = async () => {
         liveSessions.find((inspection) => inspection.record?.state === 'ready') || liveSessions[0] || sessions.find((inspection) => inspection.record);
     const selectedBaseUrl = selectedSession ? getSessionUrl(selectedSession) : '';
     const health = selectedSession && selectedSession.live ? await probeDoctor(selectedBaseUrl) : { reachable: false, error: 'No live tracked dev session.' };
+    const configuredDevPort = manifest
+        ? await inspectDevPort({
+              appRoot: cli.paths.appRoot,
+              port: manifest.env.resolved.routerPort,
+          })
+        : undefined;
 
     const payload = {
         appRoot: cli.paths.appRoot,
@@ -171,6 +215,7 @@ export const run = async () => {
         selected: selectedSession ? compactSession(selectedSession) : undefined,
         sessions: sessions.map(compactSession),
         health,
+        configuredDevPort,
     };
 
     if (cli.args.full === true) {
@@ -181,9 +226,9 @@ export const run = async () => {
     printAgentResponse({
         summary: selectedSession
             ? `${selectedSession.live ? 'live' : 'stale'} dev session on ${selectedSession.record?.routerPort || 'unknown port'}; health=${health.reachable ? 'reachable' : 'unreachable'}`
-            : 'No tracked Proteum dev session found.',
+            : describePortOwner(configuredDevPort) || 'No tracked Proteum dev session found.',
         data: payload,
-        nextActions: getNextActions({ health, selectedSession }),
+        nextActions: getNextActions({ health, portInspection: configuredDevPort, selectedSession }),
         fullDetailCommand: 'proteum runtime status --full',
     });
 };

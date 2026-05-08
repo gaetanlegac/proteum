@@ -93,6 +93,8 @@ proteum perf request /dashboard --port 3101
 proteum trace latest --port 3101
 ```
 
+Use the exact next action from `proteum runtime status` before starting a long-lived dev server. It inspects configured router/HMR ports without fetching normal page bodies, and it tells agents to use or repair an untracked same-app runtime instead of starting a second server.
+
 When `proteum verify browser <path>` is available in the target app, it uses the same fresh per-run browser workspace model under `var/proteum/browser/<run-id>` and should be preferred over ad hoc shared Playwright profile reuse.
 
 ## Dev HTTP Endpoint

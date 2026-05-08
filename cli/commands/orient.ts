@@ -7,6 +7,7 @@ import cli from '..';
 import Compiler from '../compiler';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
 import { buildOrientationResponse, type TOrientResponse } from '@common/dev/inspection';
+import { resolveTriggeredInstructionReads } from '@common/dev/mcpPayloads';
 import type { TProteumManifest } from '@common/dev/proteumManifest';
 import { compactList, printAgentResponse, printJson, quoteCommandArgument } from '../utils/agentOutput';
 
@@ -164,27 +165,48 @@ const compactOwnerMatch = (match: TOrientResponse['owner']['matches'][number]) =
     source: match.source,
 });
 
-const buildInstructionPlan = (response: TOrientResponse) => ({
-    mustRead: [...new Set([response.guidance.agents, ...response.guidance.areaAgents])],
-    readWhen: [
-        {
-            file: response.guidance.documentation,
-            when: 'Read before non-trivial coding tasks to choose the smallest `/docs` pack and update docs after changes.',
-        },
-        {
-            file: response.guidance.diagnostics,
-            when: 'Read only for raw errors, failing requests, traces, perf regressions, or reproduction work.',
-        },
-        {
-            file: response.guidance.codingStyle,
-            when: 'Read before editing implementation files.',
-        },
-        {
-            file: response.guidance.optimizations,
-            when: 'Read after client-side implementation or when the task explicitly concerns packages, build, runtime, or performance.',
-        },
-    ],
-});
+const buildInstructionPlan = (response: TOrientResponse) => {
+    const triggered = resolveTriggeredInstructionReads({
+        codingStyle: response.guidance.codingStyle,
+        diagnostics: response.guidance.diagnostics,
+        documentation: response.guidance.documentation,
+        optimizations: response.guidance.optimizations,
+        query: response.normalizedQuery || response.query,
+        rootAgentsFile:
+            response.app.repoRoot !== response.app.appRoot
+                ? path.join(response.app.repoRoot, 'AGENTS.md')
+                : response.guidance.agents,
+    });
+
+    return {
+        mustRead: [
+            ...new Set([
+                response.guidance.agents,
+                ...response.guidance.areaAgents,
+                ...triggered.map((entry) => entry.file),
+            ]),
+        ],
+        triggered,
+        readWhen: [
+            {
+                file: response.guidance.documentation,
+                when: 'Read before non-trivial coding tasks to choose the smallest `/docs` pack and update docs after changes.',
+            },
+            {
+                file: response.guidance.diagnostics,
+                when: 'Read only for raw errors, failing requests, traces, perf regressions, or reproduction work.',
+            },
+            {
+                file: response.guidance.codingStyle,
+                when: 'Read before editing implementation files.',
+            },
+            {
+                file: response.guidance.optimizations,
+                when: 'Read after client-side implementation or when the task explicitly concerns packages, build, runtime, or performance.',
+            },
+        ],
+    };
+};
 
 const printCompactOrient = (response: TOrientResponse) => {
     const topOwner = response.owner.matches[0];

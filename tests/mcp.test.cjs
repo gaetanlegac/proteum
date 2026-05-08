@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
@@ -12,7 +13,14 @@ require('../cli/context.ts');
 
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
-const { createMcpPayload, compactTraceResponse, resolveInstructionRouting } = require('../common/dev/mcpPayloads.ts');
+const {
+    createMcpPayload,
+    compactOrientationResponse,
+    compactRouteCandidatesResponse,
+    compactTraceResponse,
+    compactWorkflowStartResponse,
+    resolveInstructionRouting,
+} = require('../common/dev/mcpPayloads.ts');
 const { createProteumMcpServer } = require('../common/dev/mcpServer.ts');
 const { createProteumMachineMcpServer } = require('../cli/mcp/router.ts');
 const {
@@ -35,6 +43,69 @@ const writeFile = (filepath, content) => {
     fs.writeFileSync(filepath, content);
 };
 
+const listen = async (server, port = 0) =>
+    await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, '127.0.0.1', () => resolve(server.address().port));
+    });
+
+const closeServer = async (server) =>
+    await new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+    });
+
+const createManifest = (appRoot, overrides = {}) => ({
+    version: 10,
+    app: {
+        root: appRoot,
+        coreRoot,
+        identityFilepath: path.join(appRoot, 'identity.config.ts'),
+        setupFilepath: path.join(appRoot, 'proteum.config.ts'),
+        identity: {
+            name: overrides.name || 'Test App',
+            identifier: overrides.identifier || 'TestApp',
+            description: '',
+        },
+        setup: {},
+    },
+    conventions: { routeOptionKeys: [], reservedRouteOptionKeys: [] },
+    env: {
+        source: 'test',
+        loadedVariableKeys: [],
+        requiredVariables: [],
+        resolved: {
+            name: 'test',
+            profile: 'dev',
+            routerPort: overrides.routerPort || 3104,
+            routerCurrentDomain: 'localhost',
+            routerInternalUrl: `http://localhost:${overrides.routerPort || 3104}`,
+        },
+    },
+    connectedProjects: [],
+    services: { app: [], routerPlugins: [] },
+    controllers: overrides.controllers || [],
+    commands: [],
+    routes: {
+        client: overrides.clientRoutes || [],
+        server: overrides.serverRoutes || [],
+    },
+    layouts: [],
+    diagnostics: overrides.diagnostics || [],
+});
+
+const writeProteumAppFixture = (appRoot, manifestOverrides = {}) => {
+    writeFile(path.join(appRoot, 'package.json'), '{"name":"fixture"}\n');
+    writeFile(path.join(appRoot, 'identity.config.ts'), 'export default {};\n');
+    writeFile(path.join(appRoot, 'proteum.config.ts'), 'export default {};\n');
+    writeFile(path.join(appRoot, 'client', 'AGENTS.md'), '# Client\n');
+    writeFile(path.join(appRoot, 'client', 'pages', 'AGENTS.md'), '# Pages\n');
+    writeFile(path.join(appRoot, 'server', 'AGENTS.md'), '# Server\n');
+    writeFile(path.join(appRoot, 'server', 'routes', 'AGENTS.md'), '# Routes\n');
+    writeFile(path.join(appRoot, 'AGENTS.md'), '# App\n');
+    writeFile(path.join(appRoot, 'diagnostics.md'), '# Diagnostics\n');
+    writeFile(path.join(appRoot, '.proteum', 'manifest.json'), JSON.stringify(createManifest(appRoot, manifestOverrides), null, 2));
+};
+
 test('instruction routing returns compact selected files for a page query', () => {
     const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-app-'));
 
@@ -54,6 +125,192 @@ test('instruction routing returns compact selected files for a page query', () =
     );
     assert.equal(payload.data.readWhen.some((entry) => entry.file && entry.file.endsWith('DOCUMENTATION.md')), true);
     assert.equal(payload.data.readWhen.some((entry) => entry.file && entry.file.endsWith('diagnostics.md')), true);
+});
+
+test('instruction routing promotes triggered full instruction files', () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-trigger-app-'));
+    const fallbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-trigger-core-'));
+    const fallbackAgents = path.join(fallbackRoot, 'agents', 'project', 'AGENTS.md');
+
+    writeFile(fallbackAgents, '# Full Root Contract\n\n- Conventional Commits live here.\n');
+    writeFile(
+        path.join(appRoot, 'AGENTS.md'),
+        ['# App Router', '', `- Root contract fallback: ${fallbackAgents}`, ''].join('\n'),
+    );
+    writeFile(path.join(appRoot, 'CODING_STYLE.md'), '# Coding Style\n\n- Style\n');
+    writeFile(path.join(appRoot, 'diagnostics.md'), '# Diagnostics\n\n- Diagnose\n');
+    writeFile(path.join(appRoot, 'DOCUMENTATION.md'), '# Documentation\n\n- Docs\n');
+    writeFile(path.join(appRoot, 'optimizations.md'), '# Optimizations\n\n- Optimize\n');
+
+    const payload = resolveInstructionRouting({ appRoot, query: 'increase quota and commit' });
+    const selected = payload.data.selected.map((entry) => entry.file);
+
+    assert.equal(selected.includes(path.join(appRoot, 'AGENTS.md')), true);
+    assert.equal(selected.includes(fallbackAgents), true);
+    assert.equal(selected.includes(path.join(appRoot, 'CODING_STYLE.md')), true);
+    assert.equal(
+        payload.data.selected.some(
+            (entry) => entry.file === fallbackAgents && /Git lifecycle trigger/.test(entry.reason),
+        ),
+        true,
+    );
+    assert.equal(payload.data.fullReadPolicy.default.includes('read-only'), true);
+    assert.equal(payload.data.selected.some((entry) => entry.fullRead === 'full-before-action'), true);
+});
+
+test('workflow start payload combines compact runtime, instructions, owner, and duplicate guidance', () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-workflow-app-'));
+    const pageFile = path.join(appRoot, 'client/pages/domains.tsx');
+
+    writeFile(path.join(appRoot, 'AGENTS.md'), '# App Agents\n\n- root\n');
+    writeFile(path.join(appRoot, 'client', 'AGENTS.md'), '# Client Agents\n\n- client\n');
+    writeFile(path.join(appRoot, 'client', 'pages', 'AGENTS.md'), '# Page Agents\n\n- pages\n');
+    writeFile(pageFile, 'export default function Domains() { return null; }\n');
+
+    const manifest = {
+        version: 10,
+        app: {
+            root: appRoot,
+            coreRoot,
+            identityFilepath: path.join(appRoot, 'identity.config.ts'),
+            setupFilepath: path.join(appRoot, 'proteum.config.ts'),
+            identity: {
+                name: 'Workflow App',
+                identifier: 'WorkflowApp',
+                description: '',
+            },
+            setup: {},
+        },
+        conventions: { routeOptionKeys: [], reservedRouteOptionKeys: [] },
+        env: {
+            source: 'test',
+            loadedVariableKeys: [],
+            requiredVariables: [],
+            resolved: {
+                name: 'test',
+                profile: 'dev',
+                routerPort: 3104,
+                routerCurrentDomain: 'localhost',
+                routerInternalUrl: 'http://localhost:3104',
+            },
+        },
+        connectedProjects: [],
+        services: { app: [], routerPlugins: [] },
+        controllers: [],
+        commands: [],
+        routes: { client: [], server: [] },
+        layouts: [],
+        diagnostics: [],
+    };
+    const doctor = { summary: { errors: 0, warnings: 0, strictFailed: false }, diagnostics: [] };
+    const payload = compactWorkflowStartResponse({
+        contracts: doctor,
+        doctor,
+        manifest,
+        owner: {
+            matches: [
+                {
+                    details: [],
+                    kind: 'route',
+                    label: '/domains',
+                    matchedOn: ['path'],
+                    originHint: 'manifest',
+                    scopeLabel: 'local',
+                    score: 100,
+                    source: { filepath: pageFile, line: 1, column: 1 },
+                },
+            ],
+            normalizedQuery: '/domains',
+            query: '/domains',
+        },
+        route: '/domains',
+        runtime: { publicUrl: 'http://localhost:3104', mcpUrl: 'http://localhost:3104/__proteum/mcp' },
+        task: 'read-only runtime health pass',
+    });
+
+    assert.equal(payload.data.runtime.manifest.identifier, 'WorkflowApp');
+    assert.equal(payload.data.instructions.selected.length >= 2, true);
+    assert.equal(payload.data.owner.top.label, '/domains');
+    assert.equal(payload.nextActions[0].tool, 'diagnose');
+    assert.equal(payload.data.duplicateAvoidance.some((line) => /do not run CLI runtime status/.test(line)), true);
+});
+
+test('orientation payload suggests MCP owner and runtime next actions before CLI fallback', () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-orient-app-'));
+
+    writeFile(path.join(appRoot, 'AGENTS.md'), '# App Agents\n\n- root\n');
+    writeFile(path.join(appRoot, 'diagnostics.md'), '# Diagnostics\n\n- diagnose\n');
+    writeFile(path.join(appRoot, 'DOCUMENTATION.md'), '# Documentation\n\n- docs\n');
+    writeFile(path.join(appRoot, 'CODING_STYLE.md'), '# Coding Style\n\n- style\n');
+    writeFile(path.join(appRoot, 'optimizations.md'), '# Optimizations\n\n- optimize\n');
+
+    const payload = compactOrientationResponse({
+        app: { appRoot, identifier: 'TestApp', repoRoot: appRoot, routerPort: 3101 },
+        connected: { imports: [], producers: [] },
+        guidance: {
+            agents: path.join(appRoot, 'AGENTS.md'),
+            areaAgents: [],
+            codingStyle: path.join(appRoot, 'CODING_STYLE.md'),
+            diagnostics: path.join(appRoot, 'diagnostics.md'),
+            documentation: path.join(appRoot, 'DOCUMENTATION.md'),
+            optimizations: path.join(appRoot, 'optimizations.md'),
+        },
+        normalizedQuery: '/auth/login',
+        nextSteps: [{ command: 'proteum orient /auth/login', label: 'CLI Orient', reason: 'Fallback command.' }],
+        owner: {
+            matches: [
+                {
+                    details: [],
+                    kind: 'route',
+                    label: '/auth/login',
+                    matchedOn: ['path'],
+                    originHint: 'manifest',
+                    scopeLabel: 'local',
+                    score: 100,
+                    source: { filepath: path.join(appRoot, 'client/pages/auth.tsx'), line: 1, column: 1 },
+                },
+            ],
+            normalizedQuery: '/auth/login',
+            query: '/auth/login',
+        },
+        query: '/auth/login',
+        warnings: [],
+    });
+
+    assert.equal(payload.nextActions[0].tool, 'explain_summary');
+    assert.equal(payload.nextActions[1].tool, 'diagnose');
+    assert.equal(payload.nextActions[2].tool, 'perf_request');
+    assert.equal(payload.nextActions.some((action) => action.command === 'proteum orient /auth/login'), true);
+});
+
+test('route candidates payload avoids raw route dumps', () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-routes-app-'));
+    const routeFile = path.join(appRoot, 'client/pages/domains.tsx');
+    const manifest = createManifest(appRoot, {
+        clientRoutes: [
+            {
+                chunkId: 'domains',
+                filepath: routeFile,
+                hasData: false,
+                invalidOptionKeys: [],
+                kind: 'client-page',
+                methodName: 'page',
+                normalizedOptionKeys: [],
+                optionKeys: [],
+                path: '/domains',
+                scope: 'app',
+                serviceLocalName: 'Router',
+                sourceLocation: { line: 1, column: 1 },
+                targetResolution: 'literal',
+            },
+        ],
+    });
+
+    const payload = compactRouteCandidatesResponse({ manifest, query: '/domains' });
+
+    assert.equal(payload.data.candidates.length, 1);
+    assert.equal(payload.data.candidates[0].label, '/domains');
+    assert.equal(payload.nextActions[0].tool, 'explain_summary');
 });
 
 test('trace payload keeps default output compact and paginates full details', () => {
@@ -120,9 +377,11 @@ test('MCP server registers the Proteum read-only tool contract', async () => {
         perfRequest: async () => payload,
         perfTop: async () => payload,
         readResource: async () => payload,
+        routeCandidates: async () => payload,
         runtimeStatus: async () => payload,
         traceLatest: async () => payload,
         traceShow: async () => payload,
+        workflowStart: async () => payload,
     };
     const server = createProteumMcpServer({ provider, version: 'test' });
     const client = new Client({ name: 'mcp-test', version: '1.0.0' });
@@ -136,6 +395,8 @@ test('MCP server registers the Proteum read-only tool contract', async () => {
     const resource = await client.readResource({ uri: 'proteum://runtime/status' });
 
     assert.equal(tools.tools.some((tool) => tool.name === 'runtime_status'), true);
+    assert.equal(tools.tools.some((tool) => tool.name === 'workflow_start'), true);
+    assert.equal(tools.tools.some((tool) => tool.name === 'route_candidates'), true);
     assert.match(result.content[0].text, /proteum-mcp-v1/);
     assert.match(resource.contents[0].text, /proteum-mcp-v1/);
 
@@ -270,6 +531,7 @@ test('machine MCP router forwards app tools without leaking projectId', async (t
         state: 'ready',
     });
     let forwardedCall = null;
+    let closeCount = 0;
     const server = createProteumMachineMcpServer({
         createDevMcpClient: async () => ({
             callTool: async (input) => {
@@ -283,7 +545,9 @@ test('machine MCP router forwards app tools without leaking projectId', async (t
                     ],
                 };
             },
-            close: async () => {},
+            close: async () => {
+                closeCount += 1;
+            },
         }),
         version: 'test',
     });
@@ -308,4 +572,303 @@ test('machine MCP router forwards app tools without leaking projectId', async (t
 
     await client.close();
     await server.close();
+    assert.equal(closeCount, 1);
+});
+
+test('machine MCP router resolves projects by cwd and bootstraps workflow without duplicate discovery', async (t) => {
+    const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-workflow-router-'));
+    process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
+    t.after(() => {
+        if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+        else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
+    });
+
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-monorepo-'));
+    const productRoot = path.join(repoRoot, 'apps', 'product');
+    const websiteRoot = path.join(repoRoot, 'apps', 'website');
+    const productCwd = path.join(productRoot, 'client', 'pages');
+    fs.mkdirSync(productCwd, { recursive: true });
+    fs.mkdirSync(websiteRoot, { recursive: true });
+
+    const productMachineRecord = await writeMachineDevSessionRecord({
+        ...createDevSessionRecord({
+            appRoot: productRoot,
+            port: 3105,
+            sessionFilePath: path.join(productRoot, 'var/run/proteum/dev/3105.json'),
+        }),
+        publicUrl: 'http://localhost:3105',
+        state: 'ready',
+    });
+    await writeMachineDevSessionRecord({
+        ...createDevSessionRecord({
+            appRoot: websiteRoot,
+            port: 3106,
+            sessionFilePath: path.join(websiteRoot, 'var/run/proteum/dev/3106.json'),
+        }),
+        publicUrl: 'http://localhost:3106',
+        state: 'ready',
+    });
+
+    let forwardedCall = null;
+    const server = createProteumMachineMcpServer({
+        createDevMcpClient: async () => ({
+            callTool: async (input) => {
+                forwardedCall = input;
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: JSON.stringify({
+                                ok: true,
+                                format: 'proteum-mcp-v1',
+                                summary: 'workflow',
+                                data: { runtime: { appRoot: productRoot } },
+                                nextActions: [{ label: 'Diagnose Route', tool: 'diagnose', toolArgs: { path: '/domains' } }],
+                            }),
+                        },
+                    ],
+                };
+            },
+            close: async () => {},
+        }),
+        version: 'test',
+    });
+    const client = new Client({ name: 'machine-mcp-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const monorepoResolve = await client.callTool({ name: 'project_resolve', arguments: { cwd: repoRoot } });
+    const monorepoPayload = JSON.parse(monorepoResolve.content[0].text);
+    assert.equal(monorepoPayload.data.projects.length, 2);
+    assert.equal(monorepoPayload.data.projects.every((project) => project.matchReason === 'app-under-cwd'), true);
+
+    const directResolve = await client.callTool({ name: 'project_resolve', arguments: { cwd: productCwd } });
+    const directPayload = JSON.parse(directResolve.content[0].text);
+    assert.equal(directPayload.data.projects.length, 1);
+    assert.equal(directPayload.data.projects[0].projectId, productMachineRecord.projectId);
+    assert.equal(directPayload.data.projects[0].matchReason, 'cwd-inside-app');
+
+    const workflow = await client.callTool({
+        name: 'workflow_start',
+        arguments: { cwd: productCwd, route: '/domains', task: 'read-only runtime health pass' },
+    });
+    const workflowPayload = JSON.parse(workflow.content[0].text);
+
+    assert.equal(forwardedCall.name, 'workflow_start');
+    assert.deepEqual(forwardedCall.arguments, { route: '/domains', task: 'read-only runtime health pass' });
+    assert.equal(workflowPayload.data.project.projectId, productMachineRecord.projectId);
+    assert.equal(workflowPayload.nextActions[0].toolArgs.projectId, productMachineRecord.projectId);
+
+    await client.close();
+    await server.close();
+});
+
+test('machine MCP router resolves offline monorepo app candidates before dev is running', async (t) => {
+    const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-offline-registry-'));
+    process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
+    t.after(() => {
+        if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+        else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
+    });
+
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-offline-monorepo-'));
+    const productRoot = path.join(repoRoot, 'apps', 'product');
+    const websiteRoot = path.join(repoRoot, 'apps', 'website');
+    const domainsFile = path.join(productRoot, 'client/pages/domains.tsx');
+
+    writeProteumAppFixture(productRoot, {
+        identifier: 'ProductApp',
+        name: 'Product',
+        routerPort: 3020,
+        clientRoutes: [
+            {
+                chunkId: 'domains',
+                filepath: domainsFile,
+                hasData: false,
+                invalidOptionKeys: [],
+                kind: 'client-page',
+                methodName: 'page',
+                normalizedOptionKeys: [],
+                optionKeys: [],
+                path: '/domains',
+                scope: 'app',
+                serviceLocalName: 'Router',
+                sourceLocation: { line: 1, column: 1 },
+                targetResolution: 'literal',
+            },
+        ],
+    });
+    writeProteumAppFixture(websiteRoot, {
+        identifier: 'WebsiteApp',
+        name: 'Website',
+        routerPort: 3021,
+    });
+
+    const server = createProteumMachineMcpServer({ version: 'test' });
+    const client = new Client({ name: 'machine-mcp-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const resolve = await client.callTool({ name: 'project_resolve', arguments: { cwd: repoRoot } });
+    const resolvePayload = JSON.parse(resolve.content[0].text);
+
+    assert.equal(resolvePayload.data.projects.length, 2);
+    assert.equal(resolvePayload.data.projects.every((project) => project.live === false), true);
+    const canonicalProductRoot = fs.realpathSync(productRoot);
+    assert.equal(
+        resolvePayload.data.projects.some(
+            (project) => project.appRoot === canonicalProductRoot && project.manifest.routerPort === 3020,
+        ),
+        true,
+    );
+    assert.match(resolvePayload.data.projects[0].nextAction.command, /npx proteum dev/);
+
+    const workflow = await client.callTool({
+        name: 'workflow_start',
+        arguments: { cwd: path.join(productRoot, 'client', 'pages'), route: '/domains', task: 'read-only runtime health pass' },
+    });
+    const workflowPayload = JSON.parse(workflow.content[0].text);
+
+    assert.equal(workflowPayload.ok, true);
+    assert.equal(workflowPayload.data.project.live, false);
+    assert.equal(workflowPayload.data.owner.top.label, '/domains');
+    assert.equal(workflowPayload.nextActions[0].label, 'Start Dev');
+    assert.equal(workflowPayload.nextActions.some((action) => action.tool === 'diagnose'), false);
+
+    await client.close();
+    await server.close();
+});
+
+test('machine MCP offline resolution inspects occupied ports before suggesting dev start', async (t) => {
+    const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-offline-port-registry-'));
+    process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
+    t.after(() => {
+        if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+        else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
+    });
+
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-offline-port-'));
+    const otherRoot = path.join(repoRoot, 'apps', 'other');
+    const productRoot = path.join(repoRoot, 'apps', 'product');
+    const ownerServer = http.createServer((req, res) => {
+        if (req.url && req.url.startsWith('/__proteum/explain')) {
+            res.setHeader('content-type', 'application/json');
+            res.end(
+                JSON.stringify({
+                    app: {
+                        root: otherRoot,
+                        identity: { identifier: 'OtherApp', name: 'Other' },
+                    },
+                }),
+            );
+            return;
+        }
+
+        res.setHeader('content-type', 'text/html');
+        res.end('<html><body>wrong app page body that should not be routed into MCP</body></html>');
+    });
+    const occupiedPort = await listen(ownerServer);
+
+    try {
+        writeProteumAppFixture(productRoot, {
+            identifier: 'ProductApp',
+            name: 'Product',
+            routerPort: occupiedPort,
+        });
+
+        const server = createProteumMachineMcpServer({ version: 'test' });
+        const client = new Client({ name: 'machine-mcp-test', version: '1.0.0' });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+
+        const resolve = await client.callTool({ name: 'project_resolve', arguments: { cwd: productRoot } });
+        const payload = JSON.parse(resolve.content[0].text);
+        const project = payload.data.projects[0];
+
+        assert.equal(project.devPort.router.port, occupiedPort);
+        assert.equal(project.devPort.router.proteum, true);
+        assert.equal(project.devPort.router.matchesApp, false);
+        assert.equal(project.devPort.router.app.identifier, 'OtherApp');
+        assert.equal(project.nextAction.label, 'Start Dev');
+        assert.match(project.nextAction.command, /npx proteum dev/);
+        assert.doesNotMatch(project.nextAction.command, new RegExp(`--port ${occupiedPort}(\\D|$)`));
+        assert.match(project.nextAction.reason, /alternate free pair/);
+        assert.doesNotMatch(resolve.content[0].text, /wrong app page body/);
+
+        await client.close();
+        await server.close();
+    } finally {
+        await closeServer(ownerServer);
+    }
+});
+
+test('machine MCP offline resolution does not start a second server for an untracked same-app runtime', async (t) => {
+    const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-same-port-registry-'));
+    process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
+    t.after(() => {
+        if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+        else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
+    });
+
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-same-port-'));
+    const productRoot = path.join(repoRoot, 'apps', 'product');
+    const ownerServer = http.createServer((req, res) => {
+        if (req.url && req.url.startsWith('/__proteum/explain')) {
+            res.setHeader('content-type', 'application/json');
+            res.end(
+                JSON.stringify({
+                    app: {
+                        root: productRoot,
+                        identity: { identifier: 'ProductApp', name: 'Product' },
+                    },
+                }),
+            );
+            return;
+        }
+
+        res.setHeader('content-type', 'text/html');
+        res.end('<html><body>same app page body that should not be routed into MCP</body></html>');
+    });
+    const occupiedPort = await listen(ownerServer);
+
+    try {
+        writeProteumAppFixture(productRoot, {
+            identifier: 'ProductApp',
+            name: 'Product',
+            routerPort: occupiedPort,
+        });
+
+        const server = createProteumMachineMcpServer({ version: 'test' });
+        const client = new Client({ name: 'machine-mcp-test', version: '1.0.0' });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+
+        const resolve = await client.callTool({ name: 'project_resolve', arguments: { cwd: productRoot } });
+        const payload = JSON.parse(resolve.content[0].text);
+        const project = payload.data.projects[0];
+
+        assert.equal(project.devPort.router.matchesApp, true);
+        assert.equal(project.nextAction.label, 'Repair Runtime Tracking');
+        assert.match(project.nextAction.command, /npx proteum runtime status/);
+        assert.doesNotMatch(project.nextAction.command, /npx proteum dev/);
+        assert.match(project.nextAction.reason, /Do not start a second dev server/);
+        assert.doesNotMatch(resolve.content[0].text, /same app page body/);
+
+        await client.close();
+        await server.close();
+    } finally {
+        await closeServer(ownerServer);
+    }
 });

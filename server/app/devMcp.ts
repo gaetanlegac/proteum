@@ -10,7 +10,9 @@ import {
     compactOrientationResponse,
     compactPerfRequestResponse,
     compactPerfTopResponse,
+    compactRouteCandidatesResponse,
     compactTraceResponse,
+    compactWorkflowStartResponse,
     resolveInstructionRouting,
 } from '@common/dev/mcpPayloads';
 import type { TProteumMcpProvider } from '@common/dev/mcpServer';
@@ -64,6 +66,42 @@ export const createRuntimeProteumMcpProvider = ({
                 },
             });
         },
+        async workflowStart({ file, query, route, task }) {
+            const manifest = readManifest();
+            const doctor = buildDoctorResponse(manifest);
+            const contracts = buildContractsDoctorResponse(manifest);
+            const ownerQuery = [route, file, query]
+                .map((value) => value?.trim())
+                .find((value): value is string => Boolean(value));
+
+            return compactWorkflowStartResponse({
+                contracts,
+                doctor,
+                file,
+                health: {
+                    reachable: true,
+                    doctor: doctor.summary,
+                    contracts: contracts.summary,
+                },
+                manifest,
+                owner: ownerQuery ? explainOwner(manifest, ownerQuery) : undefined,
+                query,
+                route,
+                runtime: {
+                    publicUrl,
+                    routerPort,
+                    source: 'proteum-dev-runtime',
+                    mcpUrl: `${publicUrl}/__proteum/mcp`,
+                    traceEnabled: app.container.Trace.isDevTraceEnabled(),
+                    profilerEnabled: app.container.Trace.isProfilingEnabled(),
+                    connectedProjects: Object.entries(app.connectedProjects || {}).map(([namespace, project]) => ({
+                        namespace,
+                        urlInternal: (project as { urlInternal?: string }).urlInternal,
+                    })),
+                },
+                task,
+            });
+        },
         async orient({ query }) {
             return compactOrientationResponse(buildOrientationResponse(readManifest(), query));
         },
@@ -78,6 +116,13 @@ export const createRuntimeProteumMcpProvider = ({
                 manifest,
                 owner: normalizedQuery ? explainOwner(manifest, normalizedQuery) : undefined,
                 query: normalizedQuery,
+            });
+        },
+        async routeCandidates({ limit, query }) {
+            return compactRouteCandidatesResponse({
+                limit,
+                manifest: readManifest(),
+                query,
             });
         },
         async doctor({ contracts = true }) {

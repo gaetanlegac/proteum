@@ -1,8 +1,72 @@
 import { Builtins, Cli, Option } from 'clipanion';
+import path from 'path';
 
-import type { TArgsObject } from '../context';
+import cli, { type TArgsObject } from '../context';
 import { applyLegacyBooleanArgs, assertNoLegacyArgs } from './argv';
 import { buildUsage, ProteumCommand, runCommandModule } from './command';
+import { createStartDevCommand, quoteShellPath, resolveProteumAppRootContext } from '../utils/appRoots';
+import { printJson } from '../utils/agentOutput';
+
+const createRunInAppCommand = ({
+    appRoot,
+    baseRoot,
+    command,
+}: {
+    appRoot: string;
+    baseRoot: string;
+    command: string;
+}) => {
+    const relativeAppRoot = path.relative(baseRoot, appRoot) || '.';
+    if (relativeAppRoot === '.') return command;
+    return `cd ${quoteShellPath(relativeAppRoot)} && ${command}`;
+};
+
+const printNonAppRootResponse = ({
+    commandName,
+    cwd,
+}: {
+    commandName: 'dev' | 'runtime';
+    cwd: string;
+}) => {
+    const context = resolveProteumAppRootContext(cwd);
+    const appCandidates = context.appCandidates;
+    const commandLabel = commandName === 'dev' ? 'Dev' : 'Runtime Status';
+
+    printJson({
+        ok: false,
+        format: 'proteum-agent-v1',
+        summary:
+            appCandidates.length > 0
+                ? `${cwd} is a Proteum workspace wrapper or nested directory, not an app root. Found ${appCandidates.length} app candidate${appCandidates.length === 1 ? '' : 's'}.`
+                : `${cwd} is not a Proteum app root.`,
+        data: {
+            cwd: context.cwd,
+            appCandidates,
+        },
+        nextActions: appCandidates.map((candidate) => ({
+            label: `${commandLabel}: ${candidate.relativeAppRoot || candidate.appRoot}`,
+            command:
+                commandName === 'dev'
+                    ? createStartDevCommand({
+                          appRoot: candidate.appRoot,
+                          baseRoot: context.cwd,
+                          port: candidate.manifest?.routerPort,
+                      })
+                    : createRunInAppCommand({
+                          appRoot: candidate.appRoot,
+                          baseRoot: context.cwd,
+                          command: 'npx proteum runtime status',
+                      }),
+            reason:
+                commandName === 'dev'
+                    ? 'Start Proteum dev from the app root, not the workspace wrapper.'
+                    : 'Inspect tracked runtime sessions from the app root, not the workspace wrapper.',
+        })),
+    });
+    process.exitCode = 1;
+};
+
+const isCurrentWorkdirProteumAppRoot = () => resolveProteumAppRootContext(String(cli.args.workdir || process.cwd())).isAppRoot;
 
 class InitCommand extends ProteumCommand {
     public static paths = [['init']];
@@ -154,6 +218,10 @@ class DevCommand extends ProteumCommand {
             all: this.all,
             stale: this.stale,
         });
+        if (!isCurrentWorkdirProteumAppRoot()) {
+            printNonAppRootResponse({ commandName: 'dev', cwd: String(cli.args.workdir || process.cwd()) });
+            return 1;
+        }
         await runCommandModule(() => import('../commands/dev'));
     }
 }
@@ -371,18 +439,18 @@ class ExplainCommand extends ProteumCommand {
     public full = Option.Boolean('--full', false, { description: 'Print the full selected machine-readable detail.' });
     public human = Option.Boolean('--human', false, { description: 'Print the legacy human-readable report.' });
     public manifest = Option.Boolean('--manifest', false, { description: 'Print the full generated manifest.' });
-    public all = Option.Boolean('--all', false, { description: 'Include every explain section.' });
-    public app = Option.Boolean('--app', false, { description: 'Include the app section.' });
-    public conventions = Option.Boolean('--conventions', false, { description: 'Include the conventions section.' });
-    public env = Option.Boolean('--env', false, { description: 'Include the env section.' });
-    public connected = Option.Boolean('--connected', false, { description: 'Include the connected-projects section.' });
-    public services = Option.Boolean('--services', false, { description: 'Include the services section.' });
-    public controllers = Option.Boolean('--controllers', false, { description: 'Include the controllers section.' });
-    public commands = Option.Boolean('--commands', false, { description: 'Include the commands section.' });
-    public routes = Option.Boolean('--routes', false, { description: 'Include the routes section.' });
-    public layouts = Option.Boolean('--layouts', false, { description: 'Include the layouts section.' });
+    public all = Option.Boolean('--all', false, { description: 'Summarize every explain section; add --full for raw arrays.' });
+    public app = Option.Boolean('--app', false, { description: 'Summarize the app section; add --full for raw detail.' });
+    public conventions = Option.Boolean('--conventions', false, { description: 'Summarize the conventions section; add --full for raw detail.' });
+    public env = Option.Boolean('--env', false, { description: 'Summarize the env section; add --full for raw detail.' });
+    public connected = Option.Boolean('--connected', false, { description: 'Summarize the connected-projects section; add --full for raw detail.' });
+    public services = Option.Boolean('--services', false, { description: 'Summarize the services section; add --full for raw detail.' });
+    public controllers = Option.Boolean('--controllers', false, { description: 'Summarize the controllers section; add --full for raw detail.' });
+    public commands = Option.Boolean('--commands', false, { description: 'Summarize the commands section; add --full for raw detail.' });
+    public routes = Option.Boolean('--routes', false, { description: 'Summarize the routes section; add --full for raw detail.' });
+    public layouts = Option.Boolean('--layouts', false, { description: 'Summarize the layouts section; add --full for raw detail.' });
     public diagnostics = Option.Boolean('--diagnostics', false, {
-        description: 'Include the diagnostics section.',
+        description: 'Summarize the diagnostics section; add --full for raw detail.',
     });
     public args = Option.Rest();
 
@@ -633,6 +701,9 @@ class RuntimeCommand extends ProteumCommand {
     public static usage = buildUsage('runtime');
 
     public full = Option.Boolean('--full', false, { description: 'Print full tracked-session and health detail.' });
+    public manifest = Option.Boolean('--manifest', false, {
+        description: 'Unsupported compatibility guard. Use `proteum explain --manifest` instead.',
+    });
     public sessionFile = Option.String('--session-file', {
         description: 'Inspect one explicit dev session file instead of the app registry.',
     });
@@ -644,8 +715,34 @@ class RuntimeCommand extends ProteumCommand {
         this.setCliArgs({
             action,
             full: this.full,
+            manifest: this.manifest,
             sessionFile: this.sessionFile ?? '',
         });
+
+        if (this.manifest) {
+            printJson({
+                ok: false,
+                format: 'proteum-agent-v1',
+                summary: '`proteum runtime status --manifest` is not supported. Use `proteum explain --manifest` from the app root.',
+                data: {
+                    command: 'proteum runtime status --manifest',
+                },
+                nextActions: [
+                    {
+                        label: 'Explain Manifest',
+                        command: 'npx proteum explain --manifest',
+                        reason: 'The generated manifest belongs to the explain command, not runtime status.',
+                    },
+                ],
+            });
+            process.exitCode = 1;
+            return 1;
+        }
+
+        if (!isCurrentWorkdirProteumAppRoot()) {
+            printNonAppRootResponse({ commandName: 'runtime', cwd: String(cli.args.workdir || process.cwd()) });
+            return 1;
+        }
 
         await runCommandModule(() => import('../commands/runtime'));
     }

@@ -42,8 +42,30 @@ const compactOwnerMatch = (match: ReturnType<typeof explainOwner>['matches'][num
     source: match.source,
 });
 
-const hasExplicitDetailSelection = (selectedSections: TExplainSectionName[]) =>
-    cli.args.full === true || cli.args.manifest === true || cli.args.all === true || selectedSections.length > 0;
+const hasExplicitDetailSelection = () => cli.args.full === true || cli.args.manifest === true;
+
+const buildSectionFlagCommand = (selectedSections: TExplainSectionName[]) =>
+    selectedSections.length === explainSectionNames.length
+        ? 'proteum explain --all --full'
+        : `proteum explain ${selectedSections.map((sectionName) => `--${sectionName}`).join(' ')} --full`;
+
+const summarizeSelectedSection = (manifest: ReturnType<typeof readProteumManifest>, sectionName: TExplainSectionName) => {
+    if (sectionName === 'app') return { section: sectionName, count: 1 };
+    if (sectionName === 'conventions')
+        return {
+            section: sectionName,
+            count: manifest.conventions.routeOptionKeys.length + manifest.conventions.reservedRouteOptionKeys.length,
+        };
+    if (sectionName === 'env') return { section: sectionName, count: manifest.env.requiredVariables.length };
+    if (sectionName === 'connected') return { section: sectionName, count: manifest.connectedProjects.length };
+    if (sectionName === 'services')
+        return { section: sectionName, count: manifest.services.app.length + manifest.services.routerPlugins.length };
+    if (sectionName === 'controllers') return { section: sectionName, count: manifest.controllers.length };
+    if (sectionName === 'commands') return { section: sectionName, count: manifest.commands.length };
+    if (sectionName === 'routes') return { section: sectionName, count: manifest.routes.client.length + manifest.routes.server.length };
+    if (sectionName === 'layouts') return { section: sectionName, count: manifest.layouts.length };
+    return { section: sectionName, count: manifest.diagnostics.length };
+};
 
 const printCompactOwner = (ownerQuery: string, response: ReturnType<typeof explainOwner>) => {
     const topOwner = response.matches[0];
@@ -70,13 +92,17 @@ const printCompactOwner = (ownerQuery: string, response: ReturnType<typeof expla
     });
 };
 
-const printCompactExplain = (manifest: ReturnType<typeof readProteumManifest>) => {
+const printCompactExplain = (manifest: ReturnType<typeof readProteumManifest>, selectedSections: TExplainSectionName[] = []) => {
     const errors = manifest.diagnostics.filter((diagnostic) => diagnostic.level === 'error').length;
     const warnings = manifest.diagnostics.filter((diagnostic) => diagnostic.level === 'warning').length;
     const requiredEnvProvided = manifest.env.requiredVariables.filter((variable) => variable.provided).length;
+    const hasSelectedSections = selectedSections.length > 0;
+    const fullDetailCommand = hasSelectedSections ? buildSectionFlagCommand(selectedSections) : 'proteum explain --manifest';
 
     printAgentResponse({
-        summary: `${manifest.app.identity.identifier}: ${manifest.controllers.length} controllers, ${manifest.routes.client.length + manifest.routes.server.length} routes, ${errors} errors, ${warnings} warnings`,
+        summary: hasSelectedSections
+            ? `${manifest.app.identity.identifier}: summarized ${selectedSections.join(', ')} sections; use --full for raw section arrays`
+            : `${manifest.app.identity.identifier}: ${manifest.controllers.length} controllers, ${manifest.routes.client.length + manifest.routes.server.length} routes, ${errors} errors, ${warnings} warnings`,
         data: {
             app: {
                 root: manifest.app.root,
@@ -96,6 +122,7 @@ const printCompactExplain = (manifest: ReturnType<typeof readProteumManifest>) =
                 servicesRouterPlugins: manifest.services.routerPlugins.length,
             },
             diagnostics: { errors, warnings },
+            selectedSections: hasSelectedSections ? selectedSections.map((sectionName) => summarizeSelectedSection(manifest, sectionName)) : undefined,
             env: {
                 requiredProvided: requiredEnvProvided,
                 requiredTotal: manifest.env.requiredVariables.length,
@@ -110,11 +137,13 @@ const printCompactExplain = (manifest: ReturnType<typeof readProteumManifest>) =
                 reason: 'Use orient for task-specific owner, instruction, and next-command routing.',
             },
         ],
-        fullDetailCommand: 'proteum explain --manifest',
+        fullDetailCommand,
         omitted: [
             {
-                reason: 'Full manifest sections are omitted from the default agent summary.',
-                command: 'proteum explain --manifest',
+                reason: hasSelectedSections
+                    ? 'Selected manifest sections are summarized by default to avoid large route/controller dumps.'
+                    : 'Full manifest sections are omitted from the default agent summary.',
+                command: fullDetailCommand,
             },
         ],
     });
@@ -158,7 +187,7 @@ export const run = async (): Promise<void> => {
 
     const selectedSections = getSelectedSections();
 
-    if (hasExplicitDetailSelection(selectedSections)) {
+    if (hasExplicitDetailSelection()) {
         printJson(pickExplainManifestSections(manifest, cli.args.manifest === true ? [...explainSectionNames] : selectedSections));
         return;
     }
@@ -168,5 +197,5 @@ export const run = async (): Promise<void> => {
         return;
     }
 
-    printCompactExplain(manifest);
+    printCompactExplain(manifest, selectedSections);
 };

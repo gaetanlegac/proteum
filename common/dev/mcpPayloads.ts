@@ -1,7 +1,7 @@
 import type { TDevConsoleLogLevel, TDevConsoleLogsResponse } from './console';
 import type { TDoctorResponse } from './diagnostics';
 import { buildExplainSummaryItems } from './diagnostics';
-import type { TDiagnoseResponse, TExplainOwnerResponse, TOrientResponse } from './inspection';
+import { explainOwner, type TDiagnoseResponse, type TExplainOwnerResponse, type TOrientResponse } from './inspection';
 import type { TPerfRequestResponse, TPerfTopResponse } from './performance';
 import type { TProteumManifest } from './proteumManifest';
 import type { TRequestTrace } from './requestTrace';
@@ -38,6 +38,7 @@ type TNodeFs = {
 
 type TNodePath = {
     dirname: (filepath: string) => string;
+    isAbsolute: (filepath: string) => boolean;
     join: (...segments: string[]) => string;
     relative: (from: string, to: string) => string;
     resolve: (...segments: string[]) => string;
@@ -71,6 +72,95 @@ export const truncateForMcp = (value: string, max = maxTextLength) =>
     value.length <= max ? value : `${value.slice(0, max)}...`;
 
 export const compactList = <TValue>(values: TValue[], limit: number) => values.slice(0, Math.max(0, limit));
+
+export type TTriggeredInstructionRead = {
+    file: string;
+    reason: string;
+};
+
+const matchesInstructionTrigger = (query: string, pattern: RegExp) => pattern.test(query);
+
+const resolveRootContractFallbackFile = (rootAgentsFile?: string) => {
+    if (fs === undefined || path === undefined || !rootAgentsFile || !fileExists(rootAgentsFile)) return undefined;
+
+    const content = fs.readFileSync(rootAgentsFile, 'utf8');
+    const match = content.match(/Root contract fallback:\s+(.+?)\s*$/m);
+    const candidate = match?.[1]?.trim();
+    if (!candidate) return undefined;
+
+    const filepath = path.isAbsolute(candidate) ? candidate : path.resolve(path.dirname(rootAgentsFile), candidate);
+    return fileExists(filepath) ? filepath : undefined;
+};
+
+export const resolveTriggeredInstructionReads = ({
+    codingStyle,
+    diagnostics,
+    documentation,
+    optimizations,
+    query,
+    rootAgentsFile,
+}: {
+    codingStyle?: string;
+    diagnostics?: string;
+    documentation?: string;
+    optimizations?: string;
+    query: string;
+    rootAgentsFile?: string;
+}) => {
+    const normalizedQuery = query.toLowerCase();
+    const reads = new Map<string, TTriggeredInstructionRead>();
+    const addRead = (file: string | undefined, reason: string) => {
+        if (!file || !fileExists(file) || reads.has(file)) return;
+        reads.set(file, { file, reason });
+    };
+    const rootContract = resolveRootContractFallbackFile(rootAgentsFile);
+    const looksLikeGitLifecycle = matchesInstructionTrigger(
+        normalizedQuery,
+        /\b(commit|stage|push)\b|\band commit\b|\bpr\b|pull[- ]requests?|git add|git commit/,
+    );
+    const looksLikeFinishLifecycle = matchesInstructionTrigger(
+        normalizedQuery,
+        /\b(finish|finishing|done|complete|completion|final|validate|validation|verify|verification)\b/,
+    );
+    const looksLikeRuntimeVisible = matchesInstructionTrigger(
+        normalizedQuery,
+        /\b(runtime|request-time|request time|router|ssr|browser-visible|browser visible|controller|diagnose|trace|perf|repro|reproduction|failing|error|bug)\b/,
+    );
+    const looksLikeImplementationEdit = matchesInstructionTrigger(
+        normalizedQuery,
+        /\b(implement|change|edit|update|modify|fix|add|remove|refactor|increase|decrease|code)\b/,
+    );
+    const looksLikeProductOrDocs = matchesInstructionTrigger(
+        normalizedQuery,
+        /\b(feature|product|business|acceptance|docs|documentation|ux|copy|onboarding|pricing|commercial|semantics)\b/,
+    );
+    const looksLikeOptimization = matchesInstructionTrigger(
+        normalizedQuery,
+        /\b(optimize|optimization|performance|package|dependency|build|bundle)\b/,
+    );
+
+    if (looksLikeGitLifecycle) {
+        addRead(rootContract, 'Git lifecycle trigger; read the canonical root contract before any git write.');
+    }
+    if (looksLikeFinishLifecycle) {
+        addRead(rootContract, 'Finish or verification trigger; read the canonical root lifecycle contract.');
+    }
+    if (looksLikeRuntimeVisible) {
+        addRead(rootContract, 'Runtime-visible behavior trigger; read the canonical root verification contract.');
+        addRead(diagnostics, 'Runtime, request, trace, perf, reproduction, or error trigger.');
+    }
+    if (looksLikeImplementationEdit) {
+        addRead(codingStyle, 'Implementation edit trigger; read coding style before editing.');
+    }
+    if (looksLikeProductOrDocs) {
+        addRead(documentation, 'Feature, product, business-rule, UX, copy, or docs trigger.');
+    }
+    if (looksLikeOptimization) {
+        addRead(optimizations, 'Package, build, runtime, performance, or optimization trigger.');
+    }
+
+    return [...reads.values()];
+};
 
 export const createMcpPayload = <TData extends object>({
     data,
@@ -178,6 +268,23 @@ export const compactOrientationResponse = (response: TOrientResponse) => {
     const summary = topOwner
         ? `${response.query} -> ${topOwner.kind} ${topOwner.label} (${topOwner.scopeLabel})`
         : `${response.query} -> no manifest owner matched`;
+    const topPath =
+        topOwner && (topOwner.kind === 'route' || topOwner.kind === 'controller') && topOwner.label.startsWith('/')
+            ? topOwner.label
+            : response.query.startsWith('/')
+              ? response.query
+              : undefined;
+    const triggered = resolveTriggeredInstructionReads({
+        codingStyle: response.guidance.codingStyle,
+        diagnostics: response.guidance.diagnostics,
+        documentation: response.guidance.documentation,
+        optimizations: response.guidance.optimizations,
+        query: response.normalizedQuery || response.query,
+        rootAgentsFile:
+            path !== undefined && response.app.repoRoot !== response.app.appRoot
+                ? path.join(response.app.repoRoot, 'AGENTS.md')
+                : response.guidance.agents,
+    });
 
     return createMcpPayload({
         summary,
@@ -190,7 +297,14 @@ export const compactOrientationResponse = (response: TOrientResponse) => {
                 totalReturned: response.owner.matches.length,
             },
             instructions: {
-                mustRead: [...new Set([response.guidance.agents, ...response.guidance.areaAgents])],
+                mustRead: [
+                    ...new Set([
+                        response.guidance.agents,
+                        ...response.guidance.areaAgents,
+                        ...triggered.map((entry) => entry.file),
+                    ]),
+                ],
+                triggered,
                 readWhen: [
                     {
                         file: response.guidance.documentation,
@@ -218,11 +332,39 @@ export const compactOrientationResponse = (response: TOrientResponse) => {
             },
             warnings: response.warnings,
         },
-        nextActions: response.nextSteps.map((step) => ({
-            command: step.command,
-            label: step.label,
-            reason: step.reason,
-        })),
+        nextActions: [
+            ...(topOwner
+                ? [
+                      {
+                          label: 'Explain Summary',
+                          tool: 'explain_summary',
+                          toolArgs: { query: response.query },
+                          reason: 'Use MCP owner summary before broad manifest or source searches.',
+                      },
+                  ]
+                : []),
+            ...(topPath
+                ? [
+                      {
+                          label: 'Diagnose Route',
+                          tool: 'diagnose',
+                          toolArgs: { path: topPath, query: response.query },
+                          reason: 'Use the compact runtime diagnosis before CLI diagnose, raw traces, or browser work.',
+                      },
+                      {
+                          label: 'Perf Request',
+                          tool: 'perf_request',
+                          toolArgs: { query: topPath },
+                          reason: 'Use the compact request waterfall before raw perf detail.',
+                      },
+                  ]
+                : []),
+            ...response.nextSteps.map((step) => ({
+                command: step.command,
+                label: step.label,
+                reason: step.reason,
+            })),
+        ],
     });
 };
 
@@ -237,6 +379,12 @@ export const compactExplainSummary = ({
 }) => {
     if (owner) {
         const topOwner = owner.matches[0];
+        const topPath =
+            topOwner && (topOwner.kind === 'route' || topOwner.kind === 'controller') && topOwner.label.startsWith('/')
+                ? topOwner.label
+                : query && query.startsWith('/')
+                  ? query
+                  : undefined;
         return createMcpPayload({
             summary: topOwner
                 ? `${query || owner.query} -> ${topOwner.kind} ${topOwner.label} (${topOwner.scopeLabel})`
@@ -251,6 +399,22 @@ export const compactExplainSummary = ({
                 },
                 manifest: summarizeManifest(manifest),
             },
+            nextActions: topPath
+                ? [
+                      {
+                          label: 'Diagnose Route',
+                          tool: 'diagnose',
+                          toolArgs: { path: topPath, query: query || owner.query },
+                          reason: 'Use compact runtime diagnosis before CLI diagnose or raw trace detail.',
+                      },
+                      {
+                          label: 'Perf Request',
+                          tool: 'perf_request',
+                          toolArgs: { query: topPath },
+                          reason: 'Use compact request waterfall before raw perf detail.',
+                      },
+                  ]
+                : undefined,
         });
     }
 
@@ -623,6 +787,28 @@ const resolveDocumentFile = ({
     return nearestRoot ? path.join(nearestRoot, relativeFilepath) : undefined;
 };
 
+const fullInstructionReadPolicy = {
+    default: 'Use selected previews as the instruction source for read-only discovery and diagnostics.',
+    requiredWhen: [
+        'editing files governed by the selected scope',
+        'performing git writes such as stage, commit, push, or PR work',
+        'changing schema, auth, runtime, generated contracts, or framework integration behavior',
+        'the compact preview is insufficient for the current decision',
+    ],
+};
+
+const inferInstructionReadMode = (reason: string) =>
+    /git lifecycle|implementation edit|finish or verification|schema|migration/i.test(reason)
+        ? 'full-before-action'
+        : 'preview-first';
+
+const createSelectedInstruction = (file: string, reason: string) => ({
+    file,
+    fullRead: inferInstructionReadMode(reason),
+    preview: readPreview(file),
+    reason,
+});
+
 export const resolveInstructionRouting = ({
     appRoot,
     query = '',
@@ -632,7 +818,7 @@ export const resolveInstructionRouting = ({
 }) => {
     const normalizedQuery = query.trim();
     const repoRoot = findLikelyRepoRoot(appRoot);
-    const selected = new Map<string, { file: string; reason: string; preview?: string }>();
+    const selected = new Map<string, ReturnType<typeof createSelectedInstruction>>();
     const readWhen: Array<{ file?: string; when: string }> = [];
     const addInstruction = (relativeFilepath: string, reason: string, preferAppRoot = true) => {
         if (path === undefined) return;
@@ -640,7 +826,7 @@ export const resolveInstructionRouting = ({
         for (const root of [...new Set(roots)]) {
             const filepath = path.join(root, relativeFilepath);
             if (!fileExists(filepath)) continue;
-            selected.set(filepath, { file: filepath, reason, preview: readPreview(filepath) });
+            selected.set(filepath, createSelectedInstruction(filepath, reason));
             return;
         }
     };
@@ -649,14 +835,16 @@ export const resolveInstructionRouting = ({
         readWhen.push({ file: filepath, when });
     };
     const lowerQuery = normalizedQuery.toLowerCase();
-    const looksLikePage = lowerQuery.startsWith('/') || lowerQuery.includes('client/pages') || lowerQuery.includes('.tsx');
+    const looksLikeRoutePath = /(^|\s)\/[a-z0-9_./:-]*/i.test(lowerQuery);
+    const looksLikePage = looksLikeRoutePath || lowerQuery.includes('client/pages') || lowerQuery.includes('.tsx');
     const looksLikeClient = looksLikePage || lowerQuery.includes('client/') || lowerQuery.includes('component') || lowerQuery.includes('island');
     const looksLikeServerRoute =
         lowerQuery.includes('server/routes') ||
         lowerQuery.includes('route') ||
         lowerQuery.includes('sitemap') ||
         lowerQuery.includes('rss') ||
-        lowerQuery.startsWith('/api');
+        /^\/api(\/|$)/.test(lowerQuery) ||
+        /\s\/api(\/|$)/.test(lowerQuery);
     const looksLikeService =
         lowerQuery.includes('server/services') ||
         lowerQuery.includes('.controller') ||
@@ -673,6 +861,19 @@ export const resolveInstructionRouting = ({
     if (looksLikeE2e) {
         addInstruction('tests/e2e/AGENTS.md', 'End-to-end behavior or Playwright workflow is in scope.');
         addInstruction('tests/e2e/REAL_WORLD_JOURNEY_TESTS.md', 'Real-world journey coverage may be in scope.');
+    }
+
+    const appAgentsFile = resolveDocumentFile({ appRoot, repoRoot, relativeFilepath: 'AGENTS.md' });
+    const repoAgentsFile = path !== undefined && repoRoot !== appRoot ? path.join(repoRoot, 'AGENTS.md') : undefined;
+    for (const triggered of resolveTriggeredInstructionReads({
+        codingStyle: resolveDocumentFile({ appRoot, repoRoot, relativeFilepath: 'CODING_STYLE.md' }),
+        diagnostics: resolveDocumentFile({ appRoot, repoRoot, relativeFilepath: 'diagnostics.md' }),
+        documentation: resolveDocumentFile({ appRoot, repoRoot, relativeFilepath: 'DOCUMENTATION.md' }),
+        optimizations: resolveDocumentFile({ appRoot, repoRoot, relativeFilepath: 'optimizations.md' }),
+        query: normalizedQuery,
+        rootAgentsFile: repoAgentsFile && fileExists(repoAgentsFile) ? repoAgentsFile : appAgentsFile,
+    })) {
+        selected.set(triggered.file, createSelectedInstruction(triggered.file, triggered.reason));
     }
 
     addReadWhen(
@@ -692,11 +893,219 @@ export const resolveInstructionRouting = ({
             repoRoot,
             selected: selectedFiles,
             readWhen,
+            fullReadPolicy: fullInstructionReadPolicy,
             missingRuntime:
                 selectedFiles.length === 0
                     ? 'No tracked instruction files were found. Run `proteum configure agents` or start `proteum dev` to refresh managed instructions.'
                     : undefined,
         },
+    });
+};
+
+const chooseWorkflowOwnerQuery = ({
+    file,
+    query,
+    route,
+}: {
+    file?: string;
+    query?: string;
+    route?: string;
+}) => [route, file, query].map((value) => value?.trim()).find((value): value is string => Boolean(value));
+
+const chooseWorkflowInstructionQuery = ({
+    file,
+    query,
+    route,
+    task,
+}: {
+    file?: string;
+    query?: string;
+    route?: string;
+    task?: string;
+}) =>
+    [task, query, route, file]
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+        .join(' ');
+
+const isReachableHealth = (health: object | undefined) => {
+    if (!health || !('reachable' in health)) return true;
+
+    return (health as { reachable?: unknown }).reachable === true;
+};
+
+const createRuntimeDownNextAction = () => ({
+    label: 'Start Dev',
+    command: 'proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>',
+    reason: 'Runtime is not reachable; start or repair one tracked dev session before diagnose, trace, or perf reads.',
+});
+
+export const compactWorkflowStartResponse = ({
+    contracts,
+    doctor,
+    file,
+    health,
+    manifest,
+    owner,
+    query,
+    route,
+    runtime,
+    task,
+}: {
+    contracts: TDoctorResponse;
+    doctor: TDoctorResponse;
+    file?: string;
+    health?: object;
+    manifest: TProteumManifest;
+    owner?: TExplainOwnerResponse;
+    query?: string;
+    route?: string;
+    runtime?: object;
+    task?: string;
+}) => {
+    const ownerQuery = chooseWorkflowOwnerQuery({ file, query, route });
+    const instructionQuery = chooseWorkflowInstructionQuery({ file, query, route, task });
+    const instructions = resolveInstructionRouting({
+        appRoot: manifest.app.root,
+        query: instructionQuery,
+    });
+    const topOwner = owner?.matches[0];
+    const topPath =
+        topOwner && (topOwner.kind === 'route' || topOwner.kind === 'controller') && topOwner.label.startsWith('/')
+            ? topOwner.label
+            : route && route.startsWith('/')
+              ? route
+              : ownerQuery && ownerQuery.startsWith('/')
+                ? ownerQuery
+                : undefined;
+    const runtimeReachable = isReachableHealth(health);
+
+    return createMcpPayload({
+        summary: `${manifest.app.identity.identifier}: workflow start${ownerQuery ? ` for ${ownerQuery}` : ''}; ${instructions.data.selected.length} instruction file${instructions.data.selected.length === 1 ? '' : 's'}`,
+        data: {
+            workflow: {
+                task: task?.trim() || undefined,
+                query: ownerQuery,
+                route: route?.trim() || undefined,
+                file: file?.trim() || undefined,
+            },
+            runtime: {
+                appRoot: manifest.app.root,
+                manifest: summarizeManifest(manifest),
+                runtime,
+                health,
+            },
+            instructions: {
+                selected: compactList(instructions.data.selected, 8),
+                readWhen: compactList(instructions.data.readWhen, 6),
+                fullReadPolicy: fullInstructionReadPolicy,
+                totalSelected: instructions.data.selected.length,
+            },
+            owner: owner
+                ? {
+                      query: owner.query,
+                      normalizedQuery: owner.normalizedQuery,
+                      top: topOwner ? compactOwnerMatch(topOwner) : undefined,
+                      matches: compactList(owner.matches, 5).map(compactOwnerMatch),
+                      totalReturned: owner.matches.length,
+                  }
+                : undefined,
+            diagnostics: {
+                doctor: doctor.summary,
+                contracts: contracts.summary,
+            },
+            duplicateAvoidance: [
+                'If owner.top resolves a route or file, do not run broad source searches for the same owner.',
+                'If this runtime block is present, do not run CLI runtime status for the same app.',
+                'If diagnose succeeds for this path or request, do not rerun CLI diagnose for the same read.',
+                'Open full traces, logs, or instruction files only when compact output says the omitted detail is needed.',
+            ],
+        },
+        nextActions: [
+            ...(!runtimeReachable ? [createRuntimeDownNextAction()] : []),
+            ...(topPath && runtimeReachable
+                ? [
+                      {
+                          label: 'Diagnose Route',
+                          tool: 'diagnose',
+                          toolArgs: { path: topPath, query: ownerQuery || topPath },
+                          reason: 'Use compact runtime diagnosis before CLI diagnose, raw traces, browser work, or broad source search.',
+                      },
+                      {
+                          label: 'Perf Request',
+                          tool: 'perf_request',
+                          toolArgs: { query: topPath },
+                          reason: 'Use the compact request waterfall before raw perf detail.',
+                      },
+                  ]
+                : []),
+            ...(!ownerQuery && instructionQuery
+                ? [
+                      {
+                          label: 'Orient Query',
+                          tool: 'orient',
+                          toolArgs: { query: instructionQuery },
+                          reason: 'Use MCP orientation only if the workflow bootstrap did not include a concrete owner query.',
+                      },
+                  ]
+                : []),
+        ],
+        omitted: [
+            {
+                reason: 'Full instruction files are omitted. Use selected previews for read-only work; read full files only when the fullReadPolicy requires it.',
+                tool: 'instructions_resolve',
+                toolArgs: { query: instructionQuery },
+            },
+        ],
+    });
+};
+
+export const compactRouteCandidatesResponse = ({
+    limit = 8,
+    manifest,
+    query,
+}: {
+    limit?: number;
+    manifest: TProteumManifest;
+    query: string;
+}) => {
+    const owner = explainOwner(manifest, query);
+    const routeMatches = owner.matches.filter((match) => match.kind === 'route');
+
+    return createMcpPayload({
+        summary:
+            routeMatches.length === 0
+                ? `${query} -> no route candidates`
+                : `${query} -> ${routeMatches.length} route candidate${routeMatches.length === 1 ? '' : 's'}`,
+        data: {
+            query,
+            normalizedQuery: owner.normalizedQuery,
+            candidates: compactList(routeMatches, limit).map(compactOwnerMatch),
+            returned: Math.min(routeMatches.length, limit),
+            totalMatches: routeMatches.length,
+            manifest: summarizeManifest(manifest),
+        },
+        nextActions:
+            routeMatches.length > 0
+                ? [
+                      {
+                          label: 'Explain Top Route',
+                          tool: 'explain_summary',
+                          toolArgs: { query: routeMatches[0].label },
+                          reason: 'Inspect the top route owner without dumping raw route arrays.',
+                      },
+                  ]
+                : undefined,
+        omitted:
+            routeMatches.length > limit
+                ? [
+                      {
+                          reason: `Route candidates are capped at ${limit}. Refine the query before requesting raw route arrays.`,
+                          tool: 'route_candidates',
+                          toolArgs: { query, limit: Math.min(50, limit * 2) },
+                      },
+                  ]
+                : undefined,
     });
 };
 
@@ -726,7 +1135,7 @@ export const buildRuntimeStatusPayload = ({
             sessions,
             health,
         },
-        nextActions: runtime
+        nextActions: runtime && isReachableHealth(health)
             ? [
                   {
                       label: 'Diagnose Root',
@@ -736,10 +1145,6 @@ export const buildRuntimeStatusPayload = ({
                   },
               ]
             : [
-                  {
-                      label: 'Start Dev',
-                      command: 'proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>',
-                      reason: 'Create a tracked dev session before request-time diagnostics.',
-                  },
+                  createRuntimeDownNextAction(),
               ],
     });

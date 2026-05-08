@@ -22,9 +22,11 @@ export type TProteumMcpProvider = {
     perfRequest: (input: { query: string }) => Promise<TProteumMcpPayload>;
     perfTop: (input: { groupBy?: 'path' | 'route' | 'controller'; limit?: number; since?: string }) => Promise<TProteumMcpPayload>;
     readResource: (uri: string) => Promise<TProteumMcpPayload>;
+    routeCandidates: (input: { limit?: number; query: string }) => Promise<TProteumMcpPayload>;
     runtimeStatus: (input: Record<string, never>) => Promise<TProteumMcpPayload>;
     traceLatest: (input: { detail?: TProteumMcpDetail; limit?: number; offset?: number }) => Promise<TProteumMcpPayload>;
     traceShow: (input: { detail?: TProteumMcpDetail; limit?: number; offset?: number; requestId: string }) => Promise<TProteumMcpPayload>;
+    workflowStart: (input: { file?: string; query?: string; route?: string; task?: string }) => Promise<TProteumMcpPayload>;
 };
 
 type TCreateProteumMcpServerArgs = {
@@ -77,6 +79,23 @@ export const createProteumMcpServer = ({ provider, version }: TCreateProteumMcpS
     );
 
     server.registerTool(
+        'workflow_start',
+        {
+            annotations: readOnlyAnnotations,
+            description:
+                'Bootstrap an agent workflow with compact runtime, instruction, owner, doctor, and next-action data in one read.',
+            inputSchema: {
+                file: z.string().optional().describe('Optional source file or generated artifact path in scope.'),
+                query: z.string().optional().describe('Optional task, route, controller, file, or owner query.'),
+                route: z.string().optional().describe('Optional route path in scope.'),
+                task: z.string().optional().describe('Optional short natural-language task description.'),
+            },
+            title: 'Proteum Workflow Start',
+        },
+        async ({ file, query, route, task }) => jsonToolResult(await provider.workflowStart({ file, query, route, task })),
+    );
+
+    server.registerTool(
         'runtime_status',
         {
             annotations: readOnlyAnnotations,
@@ -124,6 +143,20 @@ export const createProteumMcpServer = ({ provider, version }: TCreateProteumMcpS
             title: 'Proteum Explain Summary',
         },
         async ({ query }) => jsonToolResult(await provider.explainSummary({ query })),
+    );
+
+    server.registerTool(
+        'route_candidates',
+        {
+            annotations: readOnlyAnnotations,
+            description: 'Return compact route candidates for a query without dumping raw route arrays.',
+            inputSchema: {
+                limit: z.number().int().min(1).max(50).optional(),
+                query: z.string().min(1).describe('Route path or route-like search query.'),
+            },
+            title: 'Proteum Route Candidates',
+        },
+        async ({ limit, query }) => jsonToolResult(await provider.routeCandidates({ limit, query })),
     );
 
     server.registerTool(

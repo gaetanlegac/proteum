@@ -22,7 +22,7 @@ The canonical snapshot lives in `./.proteum/manifest.json`.
 Proteum uses that same manifest in these places:
 
 - `proteum orient` for owner lookup, guidance resolution, connected-boundary summary, and next-step suggestions
-- `proteum explain` for human-readable and `--json` output
+- `proteum explain` for compact manifest summaries and selected-section counts
 - `proteum doctor` for human-readable and `--json` output
 - `proteum explain owner <query>` for ownership lookup over the manifest index
 - `proteum doctor --contracts` for generated-artifact and manifest-owned source validation on disk
@@ -44,6 +44,7 @@ proteum orient /api/Auth/CurrentUser
 proteum explain
 proteum explain owner /api/Auth/CurrentUser
 proteum explain --routes --controllers --commands
+proteum explain --routes --controllers --commands --full
 proteum explain --manifest
 
 proteum doctor
@@ -95,7 +96,7 @@ Default compact command output follows this shape:
 
 `proteum orient --full` emits the full orientation payload.
 
-`proteum explain` emits a compact manifest summary. `proteum explain --manifest` emits the full generated manifest, and explicit section flags such as `--routes --controllers` emit those sections.
+`proteum explain` emits a compact manifest summary. Explicit section flags such as `--routes --controllers` now summarize those sections by default to avoid route/controller dumps in agent context. Add `--full` to emit selected raw section arrays, or use `proteum explain --manifest` for the full generated manifest.
 
 `proteum explain owner <query>` emits compact owner ranking. `proteum explain owner <query> --full` keeps the existing full owner ranking shape and adds:
 
@@ -109,9 +110,9 @@ Default compact command output follows this shape:
 - `summary.strictFailed`
 - `diagnostics`
 
-`proteum runtime status` emits the current app manifest summary, tracked dev sessions, selected live session, MCP URL, health status, and a suggested next command. Use it before starting another dev server.
+`proteum runtime status` emits the current app manifest summary, tracked dev sessions, selected live session, MCP URL, health status, configured router/HMR port inspection, and a suggested next command. Use it before starting another dev server, and use its Start Dev command instead of probing page bodies when the default port is occupied. If it reports that the same app already responds on the configured port without a live tracked session, use or repair that runtime instead of starting a second server.
 
-During `proteum dev`, `/__proteum/mcp` exposes compact `runtime_status`, `orient`, `instructions_resolve`, `explain_summary`, `doctor`, `diagnose`, `trace_*`, `perf_*`, and `logs_tail` tools without spawning CLI commands for each repeated read. `proteum dev` also ensures one managed machine `proteum mcp` daemon is running. Through the machine router, call `projects_list` first and pass the selected `projectId` to each app-bound tool.
+During `proteum dev`, `/__proteum/mcp` exposes compact `workflow_start`, `runtime_status`, `orient`, `instructions_resolve`, `route_candidates`, `explain_summary`, `doctor`, `diagnose`, `trace_*`, `perf_*`, and `logs_tail` tools without spawning CLI commands for each repeated read. `proteum dev` also ensures one managed machine `proteum mcp` daemon is running. Through the machine router, call `workflow_start` with `cwd` or a known `projectId`; if routing is ambiguous or returns offline app candidates, use `project_resolve { cwd }`, follow the selected app root's port-inspected next action when needed, then pass the selected live `projectId` to follow-up app-bound tools.
 
 MCP tool/resource output follows compact single-line `proteum-mcp-v1` JSON:
 
@@ -248,15 +249,16 @@ Treat these as framework contract failures first. The fix usually belongs at the
 
 For AI coding agents or automation:
 
-1. Start with `proteum orient <query>` or MCP `orient { projectId, query }` when the target might be generated, connected, framework-owned, multi-repo, or instruction-ambiguous.
-2. Read only `instructions.mustRead` from compact orientation output, or use MCP `instructions_resolve { projectId }` to refresh the routed instruction set without rereading docs.
-3. Run `proteum runtime status` before starting another dev server; use MCP `runtime_status { projectId }` for repeated status reads.
-4. For machine MCP, call `projects_list`, select the stable `projectId`, and pass it to every app-bound tool.
-5. If machine MCP routing fails, run `proteum mcp status` and `proteum runtime status`. If no live session exists, start `proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>`. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again.
-6. Use `proteum diagnose <path> --port <port>` or MCP `diagnose { projectId, path }` for the smallest trustworthy runtime surface before broad checks.
-7. Use `proteum perf request <requestId|path>` or MCP `perf_request { projectId, query }` for performance, CPU, SQL, render, cache, or connected-boundary questions.
-8. Use `proteum trace show <requestId> --events` only when compact diagnose, perf, trace, or MCP output says lower-level event detail is needed.
-9. Use `proteum explain --manifest` or read `./.proteum/manifest.json` only when compact `orient`/`explain`/MCP summary cannot answer the specific manifest question.
-10. Use `proteum verify browser` for browser-visible verification, or `proteum e2e --port <port>` for targeted/full Playwright suites. Keep auth sourced from Proteum session helpers.
-11. Run global checks second, not first. Unrelated diagnostics should remain visible but non-blocking during focused verification unless strict global mode is required.
-12. Open the profiler only when a human-readable view helps; it should agree with the CLI and MCP after refresh.
+1. When MCP is available, call `workflow_start` with `cwd` or a known `projectId`; if routing is ambiguous or returns offline app candidates, call `project_resolve { cwd }`, select the intended app root, start dev from that app root when needed, then retry with the selected stable live `projectId`.
+2. Use the returned `projectId` for MCP `runtime_status`, `orient`, `instructions_resolve`, `route_candidates`, `explain_summary`, `doctor`, `diagnose`, `trace_show`, `perf_request`, and `logs_tail` read-only runtime, owner, route, instruction, trace, perf, and log reads.
+3. Do not run CLI equivalents after a successful MCP result for the same read, and do not run broad source searches for ownership MCP already returned. Use CLI for fallback, `dev`, `build`, `check`, `verify`, migrations, E2E, and final terminal evidence.
+4. Use selected instruction previews for read-only discovery and diagnostics; read full files only before edits or git writes, when returned `fullRead`/`fullReadPolicy` requires it, or when the preview is insufficient.
+5. Use `proteum orient <query>` only when MCP is unavailable or terminal evidence is required.
+6. If machine MCP routing fails, run `proteum mcp status` and `proteum runtime status` from the intended app root. If you are in a monorepo wrapper, use the returned app candidates and exact next action. If no live session exists, use the exact Start Dev next action returned by runtime status so occupied router/HMR ports are avoided. Do not `curl` normal page routes to identify a port owner. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again.
+7. Use MCP `diagnose { projectId, path }` for the smallest trustworthy runtime surface before broad checks only after runtime health is reachable; use `proteum diagnose <path> --port <port>` as fallback or terminal evidence.
+8. Use MCP `perf_request { projectId, query }` for performance, CPU, SQL, render, cache, or connected-boundary questions; use `proteum perf request <requestId|path>` as fallback or terminal evidence.
+9. Use `proteum trace show <requestId> --events` only when compact diagnose, perf, trace, or MCP output says lower-level event detail is needed.
+10. Use `proteum explain --manifest` or read `./.proteum/manifest.json` only when compact `workflow_start`/`orient`/`explain`/MCP summary cannot answer the specific manifest question.
+11. Use `proteum verify browser` for browser-visible verification, or `proteum e2e --port <port>` for targeted/full Playwright suites. Keep auth sourced from Proteum session helpers.
+12. Run global checks second, not first. Unrelated diagnostics should remain visible but non-blocking during focused verification unless strict global mode is required.
+13. Open the profiler only when a human-readable view helps; it should agree with the CLI and MCP after refresh.

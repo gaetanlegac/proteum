@@ -11,11 +11,12 @@ The optimized stack is:
 The routing strategy is:
 
 1. Use instructions for hard safety rules and routing only.
-2. Use MCP when available for repeated reads, runtime status, instruction routing, traces, perf, and logs.
-3. Start machine MCP sessions with `projects_list`, pick the stable `projectId`, and pass it to every app-bound MCP call.
-4. Use `proteum orient <query>` or MCP `orient { projectId, query }` to resolve the task-specific owner, `mustRead` instruction files, and next command.
-5. Use compact CLI output for reproducible terminal validation and CI-like checks.
-6. Use `--full`, `--manifest`, `--events`, or MCP paginated `detail: "full"` only after compact output identifies the missing detail.
+2. Use MCP first when available for read-only runtime status, instruction routing, owner lookup, diagnosis, traces, perf, and logs.
+3. Start machine MCP sessions with `workflow_start { cwd, task, route?, file? }` when possible; use `project_resolve { cwd }` when the bootstrap is ambiguous, no `projectId` is known, or the app is offline.
+4. Pass the returned live stable `projectId` to every follow-up app-bound MCP call.
+5. Use MCP `orient { projectId, query }`, `instructions_resolve { projectId, query }`, `route_candidates { projectId, query }`, and `explain_summary { projectId, query }` only when `workflow_start` did not return enough owner or instruction detail.
+6. Use compact CLI output for reproducible terminal validation, CI-like checks, fallback repair, and final evidence.
+7. Use `--full`, `--manifest`, `--events`, or MCP paginated `detail: "full"` only after compact output identifies the missing detail.
 
 ## Problem Resolved
 
@@ -29,7 +30,7 @@ The measured Product diagnostic loop produced roughly tens of thousands of outpu
 - raw `trace latest`
 - `perf request`
 - `verify request`
-- sometimes full `explain --json`
+- sometimes full manifest or explain section output
 
 Managed project instructions also embedded the same Proteum corpus into multiple generated files, so reading a handful of local docs could repeat the same contract many times.
 
@@ -49,7 +50,7 @@ Default CLI output for agent commands is compact `proteum-agent-v1` JSON:
 }
 ```
 
-Use the compact commands first:
+Use compact CLI commands when MCP is unavailable, when a command must be reproducible in a shell, or when final terminal evidence is required:
 
 ```bash
 proteum orient <route|file|controller|error>
@@ -65,9 +66,9 @@ Use MCP for repeated reads when a client is available:
 proteum mcp
 ```
 
-The machine router discovers live `proteum dev` sessions. `proteum dev` ensures one managed machine MCP daemon is running; terminal `proteum mcp` starts or reuses that daemon, while MCP clients can use stdio. Agents should call MCP `projects_list`, select the right `projectId`, and pass it to every app-bound MCP tool. The router forwards to the selected dev-hosted `/__proteum/mcp` endpoint and strips `projectId` before the app sees the call.
+The machine router discovers live `proteum dev` sessions and offline Proteum app roots under a cwd. `proteum dev` ensures one managed machine MCP daemon is running; terminal `proteum mcp` starts or reuses that daemon, while MCP clients can use stdio. Agents should call MCP `workflow_start` with `cwd` or a known `projectId`, use `project_resolve { cwd }` when routing is ambiguous or offline, and pass the returned live `projectId` to every follow-up app-bound MCP tool. Offline candidates include port-inspected next actions, so agents should follow those instead of guessing the manifest default port. The router forwards to the selected dev-hosted `/__proteum/mcp` endpoint and strips routing fields before the app sees the call.
 
-If machine MCP routing fails, run `proteum mcp status` and `proteum runtime status`; if no live session exists, start `proteum dev --session-file var/run/proteum/dev/agents/<task>.json --port <free-port>`. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again. Do not start a second dev server in the same worktree, and do not start a second managed MCP daemon. Then retry MCP `projects_list`.
+If machine MCP routing returns offline candidates, choose the intended app root and follow that candidate's next action from the app root, not from the monorepo wrapper. If machine MCP routing fails, run `proteum mcp status` and `proteum runtime status` from the intended app root; if no live session exists, use the exact Start Dev next action from runtime status so occupied router/HMR ports are avoided. If the same app already responds on the configured port without live tracking, use or repair that runtime instead of starting another server. Do not `curl` normal page routes to identify which app owns a port; use runtime status or Proteum dev-only endpoints. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again. Do not run diagnose, trace, or perf reads while runtime health is unreachable. Do not start a second dev server in the same worktree, and do not start a second managed MCP daemon. Then retry MCP `workflow_start`.
 
 Prefer CLI over MCP when the result must be reproducible as a shell command, part of verification, or copied into CI/debug instructions.
 
@@ -77,6 +78,7 @@ Use full-detail escape hatches only when needed:
 
 ```bash
 proteum explain --manifest
+proteum explain --routes --controllers --full
 proteum orient <query> --full
 proteum diagnose <target> --full
 proteum trace show <requestId> --events
@@ -86,6 +88,18 @@ proteum perf request <requestId> --full
 ## Instruction Contract
 
 Managed `AGENTS.md` files now carry a compact router instead of the full instruction corpus.
+
+The router standard is trigger -> canonical instruction file, not trigger -> copied summary. Keep the compact root focused on hard safety rules, routing triggers, and source-map references. When a trigger needs a lifecycle or area contract, route agents to the full file that owns the rule.
+
+Standard triggered reads:
+
+- Git lifecycle (`commit`, `and commit`, `stage`, `push`, `PR`, pull request): root contract fallback.
+- Before finishing production code changes: root contract fallback, `CODING_STYLE.md`, and touched area `AGENTS.md`.
+- Runtime-visible, request-time, router, SSR, browser, or controller behavior: root contract fallback plus `diagnostics.md`.
+- Non-trivial feature, product, business-rule, UX, copy, or docs changes: `DOCUMENTATION.md`.
+- Implementation edits: `CODING_STYLE.md` plus the matching area file from the routing table.
+
+`workflow_start`, `orient`, `route_candidates`, and MCP `instructions_resolve` should promote obvious triggered files into selected instruction previews; ambiguous conditional reads can remain in `readWhen`.
 
 Area files carry only their own source content:
 
@@ -100,9 +114,9 @@ Area files carry only their own source content:
 - `tests/e2e/AGENTS.md`: E2E workflow
 - `tests/e2e/REAL_WORLD_JOURNEY_TESTS.md`: journey-test design
 
-Agents should not read broad folders or every managed instruction file. They should read only `mustRead` from `orient`, plus conditional docs that match the current task.
+Agents should not read broad folders or every managed instruction file. They should use selected MCP previews for read-only discovery and diagnostics, then read full files only before edits or git writes, when returned `fullRead`/`fullReadPolicy` requires it, or when the preview is insufficient.
 
-MCP `instructions_resolve { projectId }` exposes the same routing decision in compact JSON and is the lowest-token way to refresh instruction selection without rereading full docs.
+MCP `workflow_start` exposes the first routing decision in compact JSON. MCP `instructions_resolve { projectId, query }` is the lowest-token way to refresh instruction selection without rereading full docs.
 
 ## Benchmark Result
 
@@ -118,5 +132,6 @@ The latest Product `/domains` benchmark used routed instructions plus the compac
 The result confirms the intended routing:
 
 - use CLI for reproducible verification and final command evidence
+- use `workflow_start` to collapse project resolution, runtime status, instruction previews, owner summary, and first next actions into one read
 - use machine MCP with `projectId` for repeated runtime reads against an already running app
-- use `instructions_resolve` to refresh routing instead of rereading instruction files
+- use `instructions_resolve` to refresh routing instead of rereading full instruction files
