@@ -331,7 +331,7 @@ Agents working in generated Proteum projects must use this delivery workflow for
 4. Proteum check: refresh and validate generated framework contracts after route, page, controller, service, command, or config changes.
 5. Validate unit + E2E: run the relevant unit tests and real-world journey E2E checks before calling the work complete.
 
-Unit test expectation: production package and service logic should target 100% meaningful unit coverage for touched behavior. Any excluded generated files, migrations, framework shims, or unreachable defensive branches must be documented in the completion note.
+Unit test expectation: production changes must always add or update focused unit tests for the touched behavior when applicable. Target 100% meaningful unit coverage for changed production paths. Any excluded generated files, migrations, framework shims, unreachable defensive branches, or changes that cannot reasonably be unit-tested must be documented in the completion note.
 
 E2E expectation: real-world journeys must follow the project-local instructions in `tests/e2e/REAL_WORLD_JOURNEY_TESTS.md`. These tests should model complete user workflows, role transitions, permissions, state changes, and cross-view consistency rather than isolated happy paths.
 

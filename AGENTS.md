@@ -19,6 +19,7 @@ After those optimization concerns, preserve explicit, typed, machine-readable co
 - Keep `server/index.ts` as the canonical type root for services, router context, request context, and models.
 - Keep generated code deterministic, auditable, and easy to map back to source.
 - Prefer typed traces, perf rollups, and manifest-backed diagnostics over ad hoc logging.
+- For framework production changes, add or update focused unit tests for the touched behavior whenever applicable. Preserve or increase meaningful unit coverage toward 100%; if a change cannot be unit-tested, document why in the completion note.
 - For Prisma-backed apps, declare database structure changes in the app's `schema.prisma` only. Never create or edit migration files manually, and never run schema-mutating SQL such as `ALTER TABLE`, `CREATE TABLE`, or `DROP TABLE`.
 - Follow `agents/project/optimizations.md` when choosing packages, helpers, runtimes, plugins, or build infrastructure.
 - Delete obsolete compatibility layers, helper indirection, and unused packages when safe.

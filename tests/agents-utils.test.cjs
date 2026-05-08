@@ -30,6 +30,7 @@ const createCoreFixture = () => {
     writeFile(path.join(agentsRoot, 'client', 'pages', 'AGENTS.md'), '# Page Rules\n\n- Page rule\n');
     writeFile(path.join(agentsRoot, 'server', 'routes', 'AGENTS.md'), '# Route Rules\n\n- Route rule\n');
     writeFile(path.join(agentsRoot, 'server', 'services', 'AGENTS.md'), '# Service Rules\n\n- Service rule\n');
+    writeFile(path.join(agentsRoot, 'tests', 'AGENTS.md'), '# Test Rules\n\n- Test rule\n');
     writeFile(path.join(agentsRoot, 'tests', 'e2e', 'AGENTS.md'), '# E2E Rules\n\n- E2E rule\n');
     writeFile(
         path.join(agentsRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'),
@@ -63,6 +64,23 @@ const createAppFixture = () => {
     return appRoot;
 };
 
+test('project instruction sources require unit tests for applicable production changes', () => {
+    const projectAgentsRoot = path.join(coreRoot, 'agents', 'project');
+
+    assert.match(
+        fs.readFileSync(path.join(projectAgentsRoot, 'AGENTS.md'), 'utf8'),
+        /production changes must always add or update focused unit tests/,
+    );
+    assert.match(
+        fs.readFileSync(path.join(projectAgentsRoot, 'root', 'AGENTS.md'), 'utf8'),
+        /always add or update focused unit tests/,
+    );
+    assert.match(
+        fs.readFileSync(path.join(projectAgentsRoot, 'tests', 'AGENTS.md'), 'utf8'),
+        /For every production change, add or update focused unit tests/,
+    );
+});
+
 test('standalone configure creates tracked instruction files with routing contract and split docs', () => {
     const coreRoot = createCoreFixture();
     const appRoot = createAppFixture();
@@ -88,6 +106,8 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(agentsContent, /## Triggered Instruction Reads/);
     assert.match(agentsContent, /Git lifecycle/);
     assert.match(agentsContent, /read Root contract fallback before any git write/);
+    assert.match(agentsContent, /add or update focused unit tests/);
+    assert.match(agentsContent, /read Root contract fallback, `CODING_STYLE\.md`, `tests\/AGENTS\.md`/);
     assert.match(agentsContent, /MCP-selected previews are enough/);
     assert.doesNotMatch(agentsContent, /Conventional Commits/);
     assert.match(agentsContent, /They are not deleted/);
@@ -97,6 +117,8 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.doesNotMatch(codingStyleContent, /## Source: client\/AGENTS\.md/);
     assert.match(documentationContent, /## Source: DOCUMENTATION\.md/);
     assert.match(documentationContent, /## Documentation/);
+    assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'AGENTS.md')), true);
+    assert.match(fs.readFileSync(path.join(appRoot, 'tests', 'AGENTS.md'), 'utf8'), /Test rule/);
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'AGENTS.md')), true);
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md')), true);
     assert.match(fs.readFileSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /Journey rule/);
@@ -214,9 +236,11 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'DOCUMENTATION.md'), 'utf8'), /## Source: DOCUMENTATION\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'diagnostics.md'), 'utf8'), /## Source: diagnostics\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'optimizations.md'), 'utf8'), /## Source: optimizations\.md/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'AGENTS.md'), 'utf8'), /## Source: tests\/AGENTS\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'AGENTS.md'), 'utf8'), /## Source: tests\/e2e\/AGENTS\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: tests\/e2e\/REAL_WORLD_JOURNEY_TESTS\.md/);
     assert.doesNotMatch(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
+    assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'AGENTS.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'AGENTS.md')), false);
     const appAgentsContent = fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8');
     assert.match(appAgentsContent, /## Agent Routing Contract/);

@@ -75,7 +75,8 @@ const sharedAppAreaAgentInstructionDefinitions: TAgentInstructionDefinition[] = 
     { projectPath: path.join('server', 'routes', 'AGENTS.md'), content: 'source' },
 ];
 
-const sharedE2eAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
+const sharedTestAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
+    { projectPath: path.join('tests', 'AGENTS.md'), ensureParentDir: true, content: 'source' },
     { projectPath: path.join('tests', 'e2e', 'AGENTS.md'), ensureParentDir: true, content: 'source' },
     { projectPath: path.join('tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), ensureParentDir: true, content: 'source' },
 ];
@@ -84,7 +85,7 @@ const standaloneAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = 
     { projectPath: 'AGENTS.md', content: 'router' },
     ...sharedRootDocumentInstructionDefinitions,
     ...sharedAppAreaAgentInstructionDefinitions,
-    ...sharedE2eAgentInstructionDefinitions,
+    ...sharedTestAgentInstructionDefinitions,
 ];
 
 const monorepoAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
@@ -95,7 +96,7 @@ const monorepoAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
 const monorepoRootAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'AGENTS.md', content: 'router' },
     ...sharedRootDocumentInstructionDefinitions,
-    ...sharedE2eAgentInstructionDefinitions,
+    ...sharedTestAgentInstructionDefinitions,
 ];
 
 const legacyProjectInstructionGitignoreBlockStart = '# Proteum-managed instruction symlinks';
@@ -185,7 +186,7 @@ export function configureProjectAgentInstructions({
     if (mode === 'monorepo') {
         const retiredAppRootFiles = removeManagedInstructionFiles(
             normalizedAppRoot,
-            [...sharedRootDocumentInstructionDefinitions, ...sharedE2eAgentInstructionDefinitions],
+            [...sharedRootDocumentInstructionDefinitions, ...sharedTestAgentInstructionDefinitions],
             '[agents]',
             path.join(coreRoot, 'agents', 'project'),
             {
@@ -197,7 +198,7 @@ export function configureProjectAgentInstructions({
 
     const appGitignoreCleanupInstructions =
         mode === 'monorepo'
-            ? [...appInstructions, ...sharedRootDocumentInstructionDefinitions, ...sharedE2eAgentInstructionDefinitions]
+            ? [...appInstructions, ...sharedRootDocumentInstructionDefinitions, ...sharedTestAgentInstructionDefinitions]
             : appInstructions;
 
     if (
@@ -631,6 +632,7 @@ function renderEmbeddedProjectInstructions({ appRoot, coreRoot, includeMonorepoR
         '- Never create or edit Prisma migration files manually.',
         '- Never run schema-mutating SQL such as `ALTER TABLE`, `CREATE TABLE`, `DROP TABLE`, or `CREATE INDEX`.',
         '- If `schema.prisma` changes, ask the user to run `npx prisma migrate dev --config ./prisma.config.ts --name <migration name>` and wait for `continue` before validation.',
+        '- For production changes, add or update focused unit tests for touched behavior when applicable, targeting 100% meaningful coverage for changed production paths.',
         '- Do not run `git restore` or `git reset`.',
         '- Keep `proteum dev` sessions tracked with explicit session files and do not replace another live session.',
         '',
@@ -639,7 +641,7 @@ function renderEmbeddedProjectInstructions({ appRoot, coreRoot, includeMonorepoR
         'Keep this root file as a router. MCP-selected previews are enough for read-only discovery and diagnostics. Read the referenced full instruction file only before edits or git writes, when `fullRead`/`fullReadPolicy` requires it, or when the preview is insufficient.',
         '',
         '- Git lifecycle (`commit`, `and commit`, `stage`, `push`, `PR`, pull request): read Root contract fallback before any git write.',
-        '- Before finishing production code changes: read Root contract fallback, `CODING_STYLE.md`, and any touched area `AGENTS.md`.',
+        '- Before finishing production code changes: read Root contract fallback, `CODING_STYLE.md`, `tests/AGENTS.md`, and any touched area `AGENTS.md`.',
         '- Runtime-visible, request-time, router, SSR, browser, or controller behavior: read Root contract fallback and `diagnostics.md` for verification routing.',
         '- Non-trivial feature, product, business-rule, UX, copy, or docs changes: read `DOCUMENTATION.md` before editing.',
         '- Implementation edits: read `CODING_STYLE.md` before editing, plus the matching area file from the routing table.',
@@ -652,7 +654,8 @@ function renderEmbeddedProjectInstructions({ appRoot, coreRoot, includeMonorepoR
         '- Client files or pages: read `client/AGENTS.md`; for page route/data/render work also read `client/pages/AGENTS.md`.',
         '- Server services: read `server/services/AGENTS.md`.',
         '- Manual server routes: read `server/routes/AGENTS.md`.',
-        '- E2E work: read `tests/e2e/AGENTS.md` and `tests/e2e/REAL_WORLD_JOURNEY_TESTS.md`.',
+        '- Unit tests, integration tests, or test-area work: read `tests/AGENTS.md`.',
+        '- E2E work: read `tests/AGENTS.md`, `tests/e2e/AGENTS.md`, and `tests/e2e/REAL_WORLD_JOURNEY_TESTS.md`.',
         '- Package, runtime, build, or client-performance decisions: read `optimizations.md` after implementation or when explicitly optimizing.',
         '',
         '## Canonical Source Map',
