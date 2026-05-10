@@ -44,6 +44,7 @@ Example tool calls:
 {"tool":"route_candidates","arguments":{"projectId":"prj_0123abcd4567","query":"dashboard","limit":8}}
 {"tool":"explain_summary","arguments":{"projectId":"prj_0123abcd4567","query":"/dashboard"}}
 {"tool":"diagnose","arguments":{"projectId":"prj_0123abcd4567","path":"/dashboard"}}
+{"tool":"db_query","arguments":{"projectId":"prj_0123abcd4567","sql":"SELECT id, email FROM User LIMIT 5","limit":5}}
 ```
 
 `workflow_start` is the only app-bound bootstrap tool that may resolve from `cwd` when `projectId` is not known. It may return offline app candidates when no matching dev server is running yet. Other app-bound tools require a live `projectId`; if they omit it, the router returns a compact error that tells the agent to call `projects_list` or `project_resolve`. There is no single-project fallback, because wrong-project reads are worse than an explicit routing retry.
@@ -131,6 +132,7 @@ App-bound tools require `projectId` when called through `proteum mcp`:
 | `perf_top` | Hot-path perf rollup |
 | `perf_request` | One-request waterfall and attribution |
 | `logs_tail` | Capped recent server logs |
+| `db_query` | Capped read-only database diagnostics for one `SELECT`, `SHOW`, or `EXPLAIN` statement |
 
 ## CLI Boundary
 
@@ -145,6 +147,7 @@ proteum diagnose /dashboard --port 3101
 proteum verify request /dashboard --port 3101
 proteum trace show <requestId> --events --port 3101
 proteum explain owner /dashboard
+proteum db query "SELECT id, email FROM User LIMIT 5" --port 3101
 proteum explain --routes --controllers --full # only when the raw route/controller arrays are required
 ```
 
@@ -163,9 +166,13 @@ trace_show { projectId, requestId }
 trace_latest { projectId }
 perf_request { projectId, query }
 logs_tail { projectId }
+db_query { projectId, sql, limit? }
 ```
 
 After an MCP read succeeds, do not run the equivalent CLI command for the same state, and do not run broad source searches for ownership that MCP already returned. CLI output is for fallback, validation, command evidence, and human-shareable reproductions.
+
+Database diagnostics are intentionally read-only. `db_query` and `proteum db query` accept only one `SELECT`, `SHOW`, or `EXPLAIN` statement, return rows, columns, elapsed milliseconds, and cap metadata, and reject multi-statement SQL, `EXPLAIN ANALYZE`, locking reads, file reads/writes, sleep, and benchmark functions.
+
 
 ## Benchmark
 

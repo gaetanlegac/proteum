@@ -695,6 +695,38 @@ class PerfCommand extends ProteumCommand {
     }
 }
 
+class DbCommand extends ProteumCommand {
+    public static paths = [['db']];
+
+    public static usage = buildUsage('db');
+
+    public port = Option.String('--port', { description: 'Target an existing dev server on the given port.' });
+    public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL.' });
+    public limit = Option.String('--limit', { description: 'Maximum number of result rows to return, up to 500.' });
+    public timeout = Option.String('--timeout', { description: 'Database query timeout in milliseconds, up to 30000.' });
+    public json = Option.Boolean('--json', false, { description: 'Compatibility flag; compact JSON is the default output.' });
+    public full = Option.Boolean('--full', false, { description: 'Print the full database query payload.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [first = '', ...restArgs] = this.args;
+        const sql = first === 'query' ? restArgs.join(' ').trim() : [first, ...restArgs].join(' ').trim();
+
+        this.setCliArgs({
+            action: 'query',
+            full: this.full,
+            json: this.json,
+            limit: this.limit ?? '',
+            port: this.port ?? '',
+            sql,
+            timeout: this.timeout ?? '',
+            url: this.url ?? '',
+        });
+
+        await runCommandModule(() => import('../commands/db'));
+    }
+}
+
 class RuntimeCommand extends ProteumCommand {
     public static paths = [['runtime']];
 
@@ -859,6 +891,7 @@ export const registeredCommands = {
     orient: OrientCommand,
     diagnose: DiagnoseCommand,
     perf: PerfCommand,
+    db: DbCommand,
     runtime: RuntimeCommand,
     mcp: McpCommand,
     trace: TraceCommand,
@@ -894,6 +927,7 @@ export const createCli = (version: string) => {
     clipanion.register(OrientCommand);
     clipanion.register(DiagnoseCommand);
     clipanion.register(PerfCommand);
+    clipanion.register(DbCommand);
     clipanion.register(RuntimeCommand);
     clipanion.register(McpCommand);
     clipanion.register(TraceCommand);

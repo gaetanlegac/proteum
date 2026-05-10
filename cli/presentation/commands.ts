@@ -21,6 +21,7 @@ export const proteumCommandNames = [
     'orient',
     'diagnose',
     'perf',
+    'db',
     'runtime',
     'mcp',
     'trace',
@@ -59,7 +60,7 @@ export const proteumRecommendedFlow: TRow[] = [
 export const proteumCommandGroups: Array<{ title: string; names: TProteumCommandName[] }> = [
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check', 'e2e'] },
-    { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'runtime', 'mcp', 'trace', 'command', 'session', 'verify'] },
+    { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'db', 'runtime', 'mcp', 'trace', 'command', 'session', 'verify'] },
     { title: 'Project scaffolding', names: ['init', 'configure', 'create', 'migrate'] },
 ];
 
@@ -449,6 +450,26 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'Perf data is derived from the same dev-only request trace buffer used by `proteum trace` and the profiler.',
             'Window values accept `1h`, `6h`, `24h`, `today`, `yesterday`, or an ISO timestamp.',
             'Older traces captured before the perf runtime metrics were added may not include CPU or memory deltas.',
+        ],
+        status: 'experimental',
+    },
+    db: {
+        name: 'db',
+        category: 'Manifest and contracts',
+        summary: 'Run one capped read-only database diagnostic query against a running Proteum dev server.',
+        usage: 'proteum db [query] <sql> [--limit <rows>] [--timeout <ms>] [--port <port>|--url <baseUrl>] [--full]',
+        bestFor:
+            'Inspecting live MySQL or MariaDB state during diagnosis without giving agents a write-capable SQL execution surface.',
+        examples: [
+            { description: 'Run a small SELECT diagnostic', command: 'proteum db query "SELECT id, email FROM User LIMIT 5"' },
+            { description: 'Inspect table metadata', command: 'proteum db "SHOW TABLES"' },
+            { description: 'Explain a query plan', command: 'proteum db query "EXPLAIN SELECT * FROM User WHERE id = 1"' },
+        ],
+        notes: [
+            'Only SELECT, SHOW, and EXPLAIN statements are allowed.',
+            'The dev runtime executes the query with the app DATABASE_URL and returns rows, columns, elapsedMs, and cap metadata.',
+            'Multi-statement SQL, EXPLAIN ANALYZE, locking reads, LOAD_FILE, SELECT INTO OUTFILE, sleep, and benchmark functions are rejected.',
+            'Default output is compact `proteum-agent-v1` JSON with capped rows; use `--full` for the raw dev endpoint payload.',
         ],
         status: 'experimental',
     },

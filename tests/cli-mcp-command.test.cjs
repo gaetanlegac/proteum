@@ -110,6 +110,19 @@ test('mcp help describes projectId routing', () => {
     assert.match(output, /--stdio/);
 });
 
+test('db help describes read-only SQL diagnostics', () => {
+    const result = spawnSync(process.execPath, [cliBin, 'db', '--help'], {
+        cwd: coreRoot,
+        encoding: 'utf8',
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    assert.equal(result.status, 0);
+    assert.match(output, /SELECT, SHOW, and EXPLAIN/);
+    assert.match(output, /--limit/);
+    assert.match(output, /--timeout/);
+});
+
 test('explain help describes compact section summaries', () => {
     const result = spawnSync(process.execPath, [cliBin, 'explain', '--help'], {
         cwd: coreRoot,
@@ -214,6 +227,58 @@ test('runtime status reports occupied configured port without probing page bodie
         assert.match(payload.nextActions[0].reason, /do not probe page bodies/);
         assert.doesNotMatch(result.stdout, /large wrong app page/);
         assert.doesNotMatch(result.stdout, /<html>/);
+    } finally {
+        await closeServer(server);
+    }
+});
+
+test('db query posts one read-only SQL statement to the running dev endpoint', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-cli-db-'));
+    const appRoot = path.join(repoRoot, 'apps', 'product');
+    let receivedBody = '';
+    const server = http.createServer((req, res) => {
+        if (req.url === '/__proteum/db/query' && req.method === 'POST') {
+            req.on('data', (chunk) => {
+                receivedBody += chunk.toString();
+            });
+            req.on('end', () => {
+                res.setHeader('content-type', 'application/json');
+                res.end(
+                    JSON.stringify({
+                        kind: 'select',
+                        sql: 'SELECT 1',
+                        elapsedMs: 7,
+                        limit: 5,
+                        limited: false,
+                        rowCount: 1,
+                        columns: [{ name: 'value', type: 3 }],
+                        rows: [{ value: 1 }],
+                    }),
+                );
+            });
+            return;
+        }
+
+        res.statusCode = 404;
+        res.end('not found');
+    });
+    const port = await listen(server);
+
+    try {
+        createProteumApp(appRoot, { routerPort: port });
+
+        const result = await runCli(['db', 'query', 'SELECT 1', '--limit', '5'], {
+            cwd: appRoot,
+        });
+        const payload = JSON.parse(result.stdout);
+        const body = JSON.parse(receivedBody);
+
+        assert.equal(result.status, 0);
+        assert.equal(body.sql, 'SELECT 1');
+        assert.equal(body.limit, 5);
+        assert.equal(payload.ok, true);
+        assert.equal(payload.data.elapsedMs, 7);
+        assert.deepEqual(payload.data.rows, [{ value: 1 }]);
     } finally {
         await closeServer(server);
     }

@@ -58,6 +58,8 @@ const readOnlyAnnotations = {
 };
 
 const detailSchema = z.enum(['compact', 'full']).optional();
+const databaseLimitSchema = z.number().int().min(1).max(500).optional();
+const databaseTimeoutSchema = z.number().int().min(100).max(30_000).optional();
 const logsLevelSchema = z.enum(['silly', 'log', 'info', 'warn', 'error']).optional();
 const offsetSchema = z.number().int().min(0).max(10_000).optional();
 const positiveLimitSchema = z.number().int().min(1).max(100).optional();
@@ -822,6 +824,22 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
             title: 'Proteum Logs Tail',
         },
         async (input) => await forwardTool('logs_tail', input),
+    );
+
+    server.registerTool(
+        'db_query',
+        {
+            annotations: readOnlyAnnotations,
+            description: 'Run one capped read-only database diagnostic query for one live Proteum project.',
+            inputSchema: {
+                limit: databaseLimitSchema,
+                projectId: projectIdSchema,
+                sql: z.string().min(1).describe('One SELECT, SHOW, or EXPLAIN SQL statement.'),
+                timeoutMs: databaseTimeoutSchema,
+            },
+            title: 'Proteum Database Query',
+        },
+        async (input) => await forwardTool('db_query', input),
     );
 
     const closeServer = server.close.bind(server);

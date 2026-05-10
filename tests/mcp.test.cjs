@@ -21,6 +21,10 @@ const {
     resolveInstructionRouting,
 } = require('../common/dev/mcpPayloads.ts');
 const { createProteumMcpServer } = require('../common/dev/mcpServer.ts');
+const {
+    normalizeDatabaseReadLimit,
+    validateDatabaseReadQuery,
+} = require('../common/dev/database.ts');
 const { createProteumMachineMcpServer } = require('../cli/mcp/router.ts');
 const {
     createDevSessionRecord,
@@ -124,6 +128,21 @@ test('instruction routing returns compact selected files for a page query', () =
     );
     assert.equal(payload.data.readWhen.some((entry) => entry.file && entry.file.endsWith('DOCUMENTATION.md')), true);
     assert.equal(payload.data.readWhen.some((entry) => entry.file && entry.file.endsWith('diagnostics.md')), true);
+});
+
+test('database read query policy allows only capped SELECT SHOW and EXPLAIN diagnostics', () => {
+    assert.deepEqual(validateDatabaseReadQuery(' SELECT 1; '), { kind: 'select', sql: 'SELECT 1' });
+    assert.deepEqual(validateDatabaseReadQuery('/* plan */ EXPLAIN SELECT * FROM User'), {
+        kind: 'explain',
+        sql: '/* plan */ EXPLAIN SELECT * FROM User',
+    });
+    assert.deepEqual(validateDatabaseReadQuery('SHOW TABLES'), { kind: 'show', sql: 'SHOW TABLES' });
+    assert.equal(normalizeDatabaseReadLimit(999), 500);
+
+    assert.throws(() => validateDatabaseReadQuery('UPDATE User SET role = "admin"'), /Only SELECT, SHOW, and EXPLAIN/);
+    assert.throws(() => validateDatabaseReadQuery('SELECT 1; DROP TABLE User'), /Only one read-only SQL statement/);
+    assert.throws(() => validateDatabaseReadQuery('EXPLAIN ANALYZE SELECT * FROM User'), /EXPLAIN ANALYZE/);
+    assert.throws(() => validateDatabaseReadQuery('SELECT LOAD_FILE("/etc/passwd")'), /LOAD_FILE/);
 });
 
 test('instruction routing promotes triggered full instruction files', () => {
@@ -367,6 +386,7 @@ test('trace payload keeps default output compact and paginates full details', ()
 test('MCP server registers the Proteum read-only tool contract', async () => {
     const payload = createMcpPayload({ summary: 'ok', data: { value: 1 } });
     const provider = {
+        dbQuery: async () => payload,
         diagnose: async () => payload,
         doctor: async () => payload,
         explainSummary: async () => payload,
@@ -396,6 +416,7 @@ test('MCP server registers the Proteum read-only tool contract', async () => {
     assert.equal(tools.tools.some((tool) => tool.name === 'runtime_status'), true);
     assert.equal(tools.tools.some((tool) => tool.name === 'workflow_start'), true);
     assert.equal(tools.tools.some((tool) => tool.name === 'route_candidates'), true);
+    assert.equal(tools.tools.some((tool) => tool.name === 'db_query'), true);
     assert.match(result.content[0].text, /proteum-mcp-v1/);
     assert.match(resource.contents[0].text, /proteum-mcp-v1/);
 

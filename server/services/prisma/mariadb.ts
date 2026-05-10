@@ -19,7 +19,7 @@ const decodeUrlSegment = (value: string) => {
     return decodeURIComponent(value);
 };
 
-export const createMariaDbAdapter = (databaseUrl: string) => {
+export const parseMariaDbDatabaseUrl = (databaseUrl: string) => {
     const url = new URL(databaseUrl);
 
     if (url.protocol !== 'mysql:' && url.protocol !== 'mariadb:')
@@ -34,7 +34,7 @@ export const createMariaDbAdapter = (databaseUrl: string) => {
     const connectTimeoutSeconds = parseInteger(url.searchParams.get('connect_timeout'));
     const idleTimeoutSeconds = parseInteger(url.searchParams.get('max_idle_connection_lifetime'));
 
-    return new PrismaMariaDb({
+    return {
         host: url.hostname,
         port: parseInteger(url.port) ?? defaultPort,
         user: decodeUrlSegment(url.username),
@@ -43,5 +43,9 @@ export const createMariaDbAdapter = (databaseUrl: string) => {
         connectTimeout: connectTimeoutSeconds ? connectTimeoutSeconds * 1_000 : defaultConnectTimeout,
         idleTimeout: idleTimeoutSeconds ?? defaultIdleTimeout,
         ...(connectionLimit !== undefined ? { connectionLimit } : {}),
-    });
+    };
+};
+
+export const createMariaDbAdapter = (databaseUrl: string) => {
+    return new PrismaMariaDb(parseMariaDbDatabaseUrl(databaseUrl));
 };

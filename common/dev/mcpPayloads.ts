@@ -1,4 +1,5 @@
 import type { TDevConsoleLogLevel, TDevConsoleLogsResponse } from './console';
+import type { TDatabaseReadQueryResponse } from './database';
 import type { TDoctorResponse } from './diagnostics';
 import { buildExplainSummaryItems } from './diagnostics';
 import { explainOwner, type TDiagnoseResponse, type TExplainOwnerResponse, type TOrientResponse } from './inspection';
@@ -731,6 +732,30 @@ export const compactLogsResponse = ({
             response.logs.length >= limit
                 ? [{ reason: 'Log output reached the requested cap. Increase limit only when the latest compact lines are insufficient.' }]
                 : undefined,
+    });
+
+export const compactDatabaseReadQueryResponse = (response: TDatabaseReadQueryResponse) =>
+    createMcpPayload({
+        summary: `${response.kind.toUpperCase()} returned ${response.rows.length}/${response.rowCount} rows in ${response.elapsedMs} ms${response.limited ? ` (limited to ${response.limit})` : ''}.`,
+        data: {
+            kind: response.kind,
+            elapsedMs: response.elapsedMs,
+            rowCount: response.rowCount,
+            returnedRowCount: response.rows.length,
+            limit: response.limit,
+            limited: response.limited,
+            columns: response.columns,
+            rows: response.rows,
+        },
+        omitted: response.limited
+            ? [
+                  {
+                      reason: `Rows are capped at ${response.limit}. Raise the limit up to 500 or make the read query narrower if more detail is needed.`,
+                      tool: 'db_query',
+                      toolArgs: { sql: response.sql, limit: Math.min(response.limit * 2, 500) },
+                  },
+              ]
+            : undefined,
     });
 
 const readPreview = (filepath: string) => {

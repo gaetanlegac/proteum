@@ -606,6 +606,31 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
             }
         });
 
+        routes.post('/__proteum/db/query', async (req, res) => {
+            const sql = typeof req.body?.sql === 'string' ? req.body.sql : '';
+            const rawLimit = Number(req.body?.limit);
+            const rawTimeoutMs = Number(req.body?.timeoutMs);
+
+            try {
+                res.json(
+                    await this.app.getDevDiagnostics().databaseReadQuery({
+                        sql,
+                        limit: Number.isFinite(rawLimit) ? rawLimit : undefined,
+                        timeoutMs: Number.isFinite(rawTimeoutMs) ? rawTimeoutMs : undefined,
+                    }),
+                );
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                const isUsageError =
+                    message.includes('SQL') ||
+                    message.includes('allowed') ||
+                    message.includes('not allowed') ||
+                    message.includes('DATABASE_URL');
+
+                res.status(isUsageError ? 400 : 500).json({ error: message });
+            }
+        });
+
         routes.get('/__proteum/diagnose', (req, res) => {
             const readString = (value: unknown) => (Array.isArray(value) ? value[0] : value);
             const readNumber = (value: unknown, fallback: number) => {

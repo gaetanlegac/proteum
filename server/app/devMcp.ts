@@ -2,6 +2,7 @@ import { buildContractsDoctorResponse } from '@common/dev/contractsDoctor';
 import { buildDoctorResponse } from '@common/dev/diagnostics';
 import { buildOrientationResponse, explainOwner } from '@common/dev/inspection';
 import {
+    compactDatabaseReadQueryResponse,
     buildRuntimeStatusPayload,
     compactDiagnoseResponse,
     compactDoctorResponse,
@@ -188,6 +189,15 @@ export const createRuntimeProteumMcpProvider = ({
                 limit,
                 response: diagnostics().readLogs(limit, level),
             });
+        },
+        async dbQuery({ limit, sql, timeoutMs }) {
+            return compactDatabaseReadQueryResponse(
+                await diagnostics().databaseReadQuery({
+                    limit,
+                    sql,
+                    timeoutMs,
+                }),
+            );
         },
         async readResource(uri) {
             if (uri === 'proteum://runtime/status') return await provider.runtimeStatus({});

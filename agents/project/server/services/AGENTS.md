@@ -31,6 +31,7 @@ Diagnostics source of truth: root-level `diagnostics.md`.
 - In database queries, prefer explicit `select` or narrow `include`.
 - For database structure changes, edit the app's `schema.prisma` only. Never create or edit migration files manually.
 - Never use raw SQL DDL or other schema-mutating SQL to change database structure.
+- For read-only SQL diagnosis, use MCP `db_query` or `npx proteum db query "<sql>"`; only one capped `SELECT`, `SHOW`, or `EXPLAIN` statement is allowed.
 - Prefer inferred return types such as `Awaited<ReturnType<MyService['methodName']>>` over manual DTO duplication.
 
 ## Errors
