@@ -650,6 +650,7 @@ function renderEmbeddedProjectInstructions({ appRoot, coreRoot, includeMonorepoR
         '## Routing Table',
         '',
         '- Non-trivial coding tasks, feature docs, product intent, acceptance criteria, or docs updates: read `DOCUMENTATION.md`.',
+        '- GEO/SEO/crawler/structured-data/AI-source changes: read `DOCUMENTATION.md`, `CODING_STYLE.md`, `tests/AGENTS.md`, and update or create a docs page under `docs/` describing the public contract, routes, validation, and operational caveats.',
         '- Raw errors, failing requests, traces, perf, or reproduction: read `diagnostics.md`.',
         '- Implementation edits: read `CODING_STYLE.md` before editing.',
         '- Client files or pages: read `client/AGENTS.md`; for page route/data/render work also read `client/pages/AGENTS.md`.',

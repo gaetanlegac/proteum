@@ -108,6 +108,7 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(agentsContent, /read Root contract fallback before any git write/);
     assert.match(agentsContent, /add or update focused unit tests/);
     assert.match(agentsContent, /read Root contract fallback, `CODING_STYLE\.md`, `tests\/AGENTS\.md`/);
+    assert.match(agentsContent, /GEO\/SEO\/crawler\/structured-data\/AI-source changes/);
     assert.match(agentsContent, /MCP-selected previews are enough/);
     assert.doesNotMatch(agentsContent, /Conventional Commits/);
     assert.match(agentsContent, /They are not deleted/);
