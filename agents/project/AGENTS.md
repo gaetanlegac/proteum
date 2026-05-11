@@ -15,6 +15,12 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 
 ## Fast Triggers
 
+- If `cwd` is inside `/.codex/worktrees/`, run Worktree Preflight before implementation:
+  - Copy `.env` from the main worktree when missing.
+  - Run `npx proteum refresh`.
+  - Run `npm i` when dependencies are missing or stale.
+  - Run `npx proteum runtime status`.
+  - For runtime-visible work, start or reuse one tracked `npx proteum dev` session using the Task Lifecycle launch workflow.
 - If you are working in a newly created Proteum worktree, before following the rest of these instructions:
   - Copy `.env` from the main worktree.
   - Run `npx proteum refresh`.
@@ -56,6 +62,7 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 
 ### Before Editing
 
+- Before editing in a `.codex/worktrees` worktree, complete Worktree Preflight from Fast Triggers.
 - Before changing any file, load root-level `CODING_STYLE.md` and any narrower area `AGENTS.md` that applies to the touched files. Do not spend response space explicitly acknowledging those reads unless the user asks.
 
 ### During Implementation
