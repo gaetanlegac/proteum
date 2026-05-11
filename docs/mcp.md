@@ -15,7 +15,7 @@ Start the router from any directory:
 proteum mcp
 ```
 
-When run from a terminal, `proteum mcp` starts or reuses the managed local daemon at `http://127.0.0.1:3769/mcp`. When an MCP client launches it over pipes, use stdio:
+When run from a terminal, `proteum mcp` starts or reuses the managed local daemon at `http://127.0.0.1:3769/mcp`. The terminal output prints a compact `CENTRAL MCP READY` banner with the one-line client setup instruction, `Connect MCP client (HTTP): <mcp-url>`. When an MCP client launches it over pipes, use stdio:
 
 ```bash
 proteum mcp --stdio

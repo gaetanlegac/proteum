@@ -508,6 +508,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         ],
         notes: [
             '`proteum dev` ensures one managed machine MCP daemon is running before the app dev loop starts.',
+            'Terminal `proteum mcp` prints a compact central MCP banner with the Streamable HTTP URL for client setup.',
             '`proteum mcp` is a router, not an app dev server. It discovers live `proteum dev` sessions from the machine registry and can resolve offline app candidates from `cwd`.',
             'Agents should call MCP `workflow_start` with `cwd` or a known `projectId`; use `project_resolve { cwd }` when routing is ambiguous or no live dev server exists yet.',
             'When an offline app candidate is returned, start exactly one `proteum dev` from that app root before runtime diagnose, trace, or perf reads.',

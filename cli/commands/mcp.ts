@@ -6,6 +6,7 @@ import {
     resolveMachineMcpDaemonPort,
     stopMachineMcpDaemonProcess,
 } from '../runtime/mcpDaemon';
+import { renderMcpDaemonBanner } from '../presentation/mcp';
 
 const printJson = (payload: unknown) => {
     process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
@@ -53,11 +54,19 @@ const runDaemon = async () => {
             return;
         }
 
-        console.info(`Proteum machine MCP daemon is already running at ${existing.record.mcpUrl} (pid ${existing.record.pid}).`);
+        console.info(
+            await renderMcpDaemonBanner({
+                mcpUrl: existing.record.mcpUrl,
+                pid: existing.record.pid,
+                state: 'connected',
+            }),
+        );
         return;
     }
 
     const port = resolveMachineMcpDaemonPort(typeof cli.args.port === 'string' ? cli.args.port : undefined);
+    const mcpUrl = `http://127.0.0.1:${port}/mcp`;
+    const healthUrl = `http://127.0.0.1:${port}/health`;
 
     await startProteumMachineMcpRouterHttp({
         port,
@@ -69,12 +78,18 @@ const runDaemon = async () => {
             started: true,
             daemon: {
                 pid: process.pid,
-                mcpUrl: `http://127.0.0.1:${port}/mcp`,
-                healthUrl: `http://127.0.0.1:${port}/health`,
+                mcpUrl,
+                healthUrl,
             },
         });
     } else {
-        console.info(`Proteum machine MCP daemon started at http://127.0.0.1:${port}/mcp.`);
+        console.info(
+            await renderMcpDaemonBanner({
+                mcpUrl,
+                pid: process.pid,
+                state: 'started',
+            }),
+        );
     }
 };
 
@@ -91,9 +106,11 @@ const ensureDaemon = async () => {
 
     if (result.inspection.record) {
         console.info(
-            result.started
-                ? `Proteum machine MCP daemon started at ${result.inspection.record.mcpUrl}.`
-                : `Proteum machine MCP daemon is already running at ${result.inspection.record.mcpUrl}.`,
+            await renderMcpDaemonBanner({
+                mcpUrl: result.inspection.record.mcpUrl,
+                pid: result.inspection.record.pid,
+                state: result.started ? 'started' : 'connected',
+            }),
         );
     }
 };

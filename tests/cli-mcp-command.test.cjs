@@ -85,6 +85,63 @@ const runCli = async (args, { cwd }) =>
         child.once('close', (status) => resolve({ status, stdout, stderr }));
     });
 
+const waitForChildOutput = async (child, predicate, timeoutMs = 10000) =>
+    await new Promise((resolve, reject) => {
+        let output = '';
+        let settled = false;
+        let timer;
+        const cleanup = () => {
+            if (timer) clearTimeout(timer);
+            child.stdout.off('data', handleData);
+            child.stderr.off('data', handleData);
+            child.off('close', handleClose);
+        };
+        const settle = (callback) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            callback();
+        };
+        const handleData = (chunk) => {
+            output += chunk.toString();
+            if (predicate(output)) settle(() => resolve(output));
+        };
+        const handleClose = (status, signal) => {
+            settle(() => reject(new Error(`Child exited before expected output. status=${status} signal=${signal}\n${output}`)));
+        };
+        timer = setTimeout(() => {
+            child.kill('SIGTERM');
+            settle(() => reject(new Error(`Timed out waiting for expected output.\n${output}`)));
+        }, timeoutMs);
+
+        child.stdout.on('data', handleData);
+        child.stderr.on('data', handleData);
+        child.once('close', handleClose);
+    });
+
+const writeLiveDaemonRecord = (registryDir, { port }) => {
+    const timestamp = new Date().toISOString();
+
+    writeFile(
+        path.join(registryDir, 'router.json'),
+        JSON.stringify(
+            {
+                version: 1,
+                pid: process.pid,
+                port,
+                host: '127.0.0.1',
+                mcpUrl: `http://127.0.0.1:${port}/mcp`,
+                healthUrl: `http://127.0.0.1:${port}/health`,
+                startedAt: timestamp,
+                updatedAt: timestamp,
+                command: [process.execPath, cliBin, 'mcp', '--daemon'],
+            },
+            null,
+            2,
+        ),
+    );
+};
+
 test('top-level help lists the machine-scope mcp router', () => {
     const result = spawnSync(process.execPath, [cliBin, '--help'], {
         cwd: coreRoot,
@@ -108,6 +165,54 @@ test('mcp help describes projectId routing', () => {
     assert.match(output, /projectId/);
     assert.match(output, /--daemon/);
     assert.match(output, /--stdio/);
+});
+
+test('mcp daemon launch prints a central MCP connection banner', async () => {
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-daemon-launch-'));
+    const reserveServer = http.createServer((req, res) => res.end('reserved'));
+    const port = await listen(reserveServer);
+    await closeServer(reserveServer);
+    const child = spawn(process.execPath, [cliBin, 'mcp', '--daemon', '--port', String(port)], {
+        cwd: coreRoot,
+        env: { ...process.env, PROTEUM_MACHINE_MCP_DIR: registryDir },
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let closed = false;
+    child.once('close', () => {
+        closed = true;
+    });
+
+    try {
+        const output = await waitForChildOutput(child, (value) =>
+            value.includes(`Connect MCP client (HTTP): http://127.0.0.1:${port}/mcp`),
+        );
+
+        assert.match(output, /CENTRAL MCP READY/);
+        assert.match(output, /Launched central MCP server/);
+    } finally {
+        if (!closed) {
+            child.kill('SIGTERM');
+            await new Promise((resolve) => child.once('close', resolve));
+        }
+    }
+});
+
+test('mcp daemon reuse prints a central MCP connection banner', () => {
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-daemon-reuse-'));
+    const port = 37977;
+    writeLiveDaemonRecord(registryDir, { port });
+
+    const result = spawnSync(process.execPath, [cliBin, 'mcp', '--daemon', '--port', String(port)], {
+        cwd: coreRoot,
+        encoding: 'utf8',
+        env: { ...process.env, PROTEUM_MACHINE_MCP_DIR: registryDir },
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    assert.equal(result.status, 0);
+    assert.match(output, /CENTRAL MCP READY/);
+    assert.match(output, /Connected to central MCP server/);
+    assert.match(output, new RegExp(`Connect MCP client \\(HTTP\\): http://127\\.0\\.0\\.1:${port}/mcp`));
 });
 
 test('db help describes read-only SQL diagnostics', () => {

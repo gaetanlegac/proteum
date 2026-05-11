@@ -102,6 +102,7 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(agentsContent, /Read full files only before edits or git writes/);
     assert.match(agentsContent, /explain_summary/);
     assert.match(agentsContent, /\/__proteum\/mcp/);
+    assert.match(agentsContent, /central MCP ready banner/);
     assert.match(agentsContent, /proteum-mcp-v1/);
     assert.match(agentsContent, /## Triggered Instruction Reads/);
     assert.match(agentsContent, /Git lifecycle/);
