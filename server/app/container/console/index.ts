@@ -17,7 +17,7 @@ import Ansi2Html from 'ansi-to-html';
 import type ApplicationContainer from '..';
 import context from '@server/context';
 import type { TDevConsoleLogChannel, TDevConsoleLogEntry, TDevConsoleLogLevel } from '@common/dev/console';
-import type { ServerBug, TCatchedError } from '@common/errors';
+import { Anomaly, type ServerBug, type TCatchedError } from '@common/errors';
 import type { TTraceCallOrigin, TTraceSqlQueryKind } from '@common/dev/requestTrace';
 import type ServerRequest from '@server/services/router/request';
 
@@ -74,6 +74,13 @@ export type TDbQueryLog = ChannelInfos & { date: Date; query: string; time: numb
 export type TLogLevel = keyof typeof logLevels;
 
 export type TJsonLog = { time: Date; level: TLogLevel; args: unknown[]; channel: ChannelInfos };
+type TGotLikeError = Error & {
+    code?: unknown;
+    timings?: unknown;
+    request?: unknown;
+    response?: unknown;
+    options?: unknown;
+};
 
 /*----------------------------------
 - CONST
@@ -110,6 +117,57 @@ var ansi2Html = new Ansi2Html({
 });
 
 type TWrappedConsole = typeof console & { _wrapped?: boolean };
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+    return typeof value === 'object' && value !== null;
+};
+
+const firstString = (...values: Array<unknown>): string | null => {
+    for (const value of values) {
+        if (typeof value === 'string' && value.trim()) return value;
+        if (value instanceof URL) return value.toString();
+    }
+
+    return null;
+};
+
+export const getHttpClientErrorContext = (error: Error): object | null => {
+    const gotError = error as TGotLikeError;
+    const errorRecord = gotError as unknown as Record<string, unknown>;
+    const code = typeof gotError.code === 'string' ? gotError.code : null;
+    const response = isRecord(gotError.response) ? gotError.response : null;
+    const request = isRecord(gotError.request) ? gotError.request : null;
+    const requestOptions = request && isRecord(request.options) ? request.options : null;
+    const fallbackOptions = isRecord(gotError.options) ? gotError.options : null;
+    const options = requestOptions || fallbackOptions;
+
+    if (error.name !== 'HTTPError' && code !== 'ERR_NON_2XX_3XX_RESPONSE' && !response) return null;
+
+    return {
+        code,
+        statusCode: response && typeof response.statusCode === 'number' ? response.statusCode : null,
+        statusMessage: response && typeof response.statusMessage === 'string' ? response.statusMessage : null,
+        method: options && typeof options.method === 'string' ? options.method : null,
+        url: firstString(
+            response ? response.requestUrl : null,
+            response ? response.url : null,
+            request ? request.requestUrl : null,
+            options ? options.url : null,
+            errorRecord.url,
+        ),
+        timings: gotError.timings || null,
+        request: request || null,
+        response: response || null,
+        options: fallbackOptions,
+    };
+};
+
+export const normalizeBugReportError = (error: TCatchedError): TCatchedError => {
+    const httpClientErrorContext = getHttpClientErrorContext(error);
+    if (!httpClientErrorContext) return error;
+
+    return new Anomaly('HTTP client request failed.', httpClientErrorContext, error);
+};
 
 /*----------------------------------
 - LOGGER
@@ -307,7 +365,7 @@ export default class Console {
         // On envoi l'email avant l'insertion dans bla bdd
         // Car cette denrière a plus de chances de provoquer une erreur
         //const logs = this.logs.filter(e => e.channel.channelId === channelId).slice(-100);
-        const inspection = this.getDetailledError(error);
+        const inspection = this.getDetailledError(normalizeBugReportError(error));
 
         // Genertae unique error hash
         const hash = md5(inspection.stacktraces[0]);
