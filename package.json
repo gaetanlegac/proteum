@@ -76,6 +76,7 @@
 		"node-cmd": "^5.0.0",
 		"null-loader": "^4.0.1",
 		"path-to-regexp": "^6.2.0",
+		"pg": "^8.21.0",
 		"postcss-loader": "^8.2.0",
 		"preact": "^10.27.1",
 		"preact-render-to-string": "^6.6.1",

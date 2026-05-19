@@ -171,7 +171,7 @@ db_query { projectId, sql, limit? }
 
 After an MCP read succeeds, do not run the equivalent CLI command for the same state, and do not run broad source searches for ownership that MCP already returned. CLI output is for fallback, validation, command evidence, and human-shareable reproductions.
 
-Database diagnostics are intentionally read-only. `db_query` and `proteum db query` accept only one `SELECT`, `SHOW`, or `EXPLAIN` statement, return rows, columns, elapsed milliseconds, and cap metadata, and reject multi-statement SQL, `EXPLAIN ANALYZE`, locking reads, file reads/writes, sleep, and benchmark functions.
+Database diagnostics are intentionally read-only. `db_query` and `proteum db query` support MySQL, MariaDB, PostgreSQL, and PostgreSQL-compatible `DATABASE_URL` protocols. They accept only one `SELECT`, `SHOW`, or `EXPLAIN` statement, return rows, columns, elapsed milliseconds, and cap metadata, and reject multi-statement SQL, `EXPLAIN ANALYZE`, locking reads, file reads/writes, sleep, and benchmark functions.
 
 
 ## Benchmark

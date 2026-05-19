@@ -25,6 +25,7 @@ const {
     normalizeDatabaseReadLimit,
     validateDatabaseReadQuery,
 } = require('../common/dev/database.ts');
+const { databaseProtocolFromUrl } = require('../server/app/devDatabase.ts');
 const { createProteumMachineMcpServer } = require('../cli/mcp/router.ts');
 const {
     createDevSessionRecord,
@@ -142,7 +143,18 @@ test('database read query policy allows only capped SELECT SHOW and EXPLAIN diag
     assert.throws(() => validateDatabaseReadQuery('UPDATE User SET role = "admin"'), /Only SELECT, SHOW, and EXPLAIN/);
     assert.throws(() => validateDatabaseReadQuery('SELECT 1; DROP TABLE User'), /Only one read-only SQL statement/);
     assert.throws(() => validateDatabaseReadQuery('EXPLAIN ANALYZE SELECT * FROM User'), /EXPLAIN ANALYZE/);
-    assert.throws(() => validateDatabaseReadQuery('SELECT LOAD_FILE("/etc/passwd")'), /LOAD_FILE/);
+    assert.throws(() => validateDatabaseReadQuery('SELECT LOAD_FILE("/etc/passwd")'), /file-read/);
+    assert.throws(() => validateDatabaseReadQuery("SELECT pg_read_file('/etc/passwd')"), /file-read/);
+    assert.throws(() => validateDatabaseReadQuery('SELECT * FROM "User" FOR SHARE'), /Locking read/);
+    assert.throws(() => validateDatabaseReadQuery('SELECT pg_sleep(1)'), /Sleep and benchmark/);
+});
+
+test('database diagnostics support MySQL MariaDB and PostgreSQL URLs', () => {
+    assert.equal(databaseProtocolFromUrl('mysql://user:pass@localhost:3306/app'), 'mariadb');
+    assert.equal(databaseProtocolFromUrl('mariadb://user:pass@localhost:3306/app'), 'mariadb');
+    assert.equal(databaseProtocolFromUrl('postgres://user:pass@localhost:5432/app'), 'postgresql');
+    assert.equal(databaseProtocolFromUrl('postgresql://user:pass@localhost:5432/app'), 'postgresql');
+    assert.throws(() => databaseProtocolFromUrl('sqlite://local.db'), /postgresql/);
 });
 
 test('instruction routing promotes triggered full instruction files', () => {

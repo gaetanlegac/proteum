@@ -459,16 +459,16 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         summary: 'Run one capped read-only database diagnostic query against a running Proteum dev server.',
         usage: 'proteum db [query] <sql> [--limit <rows>] [--timeout <ms>] [--port <port>|--url <baseUrl>] [--full]',
         bestFor:
-            'Inspecting live MySQL or MariaDB state during diagnosis without giving agents a write-capable SQL execution surface.',
+            'Inspecting live MySQL, MariaDB, or PostgreSQL state during diagnosis without giving agents a write-capable SQL execution surface.',
         examples: [
             { description: 'Run a small SELECT diagnostic', command: 'proteum db query "SELECT id, email FROM User LIMIT 5"' },
-            { description: 'Inspect table metadata', command: 'proteum db "SHOW TABLES"' },
+            { description: 'Inspect table metadata', command: 'proteum db "SELECT table_name FROM information_schema.tables LIMIT 20"' },
             { description: 'Explain a query plan', command: 'proteum db query "EXPLAIN SELECT * FROM User WHERE id = 1"' },
         ],
         notes: [
             'Only SELECT, SHOW, and EXPLAIN statements are allowed.',
             'The dev runtime executes the query with the app DATABASE_URL and returns rows, columns, elapsedMs, and cap metadata.',
-            'Multi-statement SQL, EXPLAIN ANALYZE, locking reads, LOAD_FILE, SELECT INTO OUTFILE, sleep, and benchmark functions are rejected.',
+            'Multi-statement SQL, EXPLAIN ANALYZE, locking reads, file-read functions, SELECT INTO OUTFILE, sleep, and benchmark functions are rejected.',
             'Default output is compact `proteum-agent-v1` JSON with capped rows; use `--full` for the raw dev endpoint payload.',
         ],
         status: 'experimental',

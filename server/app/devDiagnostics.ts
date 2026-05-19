@@ -1,9 +1,8 @@
 import fs from 'fs-extra';
-import mysql from 'mysql2/promise';
 import path from 'path';
-import { performance } from 'perf_hooks';
 
 import type { Application } from './index';
+import { runDatabaseReadQuery } from './devDatabase';
 import type { TDevConsoleLogLevel, TDevConsoleLogsResponse } from '@common/dev/console';
 import {
     normalizeDatabaseReadLimit,
@@ -11,8 +10,6 @@ import {
     validateDatabaseReadQuery,
     type TDatabaseReadQueryInput,
     type TDatabaseReadQueryResponse,
-    type TDatabaseReadQueryRow,
-    type TDatabaseReadQueryValue,
 } from '@common/dev/database';
 import {
     buildDoctorResponse,
@@ -41,30 +38,11 @@ import {
 } from '@common/dev/inspection';
 import type { TProteumManifest } from '@common/dev/proteumManifest';
 import type { TRequestTrace } from '@common/dev/requestTrace';
-import { parseMariaDbDatabaseUrl } from '@server/services/prisma/mariadb';
 
 const isExplainSectionName = (value: string): value is TExplainSectionName =>
     explainSectionNames.includes(value as TExplainSectionName);
 const isConsoleLogLevel = (value: string): value is TDevConsoleLogLevel =>
     ['silly', 'log', 'info', 'warn', 'error'].includes(value);
-
-const normalizeDatabaseValue = (value: unknown): TDatabaseReadQueryValue => {
-    if (value === null || value === undefined) return null;
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
-    if (typeof value === 'bigint') return value.toString();
-    if (value instanceof Date) return value.toISOString();
-    if (Buffer.isBuffer(value)) return `[Buffer ${value.byteLength} bytes]`;
-
-    return JSON.stringify(value);
-};
-
-const normalizeDatabaseRow = (row: unknown): TDatabaseReadQueryRow => {
-    if (!row || typeof row !== 'object' || Array.isArray(row)) return {};
-
-    return Object.fromEntries(
-        Object.entries(row).map(([key, value]) => [key, normalizeDatabaseValue(value)]),
-    ) as TDatabaseReadQueryRow;
-};
 
 export default class DevDiagnosticsRegistry {
     public constructor(private app: Application) {}
@@ -129,55 +107,8 @@ export default class DevDiagnosticsRegistry {
         const { kind, sql } = validateDatabaseReadQuery(rawSql);
         const limit = normalizeDatabaseReadLimit(rawLimit);
         const timeoutMs = normalizeDatabaseReadTimeoutMs(rawTimeoutMs);
-        const connectionConfig = parseMariaDbDatabaseUrl(databaseUrl);
-        const connection = await mysql.createConnection({
-            host: connectionConfig.host,
-            port: connectionConfig.port,
-            user: connectionConfig.user,
-            password: connectionConfig.password,
-            database: connectionConfig.database,
-            connectTimeout: connectionConfig.connectTimeout,
-            multipleStatements: false,
-            supportBigNumbers: true,
-            bigNumberStrings: true,
-            dateStrings: true,
-        });
-        const startedAt = performance.now();
 
-        try {
-            await connection.query('START TRANSACTION READ ONLY');
-            const [rows, fields] = await connection.query({ sql, timeout: timeoutMs });
-            await connection.rollback();
-
-            const rowList = Array.isArray(rows) ? rows : [];
-            const normalizedRows = rowList.map(normalizeDatabaseRow);
-            const elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
-
-            return {
-                columns: Array.isArray(fields)
-                    ? fields.map((field) => ({
-                          name: field.name,
-                          table: field.table || undefined,
-                          type: field.type,
-                      }))
-                    : [],
-                elapsedMs,
-                kind,
-                limit,
-                limited: normalizedRows.length > limit,
-                rowCount: normalizedRows.length,
-                rows: normalizedRows.slice(0, limit),
-                sql,
-            };
-        } catch (error) {
-            try {
-                await connection.rollback();
-            } catch (_rollbackError) {}
-
-            throw error;
-        } finally {
-            await connection.end();
-        }
+        return runDatabaseReadQuery({ databaseUrl, kind, limit, sql, timeoutMs });
     }
 
     private resolveRequestTrace({ path, requestId }: { path?: string; requestId?: string }): TRequestTrace | undefined {

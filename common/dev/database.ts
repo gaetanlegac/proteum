@@ -199,15 +199,18 @@ const assertAllowedReadQueryShape = (sql: string) => {
         throw new Error('SELECT INTO OUTFILE and SELECT INTO DUMPFILE are not allowed.');
     }
 
-    if (/\bload_file\s*\(/.test(normalized)) {
-        throw new Error('LOAD_FILE is not allowed in database diagnostics.');
+    if (/\b(?:load_file|pg_read_file|pg_read_binary_file|pg_ls_dir)\s*\(/.test(normalized)) {
+        throw new Error('Database file-read functions are not allowed in database diagnostics.');
     }
 
-    if (/\bfor\s+update\b/.test(normalized) || /\block\s+in\s+share\s+mode\b/.test(normalized)) {
+    if (
+        /\bfor\s+(?:update|no\s+key\s+update|share|key\s+share)\b/.test(normalized) ||
+        /\block\s+in\s+share\s+mode\b/.test(normalized)
+    ) {
         throw new Error('Locking read statements are not allowed in database diagnostics.');
     }
 
-    if (/\b(?:sleep|benchmark)\s*\(/.test(normalized)) {
+    if (/\b(?:sleep|benchmark|pg_sleep|pg_sleep_for|pg_sleep_until)\s*\(/.test(normalized)) {
         throw new Error('Sleep and benchmark functions are not allowed in database diagnostics.');
     }
 };
