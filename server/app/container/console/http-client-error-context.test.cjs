@@ -13,7 +13,7 @@ moduleAlias.addAliases({
     '@server': path.join(coreRoot, 'server'),
 });
 
-const { getHttpClientErrorContext, normalizeBugReportError } = require('./index.ts');
+const { default: Console, getHttpClientErrorContext, normalizeBugReportError } = require('./index.ts');
 
 test('wraps got HTTP errors as anomalies with original error context', () => {
     const error = new Error('Response code 422 (Unprocessable Entity)');
@@ -84,4 +84,13 @@ test('wraps got HTTP errors as anomalies with original error context', () => {
 
 test('ignores normal application errors', () => {
     assert.equal(getHttpClientErrorContext(new Error('Something else failed')), null);
+});
+
+test('renders circular JSON contexts in bug report HTML', () => {
+    const context = { name: 'request' };
+    context.self = context;
+
+    const html = Console.prototype.jsonToHTML.call({ printHtml: (value) => value }, context);
+
+    assert.match(html, /Circular/);
 });

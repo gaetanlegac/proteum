@@ -7,6 +7,7 @@ import { serialize } from 'v8';
 import { formatWithOptions } from 'util';
 import md5 from 'md5';
 import dayjs from 'dayjs';
+import stringify from 'fast-safe-stringify';
 
 // Npm
 import { Logger, IMeta, ILogObj, ISettings } from 'tslog';
@@ -538,7 +539,7 @@ Logs: ${
     public jsonToHTML(json: unknown): string {
         if (!json) return 'No data';
 
-        const coloredJson = highlight(JSON.stringify(json, null, 4), { language: 'json', ignoreIllegals: true });
+        const coloredJson = highlight(stringify(json, null, 4), { language: 'json', ignoreIllegals: true });
 
         const html = ansi2Html.toHtml(coloredJson);
 
