@@ -107,8 +107,11 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(agentsContent, /## Triggered Instruction Reads/);
     assert.match(agentsContent, /Git lifecycle/);
     assert.match(agentsContent, /read Root contract fallback before any git write/);
+    assert.match(agentsContent, /Before git writes after a bug fix, behavior change, decision change, or docs-relevant production change/);
     assert.match(agentsContent, /add or update focused unit tests/);
-    assert.match(agentsContent, /read Root contract fallback, `CODING_STYLE\.md`, `tests\/AGENTS\.md`/);
+    assert.match(agentsContent, /read Root contract fallback, `DOCUMENTATION\.md`, `CODING_STYLE\.md`, `tests\/AGENTS\.md`/);
+    assert.match(agentsContent, /Bug fixes, regressions, incidents, broken public routes, auth\/OAuth failures/);
+    assert.match(agentsContent, /docs\/fixes\/YYYY-MM-DD-short-bug-name\.md/);
     assert.match(agentsContent, /GEO\/SEO\/crawler\/structured-data\/AI-source changes/);
     assert.match(agentsContent, /MCP-selected previews are enough/);
     assert.doesNotMatch(agentsContent, /Conventional Commits/);

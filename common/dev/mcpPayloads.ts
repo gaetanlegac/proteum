@@ -131,6 +131,10 @@ export const resolveTriggeredInstructionReads = ({
         normalizedQuery,
         /\b(implement|change|edit|update|modify|fix|add|remove|refactor|increase|decrease|code)\b/,
     );
+    const looksLikeBugFixOrDecisionDocs = matchesInstructionTrigger(
+        normalizedQuery,
+        /\b(bug|regression|incident|broken|outage|fix|fixed|decision|adr|auth|oauth|integration|public route|production behavior)\b/,
+    );
     const looksLikeProductOrDocs = matchesInstructionTrigger(
         normalizedQuery,
         /\b(feature|product|business|acceptance|docs|documentation|ux|copy|onboarding|pricing|commercial|semantics)\b/,
@@ -152,6 +156,9 @@ export const resolveTriggeredInstructionReads = ({
     }
     if (looksLikeImplementationEdit) {
         addRead(codingStyle, 'Implementation edit trigger; read coding style before editing.');
+    }
+    if (looksLikeBugFixOrDecisionDocs) {
+        addRead(documentation, 'Bug fix, regression, auth/OAuth, integration, public-route, decision, or production-behavior trigger.');
     }
     if (looksLikeProductOrDocs) {
         addRead(documentation, 'Feature, product, business-rule, UX, copy, or docs trigger.');
@@ -903,7 +910,7 @@ export const resolveInstructionRouting = ({
 
     addReadWhen(
         'DOCUMENTATION.md',
-        'Read before non-trivial coding tasks to choose the smallest `/docs` pack and update docs after changes.',
+        'Read before non-trivial coding tasks, bug fixes, auth/OAuth, integration, public-route, decision, or production-behavior changes to choose the smallest `/docs` pack and update docs after changes.',
     );
     addReadWhen('diagnostics.md', 'Read for raw errors, failing requests, traces, perf regressions, or reproduction work.');
     addReadWhen('CODING_STYLE.md', 'Read before editing implementation files.');

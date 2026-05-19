@@ -186,6 +186,14 @@ test('instruction routing promotes triggered full instruction files', () => {
     );
     assert.equal(payload.data.fullReadPolicy.default.includes('read-only'), true);
     assert.equal(payload.data.selected.some((entry) => entry.fullRead === 'full-before-action'), true);
+
+    const bugFixPayload = resolveInstructionRouting({ appRoot, query: 'fix OAuth redirect bug' });
+    assert.equal(
+        bugFixPayload.data.selected.some(
+            (entry) => entry.file === path.join(appRoot, 'DOCUMENTATION.md') && /Bug fix/.test(entry.reason),
+        ),
+        true,
+    );
 });
 
 test('workflow start payload combines compact runtime, instructions, owner, and duplicate guidance', () => {

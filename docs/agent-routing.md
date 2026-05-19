@@ -94,8 +94,10 @@ The router standard is trigger -> canonical instruction file, not trigger -> cop
 Standard triggered reads:
 
 - Git lifecycle (`commit`, `and commit`, `stage`, `push`, `PR`, pull request): root contract fallback.
-- Before finishing production code changes: root contract fallback, `CODING_STYLE.md`, and touched area `AGENTS.md`.
+- Before git writes after a bug fix, behavior change, decision change, or docs-relevant production change: `DOCUMENTATION.md`.
+- Before finishing production code changes: root contract fallback, `DOCUMENTATION.md`, `CODING_STYLE.md`, and touched area `AGENTS.md`.
 - Runtime-visible, request-time, router, SSR, browser, or controller behavior: root contract fallback plus `diagnostics.md`.
+- Bug fixes, regressions, incidents, broken public routes, auth/OAuth failures, integration failures, or production behavior fixes: `DOCUMENTATION.md`.
 - Non-trivial feature, product, business-rule, UX, copy, or docs changes: `DOCUMENTATION.md`.
 - Implementation edits: `CODING_STYLE.md` plus the matching area file from the routing table.
 
