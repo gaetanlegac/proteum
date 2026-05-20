@@ -55,7 +55,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 ## Verification And Testing
 
 - Use the cheapest trustworthy verification that matches the failing layer.
-- After implementing a change, verify at the smallest trustworthy layer required by the changed surface first, then run the full project `npx proteum check` before finishing. Do not default to a running app, browser MCP, or Playwright while iterating when a narrower static or request-level verification is enough.
+- After implementing a change, verify at the smallest trustworthy layer required by the changed surface first, including targeted tests when behavior changed. Do not run coverage by default, and do not default to a running app, browser MCP, or Playwright while iterating when a narrower static or request-level verification is enough.
 - For compile-time or type-safety issues, start with the relevant targeted typecheck or build command. Do not run them by default for unrelated runtime, copy, docs, or local refactor changes.
 - For request/runtime issues, verify through the real page, route, generated controller call, or command on a running app.
 - Start the smallest trustworthy runtime surface first: MCP `workflow_start`, then MCP `route_candidates { projectId, query }`, MCP `orient { projectId, query }`, or MCP `explain_summary { projectId, query }` only when more owner detail is needed. If runtime health is unreachable, repair/start dev before any diagnose, trace, or perf read. Once runtime is reachable, use the relevant real URL, generated controller call, command, or MCP `diagnose { projectId, path }`. Use CLI equivalents only when MCP is unavailable or terminal evidence is required. Use browser MCP validation only when request-level verification is insufficient or the change is browser-visible.
@@ -64,7 +64,7 @@ This file is the canonical source of truth for diagnostics, temporary instrument
 - For browser regressions, prefer a browser MCP repro first and add targeted Playwright E2E coverage only when the user asks for automated coverage, when a stable regression path needs automation, or when browser MCP verification is insufficient.
 - Only the final verifier agent should usually run browser flows. Earlier agents should stay on `orient`, `verify owner`, `verify request`, `diagnose`, and command-level checks unless browser execution is the only trustworthy reproducer.
 - Treat server startup failures, runtime errors, browser console errors or warnings, and Playwright failures as blocking unless they are clearly unrelated to the change.
-- When the touched surface can affect coding-style enforcement, run the full project `npx proteum check` before finishing. Narrower lint or type checks are useful while iterating, but they do not replace the final full check.
+- When the touched surface can affect coding-style enforcement, run the targeted lint or typecheck command for that surface before finishing. Run the repository's non-coverage commit gate before committing, and run the full `npm run check` gate before pushing or when explicitly requested.
 - If the task started any long-lived `proteum dev` server, stop it explicitly with `npx proteum dev stop --session-file <path>` or `npx proteum dev stop --all --stale`, then confirm the remaining tracked sessions with `npx proteum dev list --json`.
 - Add `data-testid` when stable selectors are missing instead of relying on brittle text or DOM-shape selectors.
 - If an isolated test misses prerequisite state, run the smallest broader scope that reproduces the real setup.
