@@ -314,7 +314,7 @@ const buildHookContractDiagnostics = (manifest: TProteumManifest, sourceFilepath
                                     sourceLocation,
                                     fixHint:
                                         importedHook.kind === 'router-context'
-                                            ? 'Call the hook only inside a Router.page render callback, a component rendered under App, or a custom hook used from that tree.'
+                                            ? 'Call the hook only inside a definePageRoute render callback, a component rendered under App, or a custom hook used from that tree.'
                                             : 'Move the hook back under the provider-managed React tree or pass the required values as explicit props or SSR data.',
                                     relatedFilepaths,
                                 }),

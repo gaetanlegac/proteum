@@ -2,22 +2,21 @@
 
 This is the canonical page-file contract for Proteum-based projects.
 Role: keep only page-file rules here.
-Keep here: `Router.page(...)` registration, SSR `data` and `render` contracts, page payload shape, and page-local typing rules.
+Keep here: `definePageRoute(...)` and `defineErrorRoute(...)`, SSR `data` and `render` contracts, page payload shape, and page-local typing rules.
 Do not put here: generic component rules, server/service implementation details, or app-wide workflow already covered by broader AGENTS files.
 
 Optimization source of truth: root-level `optimizations.md`.
 Diagnostics source of truth: root-level `diagnostics.md`.
 Coding style source of truth: root-level `CODING_STYLE.md`.
 
-## Router.page Usage
+## Page Definition Usage
 
-- Proteum scans page files for top-level `Router.page(...)` and `Router.error(...)` calls.
-- File path controls chunk identity and layout discovery; route path comes from the explicit `Router.page(...)` string.
-- The only supported page signature is `Router.page(path, options, data, render)`.
+- Proteum page files default-export `definePageRoute({ path, options, data, render })` or `defineErrorRoute({ code, options, render })`.
+- File path controls chunk identity and layout discovery; route URL comes from the explicit `path` value.
 - `options` is always required and must be an object.
-- `data` is the only nullable argument. Pass `null` when the page does not need SSR data.
-- Keep the `Router.page(...)` call compact instead of exploding each outer argument onto its own line.
-- Keep route registration at top level. Do not hide it behind helper abstractions.
+- `data` is the only nullable route field. Pass `null` when the page does not need SSR data.
+- Keep route metadata static and serializable. Runtime app/client references belong only inside `data` and `render`.
+- Do not import `@app`, `@/client/router`, or `@client/router` in page files.
 
 ## Data And Render
 

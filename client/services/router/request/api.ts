@@ -38,8 +38,19 @@ type TExecuteResult<TData> = { data: TData; durationMs: number; response: Respon
 
 export type Config = {};
 
-const isFileValue = (value: unknown): value is File =>
-    typeof File !== 'undefined' && typeof value === 'object' && value instanceof File;
+const isFileValue = (value: unknown): value is Blob =>
+    typeof Blob !== 'undefined' && typeof value === 'object' && value instanceof Blob;
+
+const isFileListValue = (value: unknown): value is FileList =>
+    typeof FileList !== 'undefined' && typeof value === 'object' && value instanceof FileList;
+
+const containsFileValue = (value: unknown): boolean => {
+    if (isFileValue(value) || isFileListValue(value)) return true;
+    if (value instanceof Date) return false;
+    if (Array.isArray(value)) return value.some((item) => containsFileValue(item));
+    if (value && typeof value === 'object') return Object.values(value).some((item) => containsFileValue(item));
+    return false;
+};
 
 /*----------------------------------
 - FUNCTION
@@ -286,8 +297,7 @@ export default class ApiClient implements ApiClientService {
         // Update options depending on data
         if (data) {
             // If file included in data, need to use multipart
-            // TODO: deep check
-                const hasFile = Object.values(data).some((value) => isFileValue(value));
+            const hasFile = containsFileValue(data);
             if (hasFile) {
                 // GET request = Can't send files
                 if (method === 'GET') throw new Error('Cannot send file in GET request');

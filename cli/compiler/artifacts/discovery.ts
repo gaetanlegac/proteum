@@ -2,11 +2,32 @@ import path from 'path';
 import fs from 'fs-extra';
 import ts from 'typescript';
 
-import app from '../../app';
 import { normalizePath } from './shared';
 
-const hasRegisteredRouteDefinitions = (filepath: string, content: string) => {
-    const sourceFile = ts.createSourceFile(
+type TRouteSide = 'client' | 'server';
+
+const legacyRouterMethods = new Set([
+    'page',
+    'error',
+    'all',
+    'options',
+    'get',
+    'post',
+    'put',
+    'delete',
+    'patch',
+    'express',
+]);
+const routeDefinitionHelpers = new Set([
+    'definePageRoute',
+    'defineErrorRoute',
+    'defineServerRoute',
+    'defineServerRoutes',
+]);
+const routeDefinitionImportSources = new Set(['@common/router', '@common/router/definitions']);
+
+const parseSourceFile = (filepath: string, content: string) =>
+    ts.createSourceFile(
         filepath,
         content,
         ts.ScriptTarget.Latest,
@@ -14,22 +35,110 @@ const hasRegisteredRouteDefinitions = (filepath: string, content: string) => {
         filepath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
     );
 
-    return sourceFile.statements.some((statement) => {
-        if (!ts.isExpressionStatement(statement)) return false;
-        if (!ts.isCallExpression(statement.expression)) return false;
-        if (!ts.isPropertyAccessExpression(statement.expression.expression)) return false;
-
-        const callee = statement.expression.expression;
-
-        return (
-            ts.isIdentifier(callee.expression) &&
-            callee.expression.text === 'Router' &&
-            ['page', 'error', 'get', 'post', 'put', 'delete', 'patch'].includes(callee.name.text)
-        );
-    });
+const getCallExpressionName = (node: ts.Expression) => {
+    if (ts.isIdentifier(node)) return node.text;
+    if (ts.isPropertyAccessExpression(node)) return node.name.text;
+    return undefined;
 };
 
-const findRegisteredRouteFiles = (dir: string, options: { excludeLayoutDirectories?: boolean } = {}): string[] => {
+const collectConstInitializers = (sourceFile: ts.SourceFile) => {
+    const initializers = new Map<string, ts.Expression>();
+
+    for (const statement of sourceFile.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        if (!(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+
+        for (const declaration of statement.declarationList.declarations) {
+            if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+
+            initializers.set(declaration.name.text, declaration.initializer);
+        }
+    }
+
+    return initializers;
+};
+
+const resolveIdentifierExpression = (
+    expression: ts.Expression,
+    constInitializers: Map<string, ts.Expression>,
+): ts.Expression => {
+    if (!ts.isIdentifier(expression)) return expression;
+
+    return constInitializers.get(expression.text) || expression;
+};
+
+const getDefaultExportExpression = (sourceFile: ts.SourceFile) => {
+    const constInitializers = collectConstInitializers(sourceFile);
+
+    for (const statement of sourceFile.statements) {
+        if (!ts.isExportAssignment(statement) || statement.isExportEquals) continue;
+
+        return resolveIdentifierExpression(statement.expression, constInitializers);
+    }
+
+    return undefined;
+};
+
+const hasRouteDefinitionHelperImport = (sourceFile: ts.SourceFile) =>
+    sourceFile.statements.some((statement) => {
+        if (!ts.isImportDeclaration(statement)) return false;
+        if (!ts.isStringLiteral(statement.moduleSpecifier)) return false;
+        if (!routeDefinitionImportSources.has(statement.moduleSpecifier.text)) return false;
+        if (!statement.importClause?.namedBindings) return false;
+        if (!ts.isNamedImports(statement.importClause.namedBindings)) return false;
+
+        return statement.importClause.namedBindings.elements.some((specifier) =>
+            routeDefinitionHelpers.has(specifier.propertyName?.text || specifier.name.text),
+        );
+    });
+
+const hasExplicitRouteDefinitionExport = (sourceFile: ts.SourceFile) => {
+    const defaultExportExpression = getDefaultExportExpression(sourceFile);
+
+    return (
+        !!defaultExportExpression &&
+        ts.isCallExpression(defaultExportExpression) &&
+        !!getCallExpressionName(defaultExportExpression.expression) &&
+        routeDefinitionHelpers.has(getCallExpressionName(defaultExportExpression.expression)!)
+    );
+};
+
+const hasLegacyRouteMagic = (sourceFile: ts.SourceFile, side: TRouteSide) => {
+    for (const statement of sourceFile.statements) {
+        if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
+            if (statement.moduleSpecifier.text === '@app') return true;
+        }
+
+        if (!ts.isExpressionStatement(statement)) continue;
+        if (!ts.isCallExpression(statement.expression)) continue;
+        if (!ts.isPropertyAccessExpression(statement.expression.expression)) continue;
+
+        const callee = statement.expression.expression;
+        if (!ts.isIdentifier(callee.expression)) continue;
+        if (callee.expression.text !== 'Router') continue;
+        if (!legacyRouterMethods.has(callee.name.text)) continue;
+
+        return true;
+    }
+
+    return false;
+};
+
+const hasRegisteredRouteDefinitions = (filepath: string, content: string, side: TRouteSide) => {
+    const sourceFile = parseSourceFile(filepath, content);
+
+    return (
+        hasExplicitRouteDefinitionExport(sourceFile) ||
+        hasRouteDefinitionHelperImport(sourceFile) ||
+        hasLegacyRouteMagic(sourceFile, side)
+    );
+};
+
+const findRegisteredRouteFiles = (
+    dir: string,
+    side: TRouteSide,
+    options: { excludeLayoutDirectories?: boolean } = {},
+): string[] => {
     if (!fs.existsSync(dir)) return [];
 
     const files: string[] = [];
@@ -40,7 +149,7 @@ const findRegisteredRouteFiles = (dir: string, options: { excludeLayoutDirectori
         if (dirent.isDirectory()) {
             if (options.excludeLayoutDirectories && dirent.name === '_layout') continue;
 
-            files.push(...findRegisteredRouteFiles(filePath, options));
+            files.push(...findRegisteredRouteFiles(filePath, side, options));
             continue;
         }
 
@@ -48,7 +157,7 @@ const findRegisteredRouteFiles = (dir: string, options: { excludeLayoutDirectori
         if (!/\.(ts|tsx)$/.test(dirent.name)) continue;
 
         const content = fs.readFileSync(filePath, 'utf8');
-        if (!hasRegisteredRouteDefinitions(filePath, content)) continue;
+        if (!hasRegisteredRouteDefinitions(filePath, content, side)) continue;
 
         files.push(filePath);
     }
@@ -56,9 +165,11 @@ const findRegisteredRouteFiles = (dir: string, options: { excludeLayoutDirectori
     return files;
 };
 
-export const findClientRouteFiles = (dir: string) => findRegisteredRouteFiles(dir, { excludeLayoutDirectories: true });
+export const findClientRouteFiles = (dir: string) => findRegisteredRouteFiles(dir, 'client', { excludeLayoutDirectories: true });
 
-export const findServerRouteFiles = (dir: string) => findRegisteredRouteFiles(dir);
+export const findServerRouteFiles = (dir: string) => findRegisteredRouteFiles(dir, 'server');
+
+const getApp = () => require('../../app').default as typeof import('../../app').default;
 
 export const findLayoutFiles = (dir: string): string[] => {
     if (!fs.existsSync(dir)) return [];
@@ -84,6 +195,7 @@ export const findLayoutFiles = (dir: string): string[] => {
 };
 
 export const readPreloadedRouteChunks = () => {
+    const app = getApp();
     const preloadPath = path.join(app.paths.pages, 'preload.json');
 
     if (!fs.existsSync(preloadPath)) return new Set<string>();

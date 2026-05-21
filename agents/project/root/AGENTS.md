@@ -73,13 +73,13 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 
 ## Core Contracts
 
-- Client pages live in `client/pages/**` and register routes with top-level `Router.page(...)` or `Router.error(...)`.
-- Page URLs come from the explicit `Router.page('/path', ...)` call, not from the file path.
-- Callable app APIs live only in `server/controllers/**/*.ts` files that extend `Controller`.
+- Client pages live in `client/pages/**` and default-export `definePageRoute(...)` or `defineErrorRoute(...)`.
+- Page URLs come from the explicit route definition `path`, not from the file path.
+- Callable app APIs live only in `server/controllers/**/*.ts` files that default-export `defineController(...)`.
 - Dev-only internal execution lives only in `commands/**/*.ts` files that extend `Commands`.
 - Manual HTTP endpoints live only in `server/routes/**`.
-- Controllers call `this.input(schema)` inside the method body, at most once per method.
-- Request-scoped state lives only on `this.request` and manual-route/router context objects.
+- Controllers declare input on `defineAction({ input, handler })`; handlers receive parsed `input` in context.
+- Request-scoped state lives only on action handler context and manual-route handler context objects.
 - Keep one class or one React/Preact component per file.
 - Prefer a deep tree grouped by business concern instead of long file names.
 - Use the default `*.ts` or `*.tsx` file unless an `*.ssr.ts` or `*.ssr.tsx` variant is truly required.
@@ -98,8 +98,8 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 
 ### App Bootstrap And Services
 
-- `server/index.ts` default-exports the app `Application` subclass and is the canonical type root.
-- Root services are public class fields instantiated with `new ServiceClass(this, config, this)`.
+- `server/index.ts` default-exports `defineApplication({ services, router, models, commands })` and is the canonical type root.
+- Root services are declared in the explicit `services` graph and instantiated with `new ServiceClass(app, config, app)`.
 - Typed root-service config lives in `server/config/*.ts` via `Services.config(ServiceClass, { ... })`.
 - Router plugins are instantiated explicitly inside the `Router` config `plugins` object.
 - Router plugins can subscribe to `request` and `request.finished`; `request.profiling` exists before `request` runs and carries the finalized request/API/SQL snapshot by `request.finished`.
@@ -122,10 +122,10 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 
 ### Controllers
 
-- Files live under `server/controllers/**/*.ts` and default-export a class extending `Controller`.
-- Methods with bodies become generated client-callable endpoints.
-- Route path comes from the controller file path plus the method name.
-- `export const controllerPath = 'Custom/path'` can override the base path.
+- Files live under `server/controllers/**/*.ts` and default-export `defineController({ path, actions })`.
+- Actions declared with `defineAction(...)` become generated client-callable endpoints.
+- Route path comes from the controller `path` plus the action name.
+- Set `path: 'Custom/path'` on `defineController(...)` to override the base path.
 - Generated client calls use `POST`.
 - Prefer `proteum create controller ...` for new controller boilerplate, then adapt the generated method to real service calls.
 
@@ -141,22 +141,22 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 
 ### Client Pages
 
-- Proteum scans page files for top-level `Router.page(...)` and `Router.error(...)` calls.
-- File path controls chunk identity and layout discovery; route path comes from the explicit `Router.page(...)` string.
-- The only supported page signature is `Router.page(path, options, data, render)`.
+- Proteum scans page files for default-exported `definePageRoute(...)` and `defineErrorRoute(...)` definitions.
+- File path controls chunk identity and layout discovery; route path comes from the explicit definition `path` value.
+- The supported page shape is `definePageRoute({ path, options, data, render })`.
 - `options` is always required. `data` is the only nullable argument and must be `null` when the page has no SSR data loader.
 - `data` returns one flat object. Route-option keys such as `auth`, `layout`, `static`, and `_static` are forbidden in page data and must live in `options`.
 - Controller fetchers and promises returned from `data` resolve before render.
 - `render` consumes resolved page data and uses generated controller methods from render args or `@/client/context`.
 - Use `api.reload(...)` or `api.set(...)` only when intentionally mutating active page data state.
-- Error pages use `Router.error(code, options, render)` in `client/pages/_messages/**`.
+- Error pages use `defineErrorRoute({ code, options, render })` in `client/pages/_messages/**`.
 - Prefer `proteum create page ...` for new page boilerplate, then review the explicit route path, options object, and data payload.
 
 ### Manual Routes
 
 - Use `server/routes/**` only for explicit HTTP behavior that should not be a generated controller action.
 - Good fits include redirects, sitemap or RSS output, OAuth callbacks, webhooks, and public resources with custom semantics.
-- Import server-side app services from `@app` and use route handler context for `request`, `response`, router plugins, and custom router context.
+- Receive app services through `defineServerRoutes((app) => [...])` and use handler context for `request`, `response`, router plugins, and custom router context.
 - If the route is a normal app API, prefer a controller.
 - Prefer `proteum create route ...` for new manual-route boilerplate.
 
@@ -169,7 +169,6 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 - Aliases:
   - `@/client/...`, `@/server/...`, `@/common/...`: app code
   - `@client/...`, `@server/...`, `@common/...`: Proteum core modules
-  - `@app`: server-side application services for manual routes only
   - `@generated/*`: generated app surfaces
 
 ## Verification Matrix
@@ -219,7 +218,7 @@ Verify at the correct layer:
 ### Discouraged Patterns
 
 - request-scoped state inside normal service methods
-- hiding route registration behind abstractions that remove the top-level `Router.page(...)` call
+- hiding route definitions behind abstractions that remove the default-exported `definePageRoute(...)` or `defineServerRoute(...)` contract
 - editing `.proteum` directly
 
 ## Hard Stops

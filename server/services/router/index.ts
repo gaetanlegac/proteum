@@ -14,12 +14,12 @@ const { v4: uuid } = require('uuid') as { v4: () => string };
 import got from 'got';
 import hInterval from 'human-interval';
 import type express from 'express';
-import type { Request, Response, NextFunction } from 'express';
 import zod, { ZodError } from 'zod';
 export { default as schema } from 'zod';
 
 // Core
 import type { Application } from '@server/app/index';
+import { runControllerAction, type TControllerActionDefinition } from '@server/app/controller';
 import Service, { TServiceArgs } from '@server/app/service';
 import context from '@server/context';
 import type DisksManager from '@server/services/disks';
@@ -30,9 +30,12 @@ import BaseRouter, {
     TErrorRoute,
     TRouteModule,
     TRouteOptions,
+    type TRouteDefinition,
+    type TRouteMetadata,
     defaultOptions,
     matchRoute,
     buildUrl,
+    withRouteMetadata,
 } from '@common/router';
 import type { TSsrUnresolvedRoute, TRegisterPageArgs } from '@common/router/contracts';
 import { buildRegex, getRegisterPageArgs } from '@common/router/register';
@@ -76,7 +79,7 @@ type TGeneratedControllerDefinition = {
     path: string;
     filepath: string;
     sourceLocation: { line: number; column: number };
-    Controller: new (request: TRouterContext<TServerRouter>) => { [method: string]: () => any };
+    action: TControllerActionDefinition<any, any, any, any>;
     method: string;
 };
 
@@ -393,10 +396,8 @@ export default class ServerRouter<
             const route: TRoute<TRouterContext<this>> = {
                 method: 'POST',
                 path: definition.path,
-                controller: (requestContext: TRouterContext<this>) => {
-                    const controller = new definition.Controller(requestContext);
-                    return controller[definition.method]();
-                },
+                controller: (requestContext: TRouterContext<this>) =>
+                    runControllerAction(definition.action, requestContext as any),
                 options: { ...defaultOptions, filepath: definition.filepath, sourceLocation: definition.sourceLocation },
             };
 
@@ -419,7 +420,29 @@ export default class ServerRouter<
     - REGISTER
     ----------------------------------*/
 
-    public page(...args: TRegisterPageArgs<any, TRouteOptions>) {
+    public registerRouteDefinition(definition: TRouteDefinition, metadata: TRouteMetadata = {}) {
+        if (definition.kind === 'page') {
+            return this.page(
+                definition.path,
+                withRouteMetadata(definition.options, metadata),
+                definition.data,
+                definition.render,
+            );
+        }
+
+        if (definition.kind === 'error') {
+            return this.error(definition.code, withRouteMetadata(definition.options, metadata), definition.render);
+        }
+
+        return this.registerApi(
+            definition.method,
+            definition.path,
+            withRouteMetadata(definition.options, metadata),
+            definition.handler as TServerController<this>,
+        );
+    }
+
+    protected page(...args: TRegisterPageArgs<any, TRouteOptions>) {
         const { path, options, data, renderer, layout } = getRegisterPageArgs(...args);
 
         const { regex, keys } = buildRegex(path);
@@ -442,7 +465,7 @@ export default class ServerRouter<
         return this;
     }
 
-    public error(
+    protected error(
         code: number,
         options: Partial<TRouteOptions>,
         renderer: TFrontRenderer<{}, { message: string }>,
@@ -461,34 +484,13 @@ export default class ServerRouter<
         this.errors[code] = route;
     }
 
-    public all = (...args: TApiRegisterArgs<this>) => this.registerApi('*', ...args);
-    public options = (...args: TApiRegisterArgs<this>) => this.registerApi('OPTIONS', ...args);
-    public get = (...args: TApiRegisterArgs<this>) => this.registerApi('GET', ...args);
-    public post = (...args: TApiRegisterArgs<this>) => this.registerApi('POST', ...args);
-    public put = (...args: TApiRegisterArgs<this>) => this.registerApi('PUT', ...args);
-    public patch = (...args: TApiRegisterArgs<this>) => this.registerApi('PATCH', ...args);
-    public delete = (...args: TApiRegisterArgs<this>) => this.registerApi('DELETE', ...args);
-
-    public express(
-        middleware: (req: Request, res: Response, next: NextFunction, requestContext: TRouterContext<this>) => void,
-    ) {
-        return (context: TRouterContext<this>) =>
-            new Promise((resolve) => {
-                context.request.res.on('finish', function () {
-                    //console.log('the response has been sent', request.res.statusCode);
-                    resolve(true);
-                });
-
-                middleware(
-                    context.request.req,
-                    context.request.res,
-                    () => {
-                        resolve(true);
-                    },
-                    context,
-                );
-            });
-    }
+    protected all = (...args: TApiRegisterArgs<this>) => this.registerApi('*', ...args);
+    protected options = (...args: TApiRegisterArgs<this>) => this.registerApi('OPTIONS', ...args);
+    protected get = (...args: TApiRegisterArgs<this>) => this.registerApi('GET', ...args);
+    protected post = (...args: TApiRegisterArgs<this>) => this.registerApi('POST', ...args);
+    protected put = (...args: TApiRegisterArgs<this>) => this.registerApi('PUT', ...args);
+    protected patch = (...args: TApiRegisterArgs<this>) => this.registerApi('PATCH', ...args);
+    protected delete = (...args: TApiRegisterArgs<this>) => this.registerApi('DELETE', ...args);
 
     protected registerApi(method: TRouteHttpMethod, ...args: TApiRegisterArgs<this>): this {
         let path: string;

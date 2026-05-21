@@ -98,8 +98,8 @@ const getNodeLocation = (sourceFile: ts.SourceFile, node: ts.Node): TControllerS
     return { line: line + 1, column: character + 1 };
 };
 
-const hasModifier = (node: ts.Node, kind: ts.SyntaxKind) =>
-    !!node.modifiers?.some((modifier) => modifier.kind === kind);
+const hasModifier = (node: ts.Node & { modifiers?: ts.NodeArray<ts.ModifierLike> }, kind: ts.SyntaxKind) =>
+    !!node.modifiers?.some((modifier: ts.ModifierLike) => modifier.kind === kind);
 
 const getDefaultExportClass = (sourceFile: ts.SourceFile) => {
     const classes = new Map<string, ts.ClassDeclaration>();
@@ -125,42 +125,165 @@ const getDefaultExportClass = (sourceFile: ts.SourceFile) => {
     return undefined;
 };
 
-const getExportedString = (sourceFile: ts.SourceFile, exportName: string) => {
-    for (const statement of sourceFile.statements) {
-        if (!ts.isVariableStatement(statement)) continue;
-        if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
+const getPropertyKey = (name: ts.PropertyName) => {
+    if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+    return undefined;
+};
 
-        for (const declaration of statement.declarationList.declarations) {
-            if (!ts.isIdentifier(declaration.name)) continue;
-            if (declaration.name.text !== exportName) continue;
-            if (!declaration.initializer || !ts.isStringLiteral(declaration.initializer)) continue;
+const getPropertyAssignment = (node: ts.ObjectLiteralExpression, propertyName: string) => {
+    for (const property of node.properties) {
+        if (!ts.isPropertyAssignment(property)) continue;
 
-            return declaration.initializer.text;
-        }
+        const key = getPropertyKey(property.name);
+        if (key === propertyName) return property.initializer;
     }
 
     return undefined;
 };
 
-const countInputCalls = (method: ts.MethodDeclaration) => {
-    let inputCallsCount = 0;
+const collectConstInitializers = (sourceFile: ts.SourceFile) => {
+    const initializers = new Map<string, ts.Expression>();
 
-    const visit = (node: ts.Node) => {
-        if (
-            ts.isCallExpression(node) &&
-            ts.isPropertyAccessExpression(node.expression) &&
-            node.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
-            node.expression.name.text === 'input'
-        ) {
-            inputCallsCount++;
+    for (const statement of sourceFile.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        if (!(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+
+        for (const declaration of statement.declarationList.declarations) {
+            if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+
+            initializers.set(declaration.name.text, declaration.initializer);
+        }
+    }
+
+    return initializers;
+};
+
+const tryEvaluateStaticString = (
+    sourceFile: ts.SourceFile,
+    expression: ts.Expression,
+    activeNames = new Set<string>(),
+): string | undefined => {
+    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+
+    if (ts.isIdentifier(expression)) {
+        if (activeNames.has(expression.text)) return undefined;
+
+        const initializer = collectConstInitializers(sourceFile).get(expression.text);
+        if (!initializer) return undefined;
+
+        activeNames.add(expression.text);
+        const value = tryEvaluateStaticString(sourceFile, initializer, activeNames);
+        activeNames.delete(expression.text);
+
+        return value;
+    }
+
+    return undefined;
+};
+
+const resolveIdentifierExpression = (sourceFile: ts.SourceFile, expression: ts.Expression): ts.Expression => {
+    if (!ts.isIdentifier(expression)) return expression;
+
+    return collectConstInitializers(sourceFile).get(expression.text) || expression;
+};
+
+const getDefaultControllerExpression = (sourceFile: ts.SourceFile) => {
+    for (const statement of sourceFile.statements) {
+        if (!ts.isExportAssignment(statement) || statement.isExportEquals) continue;
+
+        return resolveIdentifierExpression(sourceFile, statement.expression);
+    }
+
+    return undefined;
+};
+
+const getCallExpressionName = (node: ts.Expression) => {
+    if (ts.isIdentifier(node)) return node.text;
+    if (ts.isPropertyAccessExpression(node)) return node.name.text;
+    return undefined;
+};
+
+const assertNoControllerMagicImports = (sourceFile: ts.SourceFile) => {
+    for (const statement of sourceFile.statements) {
+        if (!ts.isImportDeclaration(statement)) continue;
+        if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
+        if (statement.moduleSpecifier.text !== '@app') continue;
+
+        const location = getNodeLocation(sourceFile, statement);
+        throw new Error(
+            `${sourceFile.fileName}:${location.line}:${location.column} imports @app. Controller modules must export defineController(...) and receive services through typed action context.`,
+        );
+    }
+};
+
+const readExplicitController = (
+    sourceFile: ts.SourceFile,
+    filepath: string,
+    root: string,
+): TControllerFileMeta | undefined => {
+    const expression = getDefaultControllerExpression(sourceFile);
+    if (!expression) return undefined;
+
+    assertNoControllerMagicImports(sourceFile);
+
+    if (!ts.isCallExpression(expression) || getCallExpressionName(expression.expression) !== 'defineController') {
+        const location = getNodeLocation(sourceFile, expression);
+        throw new Error(
+            `${filepath}:${location.line}:${location.column} must default-export defineController({ path, actions }). Legacy controller classes are no longer supported.`,
+        );
+    }
+
+    const [definitionArg] = [...expression.arguments];
+    if (!definitionArg || !ts.isObjectLiteralExpression(definitionArg)) {
+        throw new Error(`defineController(...) in ${filepath} must receive an object literal.`);
+    }
+
+    const pathExpression = getPropertyAssignment(definitionArg, 'path');
+    const routeBasePath =
+        pathExpression ? tryEvaluateStaticString(sourceFile, pathExpression) || getControllerBasePathFromFilepath(filepath, root) : getControllerBasePathFromFilepath(filepath, root);
+    const actionsExpression = getPropertyAssignment(definitionArg, 'actions');
+
+    if (!actionsExpression || !ts.isObjectLiteralExpression(actionsExpression)) {
+        throw new Error(`defineController(...) in ${filepath} must declare an actions object literal.`);
+    }
+
+    const methods: TControllerMethodMeta[] = [];
+
+    for (const property of actionsExpression.properties) {
+        if (!ts.isPropertyAssignment(property)) continue;
+
+        const methodName = getPropertyKey(property.name);
+        if (!methodName) continue;
+
+        const actionExpression = resolveIdentifierExpression(sourceFile, property.initializer);
+        if (!ts.isCallExpression(actionExpression) || getCallExpressionName(actionExpression.expression) !== 'defineAction') {
+            const location = getNodeLocation(sourceFile, property);
+            throw new Error(`${filepath}:${location.line}:${location.column} controller actions must use defineAction(...).`);
         }
 
-        ts.forEachChild(node, visit);
+        const [actionArg] = [...actionExpression.arguments];
+        const hasInput =
+            !!actionArg &&
+            ts.isObjectLiteralExpression(actionArg) &&
+            getPropertyAssignment(actionArg, 'input') !== undefined;
+
+        methods.push({
+            name: methodName,
+            inputCallsCount: hasInput ? 1 : 0,
+            routePath: [routeBasePath, methodName].filter(Boolean).join('/'),
+            sourceLocation: getNodeLocation(sourceFile, property.name),
+        });
+    }
+
+    if (!methods.length) return undefined;
+
+    return {
+        filepath,
+        importPath: '',
+        className: path.basename(filepath, '.ts').replace(/[^A-Za-z0-9_$]+/g, '_') || 'Controller',
+        routeBasePath,
+        methods,
     };
-
-    if (method.body) ts.forEachChild(method.body, visit);
-
-    return inputCallsCount;
 };
 
 /*----------------------------------
@@ -176,45 +299,24 @@ export const indexControllers = (searchDirs: TControllerSearchDir[]) => {
         for (const filepath of controllerFiles.sort((a, b) => a.localeCompare(b))) {
             const code = fs.readFileSync(filepath, 'utf8');
             const sourceFile = parseSourceFile(filepath, code);
+            const explicitController = readExplicitController(sourceFile, filepath, searchDir.root);
 
-            const controllerPathOverride = getExportedString(sourceFile, 'controllerPath');
+            if (explicitController) {
+                controllers.push({
+                    ...explicitController,
+                    importPath: buildImportPath(searchDir, filepath),
+                });
+                continue;
+            }
+
             const defaultClass = getDefaultExportClass(sourceFile);
 
             if (!defaultClass) continue;
 
-            const className = defaultClass.name?.text || getGeneratedClassName(filepath);
-            const routeBasePath = controllerPathOverride || getControllerBasePathFromFilepath(filepath, searchDir.root);
-            const methods: TControllerMethodMeta[] = [];
-
-            for (const member of defaultClass.members) {
-                if (!ts.isMethodDeclaration(member)) continue;
-                if (!member.body) continue;
-                if (!member.name || !ts.isIdentifier(member.name)) continue;
-
-                const methodName = member.name.text;
-                const inputCallsCount = countInputCalls(member);
-
-                if (inputCallsCount > 1) {
-                    throw new Error(`${filepath}#${methodName} uses this.input() more than once.`);
-                }
-
-                methods.push({
-                    name: methodName,
-                    inputCallsCount,
-                    routePath: [routeBasePath, methodName].filter(Boolean).join('/'),
-                    sourceLocation: getNodeLocation(sourceFile, member.name),
-                });
-            }
-
-            if (!methods.length) continue;
-
-            controllers.push({
-                filepath,
-                importPath: buildImportPath(searchDir, filepath),
-                className,
-                routeBasePath,
-                methods,
-            });
+            const location = getNodeLocation(sourceFile, defaultClass);
+            throw new Error(
+                `${filepath}:${location.line}:${location.column} uses a legacy controller class. Export defineController({ path, actions }) instead.`,
+            );
         }
     }
 

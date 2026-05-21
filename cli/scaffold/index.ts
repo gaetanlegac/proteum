@@ -344,14 +344,15 @@ const insertImportLine = ({
     const lines = content.split('\n');
     const preferredIndex = findLastMatchingIndex(lines, matcher);
     const fallbackIndex = findLastMatchingIndex(lines, fallbackMatcher);
-    const classIndex = lines.findIndex((line) => line.includes('export default class '));
-    const insertIndex = preferredIndex >= 0 ? preferredIndex + 1 : fallbackIndex >= 0 ? fallbackIndex + 1 : Math.max(classIndex, 0);
+    const defineApplicationIndex = lines.findIndex((line) => line.includes('defineApplication('));
+    const insertIndex =
+        preferredIndex >= 0 ? preferredIndex + 1 : fallbackIndex >= 0 ? fallbackIndex + 1 : Math.max(defineApplicationIndex, 0);
 
     lines.splice(insertIndex, 0, importLine);
     return lines.join('\n');
 };
 
-const insertClassProperty = ({
+const insertDefineApplicationService = ({
     content,
     propertyLine,
 }: {
@@ -361,22 +362,31 @@ const insertClassProperty = ({
     if (content.includes(propertyLine.trim())) return content;
 
     const lines = content.split('\n');
-    const classIndex = lines.findIndex((line) => line.includes('export default class ') && line.includes('extends Application'));
-    if (classIndex < 0) throw new UsageError('Could not locate the app Application class in server/index.ts.');
+    const servicesIndex = lines.findIndex((line) => line.includes('services:') && line.includes('=>'));
+    if (servicesIndex < 0) return undefined;
 
-    const closingIndex = lines.length - 1 - [...lines].reverse().findIndex((line) => line.trim() === '}');
-    const candidateIndex = (() => {
-        for (let index = closingIndex - 1; index > classIndex; index -= 1) {
-            if (/^\s+public .*= new .*;\s*$/.test(lines[index])) return index + 1;
-        }
-        for (let index = classIndex + 1; index < closingIndex; index += 1) {
-            if (/^\s+public .*[;!]\s*$/.test(lines[index])) return index + 1;
-        }
-        return classIndex + 1;
-    })();
+    const closingIndex = lines.findIndex((line, index) => index > servicesIndex && /^\s{4}\}\),?\s*$/.test(line));
+    if (closingIndex < 0) return undefined;
 
-    lines.splice(candidateIndex, 0, propertyLine);
+    lines.splice(closingIndex, 0, propertyLine);
     return lines.join('\n');
+};
+
+const insertRootServiceProperty = ({
+    content,
+    definitionPropertyLine,
+}: {
+    content: string;
+    definitionPropertyLine: string;
+}) => {
+    const defineApplicationContent = insertDefineApplicationService({
+        content,
+        propertyLine: definitionPropertyLine,
+    });
+
+    if (defineApplicationContent) return defineApplicationContent;
+
+    throw new UsageError('Could not locate defineApplication services graph in server/index.ts.');
 };
 
 const registerRootService = ({
@@ -406,7 +416,7 @@ const registerRootService = ({
 
     const serviceImportLine = `import ${serviceImportName} from ${JSON.stringify(`@/server/services/${toPosix(servicePath)}`)};`;
     const configImportLine = `import * as ${configNamespace} from ${JSON.stringify(`@/server/config/${configFileBase}`)};`;
-    const propertyLine = `    public ${propertyName} = new ${serviceImportName}(this, ${configNamespace}.${configExportName}, this);`;
+    const definitionPropertyLine = `        ${propertyName}: new ${serviceImportName}(app, ${configNamespace}.${configExportName}, app),`;
 
     let content = fs.readFileSync(serverIndexFilepath, 'utf8');
     const initialContent = content;
@@ -423,7 +433,7 @@ const registerRootService = ({
         matcher: /^import \* as .* from ['"]@\/server\/config\//,
         fallbackMatcher: /^import .* from ['"]@\/server\/services\//,
     });
-    content = insertClassProperty({ content, propertyLine });
+    content = insertRootServiceProperty({ content, definitionPropertyLine });
 
     if (content === initialContent) {
         return {

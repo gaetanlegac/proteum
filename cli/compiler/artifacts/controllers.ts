@@ -8,7 +8,7 @@ import writeIfChanged from '../writeIfChanged';
 import { resolveConnectedProjectContracts, writeConnectedProjectContract } from './connectedProjects';
 import { normalizeAbsolutePath } from './shared';
 
-const reservedConnectedContextKeys = new Set(['app', 'context', 'request', 'response', 'route', 'api', 'Router']);
+const reservedConnectedContextKeys = new Set(['app', 'services', 'context', 'request', 'response', 'route', 'api', 'Router']);
 
 const getManifestScopeFromImportPath = (importPath: string) =>
     importPath.startsWith('@server/controllers/') ? 'framework' : 'app';
@@ -70,10 +70,11 @@ export const generateControllerArtifacts = async () => {
     const typeImports: string[] = [];
 
     localControllers.forEach((controller, index) => {
-        typeImports.push(`import type Controller${index} from ${JSON.stringify(controller.importPath)};`);
+        typeImports.push(`type Controller${index} = typeof import(${JSON.stringify(controller.importPath)}).default;`);
 
         controller.methods.forEach((method) => {
-            const resultType = `TControllerResult<Controller${index}, ${JSON.stringify(method.name)}>`;
+            const resultType = `TControllerActionResult<Controller${index}, ${JSON.stringify(method.name)}>`;
+            const inputType = `TControllerActionInput<Controller${index}, ${JSON.stringify(method.name)}>`;
             const clientAccessor = method.routePath.split('/').join('.');
 
             manifestControllers.push({
@@ -98,6 +99,7 @@ export const generateControllerArtifacts = async () => {
                     connected: undefined,
                     hasInput: method.inputCallsCount > 0,
                     httpPath: '/api/' + method.routePath,
+                    inputType,
                     methodName: method.name,
                     resultType,
                     typeName: `Controller${index}`,
@@ -109,6 +111,7 @@ export const generateControllerArtifacts = async () => {
                 clientAccessor,
                 JSON.stringify({
                     hasInput: method.inputCallsCount > 0,
+                    inputType,
                     methodName: method.name,
                     typeName: `Controller${index}`,
                 }),
@@ -183,6 +186,7 @@ export const generateControllerArtifacts = async () => {
             };
             hasInput: boolean;
             httpPath: string;
+            inputType?: string;
             resultType: string;
         };
 
@@ -191,7 +195,7 @@ export const generateControllerArtifacts = async () => {
             : '';
 
         return meta.hasInput
-            ? `(data) => api.createFetcher<${meta.resultType}>('POST', ${JSON.stringify(meta.httpPath)}, data${connectedOptions})`
+            ? `(data: ${meta.inputType || 'any'}) => api.createFetcher<${meta.resultType}>('POST', ${JSON.stringify(meta.httpPath)}, data as TPostDataWithFile${connectedOptions})`
             : `() => api.createFetcher<${meta.resultType}>('POST', ${JSON.stringify(meta.httpPath)}, undefined${connectedOptions})`;
     };
 
@@ -205,15 +209,16 @@ export const generateControllerArtifacts = async () => {
               }
             | {
                   hasInput: boolean;
+                  inputType?: string;
                   methodName: string;
                   typeName: string;
               };
 
         if ('rawType' in meta) return meta.rawType;
         if ('runtimeOnly' in meta) return 'any';
-        const fetcherType = `TControllerFetcher<${meta.typeName}, ${JSON.stringify(meta.methodName)}>`;
+        const fetcherType = `TFetcher<TControllerActionResult<${meta.typeName}, ${JSON.stringify(meta.methodName)}>>`;
 
-        return meta.hasInput ? `(data: any) => ${fetcherType}` : `() => ${fetcherType}`;
+        return meta.hasInput ? `(data: ${meta.inputType || 'any'}) => ${fetcherType}` : `() => ${fetcherType}`;
     };
 
     const createControllersContent = `/*----------------------------------
@@ -224,13 +229,9 @@ export const generateControllerArtifacts = async () => {
 // Do not edit it manually.
 
 import type ApiClient from '@common/router/request/api';
-import type { TFetcher } from '@common/router/request/api';
+import type { TFetcher, TPostDataWithFile } from '@common/router/request/api';
+import type { TControllerActionInput, TControllerActionResult } from '@server/app/controller';
 ${[...typeImports, ...connectedControllerTypeImports].join('\n') ? '\n' + [...typeImports, ...connectedControllerTypeImports].join('\n') : ''}
-
-type TControllerResult<TController, TMethod extends keyof TController> =
-    TController[TMethod] extends (...args: any[]) => infer TResult ? Awaited<TResult> : never;
-
-type TControllerFetcher<TController, TMethod extends keyof TController> = TFetcher<TControllerResult<TController, TMethod>>;
 
 type TConnectedFallbackValue =
     | string
@@ -284,7 +285,7 @@ export type { TControllers } from '@generated/common/controllers';
         path: ${JSON.stringify('/api/' + method.routePath)},
         filepath: ${JSON.stringify(normalizeAbsolutePath(controller.filepath))},
         sourceLocation: { line: ${method.sourceLocation.line}, column: ${method.sourceLocation.column} },
-        Controller: Controller${controllerIndex},
+        action: Controller${controllerIndex}.actions[${JSON.stringify(method.name)}],
         method: ${JSON.stringify(method.name)},
     },`,
         ),
@@ -299,14 +300,14 @@ export type { TControllers } from '@generated/common/controllers';
 // This file is generated by Proteum from server controller files.
 // Do not edit it manually.
 
-import type Controller from '@server/app/controller';
+import type { TControllerActionDefinition } from '@server/app/controller';
 ${controllerImports ? '\n' + controllerImports : ''}
 
 export type TGeneratedControllerDefinition = {
     path: string,
     filepath: string,
     sourceLocation: { line: number, column: number },
-    Controller: new (request: any) => Controller,
+    action: TControllerActionDefinition<any, any, any, any>,
     method: string,
 }
 

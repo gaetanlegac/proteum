@@ -7,7 +7,6 @@ export const proteumCommandNames = [
     'init',
     'create',
     'configure',
-    'migrate',
     'dev',
     'refresh',
     'build',
@@ -61,7 +60,7 @@ export const proteumCommandGroups: Array<{ title: string; names: TProteumCommand
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check', 'e2e'] },
     { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'db', 'runtime', 'mcp', 'trace', 'command', 'session', 'verify'] },
-    { title: 'Project scaffolding', names: ['init', 'configure', 'create', 'migrate'] },
+    { title: 'Project scaffolding', names: ['init', 'configure', 'create'] },
 ];
 
 export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = {
@@ -132,31 +131,6 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'Monorepo mode writes reusable root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root, then writes only app-root and area instruction files into the current Proteum app root.',
             'Every managed instruction file contains a `# Proteum Instructions` section with the full embedded Proteum project instruction corpus.',
             'Existing content outside `# Proteum Instructions` is preserved. Directories and foreign symlinks are replaced only after confirmation.',
-        ],
-        status: 'experimental',
-    },
-    migrate: {
-        name: 'migrate',
-        category: 'Project scaffolding',
-        summary: 'Rewrite legacy page registrations to the explicit Router.page(path, options, data, render) contract.',
-        usage: 'proteum migrate page-contract [--cwd <path>] [--dry-run] [--json]',
-        bestFor:
-            'Upgrading existing Proteum apps to the single explicit page contract without hand-editing every `client/pages/**` file.',
-        examples: [
-            { description: 'Rewrite the current app in place', command: 'proteum migrate page-contract' },
-            {
-                description: 'Preview the migration without writing files',
-                command: 'proteum migrate page-contract --dry-run --json',
-            },
-            {
-                description: 'Migrate another app root from the current shell',
-                command: 'proteum migrate page-contract --cwd /path/to/app',
-            },
-        ],
-        notes: [
-            'This migration rewrites supported legacy Router.page signatures to the explicit 4-argument form.',
-            'If a page data function cannot be analyzed safely, Proteum leaves the file unchanged and reports a manual-fix location.',
-            'Run `proteum typecheck` and `proteum build --strict` after the rewrite.',
         ],
         status: 'experimental',
     },

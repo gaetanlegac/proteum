@@ -21,8 +21,11 @@ import BaseRouter, {
     TErrorRoute,
     TRouteOptions,
     TRouteModule,
+    type TRouteDefinition,
+    type TRouteMetadata,
     matchRoute,
     buildUrl,
+    withRouteMetadata,
 } from '@common/router';
 import type { TRegisterPageArgs, TSsrUnresolvedRoute } from '@common/router/contracts';
 import { getLayout } from '@common/router/layouts';
@@ -241,14 +244,31 @@ export default class ClientRouter<
         return currentRoute;
     }
 
-    public page<TProvidedData extends {} = {}>(
+    public registerRouteDefinition(definition: TRouteDefinition, metadata: TRouteMetadata = {}) {
+        if (definition.kind === 'page') {
+            return this.page(
+                definition.path,
+                withRouteMetadata(definition.options, metadata),
+                definition.data,
+                definition.render,
+            );
+        }
+
+        if (definition.kind === 'error') {
+            return this.error(definition.code, withRouteMetadata(definition.options, metadata), definition.render);
+        }
+
+        throw new Error(`Client router cannot register server route definition: ${definition.method} ${definition.path}`);
+    }
+
+    protected page<TProvidedData extends {} = {}>(
         path: string,
         options: Partial<TRouteOptions>,
         data: TPageDataProvider<TProvidedData> | null,
         renderer: TFrontRenderer<TProvidedData>,
     ): TClientPageRoute<this>;
 
-    public page(...args: TRegisterPageArgs<any, TRouteOptions>): TClientPageRoute<this> {
+    protected page(...args: TRegisterPageArgs<any, TRouteOptions>): TClientPageRoute<this> {
         const { path, options, data, renderer, layout } = getRegisterPageArgs(...args);
 
         // Page ids are injected by the generated route wrapper modules.
@@ -272,7 +292,7 @@ export default class ClientRouter<
         return route;
     }
 
-    public error(
+    protected error(
         code: number,
         options: Partial<TRouteOptions>,
         renderer: TFrontRenderer<{}, { message: string }>,

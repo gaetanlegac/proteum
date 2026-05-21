@@ -105,6 +105,8 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(agentsContent, /central MCP ready banner/);
     assert.match(agentsContent, /proteum-mcp-v1/);
     assert.match(agentsContent, /## Triggered Instruction Reads/);
+    assert.match(agentsContent, /Worktree Preflight/);
+    assert.match(agentsContent, /copy `\.env` from the main worktree when missing/);
     assert.match(agentsContent, /Git lifecycle/);
     assert.match(agentsContent, /read Root contract fallback before any git write/);
     assert.match(agentsContent, /Before git writes after a bug fix, behavior change, decision change, or docs-relevant production change/);
@@ -237,6 +239,7 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /## Known Proteum Apps/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /apps\/product/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /Do not start `npx proteum dev` from this root/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /Worktree Preflight/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'CODING_STYLE.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'DOCUMENTATION.md'), 'utf8'), /## Source: DOCUMENTATION\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'diagnostics.md'), 'utf8'), /## Source: diagnostics\.md/);

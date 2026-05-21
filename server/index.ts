@@ -3,6 +3,10 @@ import Application from '@/server/index';
 import { isServerHotReloadRequest, serverHotReloadMessageType } from '@common/dev/serverHotReload';
 
 const application = AppContainer.start(Application);
+const router = application.Router as {
+    started?: Promise<unknown>;
+    reloadGeneratedDefinitions?: (changedFiles: string[]) => Promise<unknown>;
+};
 let shutdownPromise: Promise<void> | undefined;
 
 const shutdownApplication = async (reason: string) => {
@@ -36,8 +40,8 @@ if (__DEV__ && typeof process.send === 'function') {
 
         void (async () => {
             try {
-                await application.Router?.started;
-                await application.Router.reloadGeneratedDefinitions(message.changedFiles);
+                await router.started;
+                await router.reloadGeneratedDefinitions?.(message.changedFiles);
 
                 process.send?.({ type: serverHotReloadMessageType.succeeded, changedFiles: message.changedFiles });
             } catch (error) {

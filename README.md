@@ -4,8 +4,6 @@ Proteum is an LLM-first SSR / SEO / TypeScript framework for full-stack web appl
 
 It is built for teams that want explicit server contracts, server-first rendering, deterministic generated artifacts, and a codebase that an AI agent can inspect without reverse-engineering hidden runtime magic.
 
-Migration guide for older apps: [docs/migrate-from-2.1.3.md](docs/migrate-from-2.1.3.md)
-
 ## Sponsor
 
 Proteum is sponsored by [Unique Domains](https://unique.domains/?utm_source=github&utm_medium=referral&utm_campaign=repo_proteum&utm_content=top_sponsor).
@@ -33,8 +31,8 @@ Proteum combines:
 ## Core Principles
 
 - **Server-first by default.** Put data loading in the page data function and keep client code focused on UI.
-- **Explicit request entrypoints.** Controllers are classes. Request access is explicit through `this.request`.
-- **Local validation.** Validate handler input inside the handler with `this.input(schema)`.
+- **Explicit request entrypoints.** Routes and controllers are exported definition objects.
+- **Local validation.** Declare controller input on `defineAction({ input, handler })`; handlers receive parsed `input`.
 - **Deterministic generation.** Proteum owns `.proteum/` and regenerates it from source.
 - **Explainability matters.** `proteum explain`, `proteum doctor`, `proteum diagnose`, `proteum perf`, and `proteum trace` expose the framework view of your app and its live requests, and the profiler renders the same diagnostics and perf surfaces for humans in dev.
 - **SEO is not an afterthought.** Identity, routes, layouts, and SSR data are part of the app contract.
@@ -76,9 +74,9 @@ Important files:
 - `proteum.config.ts`: typed Proteum compiler and connection settings such as `transpile` and `connect` via `Application.setup({ ... })`
 - `process.env` / optional `.env`: `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, any app-chosen variables referenced by `proteum.config.ts`, and `TRACE_*` environment variables loaded by the app
 - `server/config/*.ts`: plain typed config exports consumed by the explicit app bootstrap
-- `server/index.ts`: default-exported `Application` subclass that instantiates root services and router plugins
-- `client/pages/**`: SSR page entrypoints registered through `Router.page(path, options, data, render)`
-- `server/controllers/**`: request handlers that extend `Controller`
+- `server/index.ts`: default-exported `defineApplication({ services, router, models, commands })` application graph
+- `client/pages/**`: SSR page entrypoints that default-export `definePageRoute({ path, options, data, render })`
+- `server/controllers/**`: generated API definitions that default-export `defineController({ path, actions })`
 - `commands/**`: dev-only internal commands that extend `Commands`
 - `server/services/**`: business logic that extends `Service`
 - `.proteum/**`: framework-owned generated contracts and manifests
@@ -169,25 +167,27 @@ export const routerBaseConfig = {
 
 ```ts
 // server/index.ts
-import { Application } from '@server/app';
+import { defineApplication } from '@server/app';
 import Router from '@server/services/router';
 import SchemaRouter from '@server/services/schema/router';
 import Users from '@/server/services/Users';
 import * as userConfig from '@/server/config/user';
 
-export default class MyApp extends Application {
-  public Users = new Users(this, userConfig.usersConfig, this);
-  public Router = new Router(
-    this,
-    {
-      ...userConfig.routerBaseConfig,
-      plugins: {
-        schema: new SchemaRouter({}, this),
+export default defineApplication({
+  services: (app) => ({
+    Users: new Users(app, userConfig.usersConfig, app),
+    Router: new Router(
+      app,
+      {
+        ...userConfig.routerBaseConfig,
+        plugins: {
+          schema: new SchemaRouter({}, app),
+        },
       },
-    },
-    this
-  );
-}
+      app
+    ),
+  }),
+});
 ```
 
 Proteum reads `server/index.ts` as the source of truth for installed root services and router plugins, and reads `server/config/*.ts` `Services.config(...)` exports for typed config such as service priority overrides.
@@ -233,60 +233,59 @@ Default public asset validators depend on the environment: dev disables `ETag` a
 Proteum pages are explicit SSR entrypoints.
 
 ```tsx
-import Router from '@/client/router';
+import { definePageRoute } from '@common/router';
 
-Router.page(
-  '/',
-  {
+export default definePageRoute({
+  path: '/',
+  options: {
     auth: false,
     layout: false,
   },
-  ({ Plans, Stats }) => ({
+  data: ({ Plans, Stats }) => ({
     plans: Plans.getPlans(),
     stats: Stats.general(),
   }),
-  ({ plans, stats }) => {
+  render: ({ plans, stats }) => {
     return <LandingPage plans={plans} stats={stats} />;
-  }
-);
+  },
+});
 ```
 
 What happens here:
 
-- the first argument is the route path
-- the second argument is the explicit route-options object
-- the third argument is the page data function or `null`
+- `path`, `options`, and error `code` metadata are static and compiler-readable
 - route behavior such as `auth`, `layout`, `static`, or `redirectLogged` lives in the options object
-- every key returned from the data function becomes page data
-- the renderer receives the resolved data and the generated controller/service context
+- every key returned from `data` becomes page data
+- runtime app/client references are allowed only inside `data` and `render`
 
 ## Example: Controller
 
 Proteum controllers are explicit request entrypoints.
 
 ```ts
-import Controller, { schema } from '@server/app/controller';
+import { defineAction, defineController, schema } from '@server/app/controller';
 
-export default class AuthController extends Controller<MyApp> {
-  public async loginWithPassword() {
-    const { Auth } = this.services;
-    const data = this.input(
-      schema.object({
+export default defineController({
+  path: 'Auth',
+  actions: {
+    loginWithPassword: defineAction({
+      input: schema.object({
         email: schema.string().email(),
         password: schema.string().min(8),
-      })
-    );
-
-    return Auth.loginWithPassword(data, this.request);
-  }
-}
+      }),
+      handler: ({ input, services, request }) => {
+        return services.Auth.loginWithPassword(input, request);
+      },
+    }),
+  },
+});
 ```
 
 Controller rules:
 
-- read request-scoped values from `this.request`
-- validate once with `this.input(schema)`
-- call business logic through `this.services`, `this.models`, or `this.app`
+- read request-scoped values from action context
+- declare validation once with `defineAction({ input, handler })`
+- call business logic through `services`, `models`, or `app`
 - return explicit values instead of relying on ambient globals
 
 ## Example: Command

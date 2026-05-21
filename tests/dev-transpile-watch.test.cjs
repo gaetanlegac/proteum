@@ -370,24 +370,26 @@ ${cacheConfigSource}
     );
     writeFile(
         path.join(appRoot, 'server', 'index.ts'),
-        `import { Application } from '@server/app';
+        `import { defineApplication } from '@server/app';
 import Router from '@server/services/router';
 import SchemaRouter from '@server/services/schema/router';
 
 import * as appConfig from '@/server/config/app';
 
-export default class TranspileWatchFixture extends Application {
-    public Router = new Router(
-        this,
-        {
-            ...appConfig.routerBaseConfig,
-            plugins: {
-                schema: new SchemaRouter({}, this),
+export default defineApplication({
+    services: (app) => ({
+        Router: new Router(
+            app,
+            {
+                ...appConfig.routerBaseConfig,
+                plugins: {
+                    schema: new SchemaRouter({}, app),
+                },
             },
-        },
-        this,
-    );
-}
+            app,
+        ),
+    }),
+});
 `,
     );
     writeFile(
@@ -411,48 +413,48 @@ export default class TranspileWatchClient extends ClientApplication {
     );
     writeFile(
         path.join(appRoot, 'client', 'pages', 'index.tsx'),
-        `import Router from '@/client/router';
+        `import { definePageRoute } from '@common/router/definitions';
 import { SharedMarker } from '@test/shared';
 
-Router.page(
-    '/',
-    {
+export default definePageRoute({
+    path: '/',
+    options: {
         auth: false,
         layout: false,
     },
-    null,
-    () => {
+    data: null,
+    render: () => {
         return (
             <main>
                 <SharedMarker />
             </main>
         );
     },
-);
+});
 `,
     );
     if (options.staticPage) {
         writeFile(
             path.join(appRoot, 'client', 'pages', 'static-cache.tsx'),
-            `import Router from '@/client/router';
+            `import { definePageRoute } from '@common/router/definitions';
 import { SharedMarker } from '@test/shared';
 
-Router.page(
-    '/static-cache',
-    {
+export default definePageRoute({
+    path: '/static-cache',
+    options: {
         auth: false,
         layout: false,
         static: { urls: ['/static-cache'] },
     },
-    null,
-    () => {
+    data: null,
+    render: () => {
         return (
             <main>
                 <SharedMarker />
             </main>
         );
     },
-);
+});
 `,
         );
     }
@@ -539,8 +541,13 @@ test('proteum dev invalidates client assets and reloads for transpiled package s
 
     try {
         await waitForSessionReady(sessionFile, child, getOutput);
+        await request(port, '/', { Accept: 'text/html' });
 
-        const initialScriptAsset = await waitForAssetContaining(appRoot, '.js', 'SCRIPT_MARKER_INITIAL');
+        const initialScriptAsset = await waitForAssetContaining(appRoot, '.js', 'SCRIPT_MARKER_INITIAL').catch(
+            (error) => {
+                throw new Error(`${error.message}\n${getOutput()}`);
+            },
+        );
         const initialScriptContent = fs.readFileSync(initialScriptAsset, 'utf8');
         const scriptReloadStream = await connectToReloadStream(port + 1);
 
@@ -608,7 +615,9 @@ test('proteum dev applies router HTTP cache config to HTML and public assets', {
         const staticResponse = await waitForHeader(port, '/static-cache', 'cache-control', staticHtmlCacheControl);
         assert.equal(staticResponse.headers.get('surrogate-control'), 'static-surrogate');
 
-        const asset = await waitForAssetContaining(appRoot, '.js', 'SCRIPT_MARKER_INITIAL');
+        const asset = await waitForAssetContaining(appRoot, '.js', 'SCRIPT_MARKER_INITIAL').catch((error) => {
+            throw new Error(`${error.message}\n${getOutput()}`);
+        });
         const { response: assetResponse } = await request(port, toPublicAssetUrl(appRoot, asset));
 
         assert.equal(assetResponse.headers.get('cache-control'), publicAssetCacheControl);

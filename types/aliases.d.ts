@@ -49,8 +49,3 @@ declare module '@/client/context' {
 
     export default useContext;
 }
-
-declare module '@app' {
-    const ServerApplicationClass: import('../server/app').default;
-    export = ServerApplicationClass;
-}

@@ -11,6 +11,17 @@ const lint = (code) => {
 };
 
 const swallowedErrorRuleId = 'proteum/no-swallowed-caught-error';
+const noAppImportRuleId = 'proteum/no-app-import';
+
+test('proteum lint rejects contextual @app imports', () => {
+    const messages = lint(`
+        import { Router } from '@app';
+
+        export const route = Router;
+    `);
+
+    assert.equal(messages.some((message) => message.ruleId === noAppImportRuleId), true);
+});
 
 test('proteum lint rejects empty catch blocks', () => {
     const messages = lint(`

@@ -23,7 +23,7 @@ When tradeoffs exist inside optimization work, optimize in this order:
 
 ## SSR And Page Size
 
-- SSR page data belongs in the explicit `Router.page(path, options, data, render)` `data` function, not in `api.fetch(...)`.
+- SSR page data belongs in the explicit `definePageRoute({ path, options, data, render })` `data` function, not in `api.fetch(...)`.
 - `options` carries route behavior. `data` returns one flat object or is `null` when the page has no SSR data loader.
 - Route-option keys and `_`-prefixed route-option aliases are forbidden in page data and must live in `options`.
 - If a page needs route data, return it from `data` and read it in `render`.

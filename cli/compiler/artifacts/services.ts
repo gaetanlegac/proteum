@@ -50,6 +50,11 @@ type TResolvedImportSource = {
     sourceFilepath?: string;
 };
 
+type TObjectLiteralFactoryDetails = {
+    object: ts.ObjectLiteralExpression;
+    localInitializers: Map<string, ts.Expression>;
+};
+
 const coreServicesRoot = normalizeAbsolutePath(path.join(cli.paths.core.root, 'server', 'services'));
 const appServicesRoot = normalizeAbsolutePath(path.join(app.paths.root, 'server', 'services'));
 const coreServerRoot = normalizeAbsolutePath(path.join(cli.paths.core.root, 'server'));
@@ -111,7 +116,7 @@ const getDefaultExportClassDeclaration = (sourceFile: ts.SourceFile) => {
     }
 
     if (!defaultExportIdentifier) {
-        throw new Error(`Expected ${sourceFile.fileName} to default-export an Application subclass.`);
+        throw new Error(`Expected ${sourceFile.fileName} to default-export a class.`);
     }
 
     const declaration = sourceFile.statements.find(
@@ -121,7 +126,7 @@ const getDefaultExportClassDeclaration = (sourceFile: ts.SourceFile) => {
 
     if (!declaration) {
         throw new Error(
-            `Unable to resolve the default-exported Application class "${defaultExportIdentifier}" in ${sourceFile.fileName}.`,
+            `Unable to resolve the default-exported class "${defaultExportIdentifier}" in ${sourceFile.fileName}.`,
         );
     }
 
@@ -250,6 +255,108 @@ const getObjectLiteralProperty = (expression: ts.ObjectLiteralExpression, proper
 
         return getPropertyNameText(property.name) === propertyName;
     });
+
+const collectConstInitializers = (sourceFile: ts.SourceFile) => {
+    const initializers = new Map<string, ts.Expression>();
+
+    for (const statement of sourceFile.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        if (!(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+
+        for (const declaration of statement.declarationList.declarations) {
+            if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+
+            initializers.set(declaration.name.text, declaration.initializer);
+        }
+    }
+
+    return initializers;
+};
+
+const resolveLocalIdentifierExpression = (
+    expression: ts.Expression,
+    constInitializers: Map<string, ts.Expression>,
+) => {
+    const unwrappedExpression = unwrapExpression(expression);
+    if (!ts.isIdentifier(unwrappedExpression)) return unwrappedExpression;
+
+    return constInitializers.get(unwrappedExpression.text) || unwrappedExpression;
+};
+
+const getDefaultExportExpression = (sourceFile: ts.SourceFile) => {
+    const constInitializers = collectConstInitializers(sourceFile);
+
+    for (const statement of sourceFile.statements) {
+        if (!ts.isExportAssignment(statement) || statement.isExportEquals) continue;
+
+        return resolveLocalIdentifierExpression(statement.expression, constInitializers);
+    }
+
+    return undefined;
+};
+
+const getCallExpressionName = (expression: ts.Expression) => {
+    if (ts.isIdentifier(expression)) return expression.text;
+    if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+    return undefined;
+};
+
+const getObjectLiteralFromFactory = (expression: ts.Expression): ts.ObjectLiteralExpression | undefined => {
+    return getObjectLiteralFactoryDetails(expression)?.object;
+};
+
+const getObjectLiteralFactoryDetails = (expression: ts.Expression): TObjectLiteralFactoryDetails | undefined => {
+    const unwrappedExpression = unwrapExpression(expression);
+
+    if (ts.isObjectLiteralExpression(unwrappedExpression)) {
+        return { object: unwrappedExpression, localInitializers: new Map() };
+    }
+
+    if (ts.isArrowFunction(unwrappedExpression) || ts.isFunctionExpression(unwrappedExpression)) {
+        const body = unwrapExpression(unwrappedExpression.body as ts.Expression);
+
+        if (ts.isObjectLiteralExpression(body)) {
+            return { object: body, localInitializers: new Map() };
+        }
+
+        if (ts.isBlock(unwrappedExpression.body)) {
+            const localInitializers = new Map<string, ts.Expression>();
+
+            for (const statement of unwrappedExpression.body.statements) {
+                if (ts.isVariableStatement(statement) && statement.declarationList.flags & ts.NodeFlags.Const) {
+                    for (const declaration of statement.declarationList.declarations) {
+                        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+
+                        localInitializers.set(declaration.name.text, declaration.initializer);
+                    }
+                    continue;
+                }
+
+                if (!ts.isReturnStatement(statement) || !statement.expression) continue;
+
+                const returnExpression = unwrapExpression(statement.expression);
+                if (ts.isObjectLiteralExpression(returnExpression)) {
+                    return { object: returnExpression, localInitializers };
+                }
+            }
+        }
+    }
+
+    return undefined;
+};
+
+const getDefaultDefineApplicationObject = (sourceFile: ts.SourceFile) => {
+    const expression = getDefaultExportExpression(sourceFile);
+    if (!expression || !ts.isCallExpression(expression)) return undefined;
+    if (getCallExpressionName(expression.expression) !== 'defineApplication') return undefined;
+
+    const [definitionArg] = [...expression.arguments];
+    if (!definitionArg || !ts.isObjectLiteralExpression(definitionArg)) {
+        throw new Error(`defineApplication(...) in ${sourceFile.fileName} must receive an object literal.`);
+    }
+
+    return definitionArg;
+};
 
 const readNumericLiteral = (expression: ts.Expression) => {
     const unwrappedExpression = unwrapExpression(expression);
@@ -447,38 +554,106 @@ const extractRouterPlugins = (
     return routerPlugins;
 };
 
-const parseAppBootstrap = (): TParsedAppBootstrap => {
-    const sourceFile = createSourceFile(getAppServerEntryFilepath());
-    const imports = buildImportIndex(sourceFile);
-    const appClass = getDefaultExportClassDeclaration(sourceFile);
+const parseRootServiceObject = (
+    servicesObject: ts.ObjectLiteralExpression | undefined,
+    imports: Map<string, TImportedBinding>,
+    sourceFilepath: string,
+    localInitializers = new Map<string, ts.Expression>(),
+) => {
+    if (!servicesObject) return [];
 
     const rootServices: TParsedService[] = [];
-    let routerPlugins: TParsedService[] = [];
 
-    for (const member of appClass.members) {
-        if (!ts.isPropertyDeclaration(member) || !member.initializer) continue;
+    for (const property of servicesObject.properties) {
+        if (!ts.isPropertyAssignment(property)) continue;
 
-        const registeredName = getPropertyNameText(member.name);
+        const registeredName = getPropertyNameText(property.name);
         if (!registeredName) continue;
 
-        const rootService = parseServiceInstantiation(registeredName, member.initializer, imports, sourceFile.fileName, 1);
+        const initializer =
+            ts.isIdentifier(unwrapExpression(property.initializer)) &&
+            localInitializers.has((unwrapExpression(property.initializer) as ts.Identifier).text)
+                ? localInitializers.get((unwrapExpression(property.initializer) as ts.Identifier).text)!
+                : property.initializer;
+        const rootService = parseServiceInstantiation(registeredName, initializer, imports, sourceFilepath, 1);
         if (!rootService) continue;
 
         rootServices.push(rootService);
+    }
 
-        if (rootService.importPath === '@server/services/router') {
-            const initializer = unwrapExpression(member.initializer);
-            if (!ts.isNewExpression(initializer)) continue;
+    return rootServices;
+};
 
+const parseDefineApplicationBootstrap = (
+    sourceFile: ts.SourceFile,
+    imports: Map<string, TImportedBinding>,
+): TParsedAppBootstrap | undefined => {
+    const definitionArg = getDefaultDefineApplicationObject(sourceFile);
+    if (!definitionArg) return undefined;
+
+    const servicesProperty = getObjectLiteralProperty(definitionArg, 'services');
+    const servicesDetails =
+        servicesProperty && ts.isPropertyAssignment(servicesProperty)
+            ? getObjectLiteralFactoryDetails(servicesProperty.initializer)
+            : undefined;
+    const servicesObject = servicesDetails?.object;
+    const localServiceInitializers = servicesDetails?.localInitializers || new Map<string, ts.Expression>();
+    const rootServices = parseRootServiceObject(servicesObject, imports, sourceFile.fileName, localServiceInitializers);
+    const routerProperty = getObjectLiteralProperty(definitionArg, 'router');
+
+    if (routerProperty && ts.isPropertyAssignment(routerProperty)) {
+        const routerService = parseServiceInstantiation('Router', routerProperty.initializer, imports, sourceFile.fileName, 1);
+        if (routerService && !rootServices.some((service) => service.registeredName === 'Router')) {
+            rootServices.push(routerService);
+        }
+    }
+
+    const routerService = rootServices.find((rootService) => rootService.importPath === '@server/services/router');
+    let routerPlugins: TParsedService[] = [];
+
+    if (routerService?.registeredName === 'Router') {
+        const routerExpression =
+            servicesObject &&
+            servicesObject.properties
+                .filter((property): property is ts.PropertyAssignment => ts.isPropertyAssignment(property))
+                .find((property) => getPropertyNameText(property.name) === 'Router')?.initializer;
+
+        const routerInitializer =
+            routerExpression ||
+            (routerProperty && ts.isPropertyAssignment(routerProperty) ? routerProperty.initializer : undefined);
+        const unwrappedRouterInitializer = routerInitializer ? unwrapExpression(routerInitializer) : undefined;
+        const initializer =
+            unwrappedRouterInitializer &&
+            ts.isIdentifier(unwrappedRouterInitializer) &&
+            localServiceInitializers.has(unwrappedRouterInitializer.text)
+                ? unwrapExpression(localServiceInitializers.get(unwrappedRouterInitializer.text)!)
+                : unwrappedRouterInitializer;
+
+        if (initializer && ts.isNewExpression(initializer)) {
             routerPlugins = extractRouterPlugins(initializer.arguments?.[1], imports, sourceFile.fileName);
         }
     }
 
-    if (rootServices.length === 0) {
+    return { rootServices, routerPlugins };
+};
+
+const parseAppBootstrap = (): TParsedAppBootstrap => {
+    const sourceFile = createSourceFile(getAppServerEntryFilepath());
+    const imports = buildImportIndex(sourceFile);
+    const definitionBootstrap = parseDefineApplicationBootstrap(sourceFile, imports);
+
+    if (!definitionBootstrap) {
+        throw new Error(
+            `${sourceFile.fileName} must default-export defineApplication({ services, router, models, commands }). ` +
+                'Application subclasses are no longer supported.',
+        );
+    }
+
+    if (definitionBootstrap.rootServices.length === 0) {
         throw new Error(`No root services were found in ${sourceFile.fileName}.`);
     }
 
-    return { rootServices, routerPlugins };
+    return definitionBootstrap;
 };
 
 const commandServiceSearchRoots = [
@@ -652,7 +827,7 @@ const createCommandServiceStubDeclarations = (rootServices: TParsedService[]): T
             stubs.set(
                 source.aliasImportPath,
                 `declare class ${getStubTypeName(source)} {
-    app: import("@/server/index").default;
+    app: InstanceType<typeof import("@/server/index").default>;
     [key: string]: any;
 }`,
             );
@@ -660,7 +835,7 @@ const createCommandServiceStubDeclarations = (rootServices: TParsedService[]): T
         }
 
         const className = getStubTypeName(source);
-        const classMembers = [`    app: import("@/server/index").default;`];
+        const classMembers = [`    app: InstanceType<typeof import("@/server/index").default>;`];
 
         for (const member of defaultClass.members) {
             if (isPrivateOrProtectedInstanceMember(member)) continue;
@@ -714,12 +889,12 @@ ${classMembers.join('\n')}
 const isNamespaceImportDeclaration = (statement: ts.ImportDeclaration) =>
     statement.importClause?.namedBindings !== undefined && ts.isNamespaceImport(statement.importClause.namedBindings);
 
-const isClientServerStubSupportStatement = (statement: ts.Statement, appClassIdentifier: string) => {
+const isClientServerStubSupportStatement = (statement: ts.Statement, appIdentifier: string) => {
     if (ts.isTypeAliasDeclaration(statement)) {
         return !new Set([
-            `${appClassIdentifier}Disks`,
-            `${appClassIdentifier}Router`,
-            `${appClassIdentifier}RouterPlugins`,
+            `${appIdentifier}Disks`,
+            `${appIdentifier}Router`,
+            `${appIdentifier}RouterPlugins`,
         ]).has(statement.name.text);
     }
 
@@ -728,7 +903,6 @@ const isClientServerStubSupportStatement = (statement: ts.Statement, appClassIde
 
 const createClientServerIndexDeclaration = (rootServices: TParsedService[]) => {
     const sourceFile = createSourceFile(getAppServerEntryFilepath());
-    const appClass = getDefaultExportClassDeclaration(sourceFile);
     const serviceTypesByRegisteredName = new Map(
         rootServices.map((service) => [service.registeredName, `import("${service.importPath}").default`] as const),
     );
@@ -738,26 +912,19 @@ const createClientServerIndexDeclaration = (rootServices: TParsedService[]) => {
         .filter((statement) => !isNamespaceImportDeclaration(statement))
         .map((statement) => statement.getText(sourceFile));
     const supportStatements = sourceFile.statements
-        .slice(0, sourceFile.statements.indexOf(appClass))
         .filter((statement) => isClientServerStubSupportStatement(statement, app.identity.identifier))
         .map((statement) => statement.getText(sourceFile));
-    const heritageClauses = appClass.heritageClauses?.map((clause) => clause.getText(sourceFile)).join(' ');
-    const properties = appClass.members
-        .filter((member): member is ts.PropertyDeclaration => ts.isPropertyDeclaration(member))
-        .filter((member) => !isPrivateOrProtectedInstanceMember(member))
-        .map((property) => {
-            const propertyName = getPropertyNameText(property.name);
-            if (!propertyName) return undefined;
-
+    const properties = rootServices
+        .map((service) => {
             const propertyType =
-                propertyName === 'Disks'
+                service.registeredName === 'Disks'
                     ? 'object'
-                    : propertyName === 'Router'
+                    : service.registeredName === 'Router'
                       ? `${app.identity.identifier}Router`
-                      : property.type?.getText(sourceFile) || serviceTypesByRegisteredName.get(propertyName);
+                      : serviceTypesByRegisteredName.get(service.registeredName);
             if (!propertyType) return undefined;
 
-            return `    public ${propertyName}: ${propertyType};`;
+            return `    public ${service.registeredName}: ${propertyType};`;
         })
         .filter((property): property is string => property !== undefined);
 
@@ -767,7 +934,7 @@ ${supportStatements.join('\n\n')}
 
 type ${app.identity.identifier}Router = Router<${app.identity.identifier}>;
 
-export default class ${app.identity.identifier}${heritageClauses ? ` ${heritageClauses}` : ''} {
+export default class ${app.identity.identifier} {
 ${properties.join('\n')}
 }
 `;
@@ -786,7 +953,7 @@ const resolveManifestService = (service: TParsedService, parent: string): TProte
 
 export const generateServiceArtifacts = () => {
     const { rootServices, routerPlugins } = parseAppBootstrap();
-    const appClassIdentifier = app.identity.identifier;
+    const appIdentifier = app.identity.identifier;
     const containerServices = app.containerServices.map((serviceName) => "'" + serviceName + "'").join('|');
     const appServices = rootServices.map((service) => resolveManifestService(service, 'app'));
     const routerPluginServices = routerPlugins.map((service) => resolveManifestService(service, 'Router.plugins'));
@@ -799,15 +966,7 @@ export const generateServiceArtifacts = () => {
 
     writeIfChanged(
         path.join(app.paths.client.generated, 'services.d.ts'),
-        `declare type ${appClassIdentifier} = import("@/server/index").default;
-
-declare module "@app" {
-
-    import { ${appClassIdentifier} as ${appClassIdentifier}Client } from "@/client";
-  
-    export const Router: ${appClassIdentifier}Client['Router'];
-
-}
+        `declare type ${appIdentifier} = InstanceType<typeof import("@/server/index").default>;
     
 declare module '@models/types' {
     export * from '@generated/client/models';
@@ -841,12 +1000,12 @@ declare namespace preact.JSX {
 
     writeIfChanged(
         path.join(app.paths.client.generated, 'context.ts'),
-        `// TODO: move it into core (but how to make sure usecontext returns ${appClassIdentifier}'s context ?)
+        `// TODO: move it into core (but how to make sure usecontext returns ${appIdentifier}'s context ?)
 import React from 'react';
 
-import type ${appClassIdentifier}Client from '@/client/index';
+import type ${appIdentifier}Client from '@/client/index';
 
-export type ClientContext = ${appClassIdentifier}Client["Router"]["context"];
+export type ClientContext = ${appIdentifier}Client["Router"]["context"];
 
 type GlobalClientContextStore = typeof globalThis & {
     __proteumClientContexts?: Record<string, React.Context<ClientContext | undefined>>;
@@ -856,14 +1015,14 @@ const globalClientContextStore = globalThis as GlobalClientContextStore;
 const clientContexts = (globalClientContextStore.__proteumClientContexts ??= {});
 
 export const ReactClientContext =
-    clientContexts['${appClassIdentifier}'] ?? (clientContexts['${appClassIdentifier}'] = React.createContext<ClientContext | undefined>(undefined));
+    clientContexts['${appIdentifier}'] ?? (clientContexts['${appIdentifier}'] = React.createContext<ClientContext | undefined>(undefined));
 export default (): ClientContext => {
     const context = React.useContext<ClientContext | undefined>(ReactClientContext);
     if (context) return context;
 
     throw new Error(
         'Proteum router context hook was called outside the App provider. This is a framework contract failure. ' +
-            'Likely fix: move the hook back under Router.page render ownership or pass the required values explicitly. ' +
+            'Likely fix: move the hook back under definePageRoute render ownership or pass the required values explicitly. ' +
             'Re-check both SSR and client navigation after the fix.',
     );
 };`,
@@ -871,7 +1030,7 @@ export default (): ClientContext => {
 
     writeIfChanged(
         path.join(app.paths.common.generated, 'services.d.ts'),
-        `declare type ${appClassIdentifier} = import("@/server/index").default;
+        `declare type ${appIdentifier} = InstanceType<typeof import("@/server/index").default>;
 
 declare module '@models/types' {
     export * from '@generated/common/models';
@@ -888,7 +1047,7 @@ declare module '@models/types' {
 
     writeIfChanged(
         path.join(app.paths.server.generated, 'commands.d.ts'),
-        `declare type ${appClassIdentifier} = import("@/server/index").default;
+        `declare type ${appIdentifier} = InstanceType<typeof import("@/server/index").default>;
 
 declare module "@models/types" {
     const Models: any;
@@ -903,7 +1062,7 @@ export {};
         path.join(app.paths.server.generated, 'commands.app.d.ts'),
         `${commandServiceStubs.declarations}
 
-declare class ${appClassIdentifier} implements import("@server/app/commands").TCommandApplication {
+declare class ${appIdentifier} implements import("@server/app/commands").TCommandApplication {
     env: import("@server/app/commands").TCommandApplication["env"];
     identity: import("@server/app/commands").TCommandApplication["identity"];
     getRootServices: import("@server/app/commands").TCommandApplication["getRootServices"];
@@ -920,7 +1079,7 @@ ${rootServices
     .join('\n')}
 }
 
-export default ${appClassIdentifier};
+export default ${appIdentifier};
 `,
     );
 
@@ -932,25 +1091,7 @@ export default ${appClassIdentifier};
 
     writeIfChanged(
         path.join(app.paths.server.generated, 'services.d.ts'),
-        `type InstalledServices = import("@server/app").RootServicesOf<import("@/server/index").default>;
-
-declare type ${appClassIdentifier} = import("@/server/index").default;
-
-declare module "@app" {
-
-    import { ApplicationContainer } from '@server/app/container';
-
-    const ServerServices: (
-        Pick< 
-            ApplicationContainer<InstalledServices>, 
-            ${containerServices}
-        >
-        & 
-        ${appClassIdentifier}
-    )
-
-    export = ServerServices
-}
+        `declare type ${appIdentifier} = InstanceType<typeof import("@/server/index").default>;
 
 declare module '@common/errors' {
         

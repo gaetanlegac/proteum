@@ -5,8 +5,6 @@
 // Npm
 import zod from 'zod';
 
-// Core
-import context from '@server/context';
 import {
     toValidationSchema,
     type TValidationSchema,
@@ -63,11 +61,6 @@ export type TControllerRequestContext<
 } & (TRouter extends TAnyRouter ? TRouterContextServices<TControllerRouter<TRouter>> : {}) &
     TRequestServices;
 
-type TControllerBaseContext<TApplication extends object> = {
-    app: TApplication;
-    request: { data: TObjetDonnees };
-};
-
 type TControllerDefaultContext<TApplication extends object, TRequestServices extends object> = {
     app: TApplication;
     context: object;
@@ -80,43 +73,104 @@ type TControllerDefaultContext<TApplication extends object, TRequestServices ext
 } & TRouterContextServices<TControllerApplicationRouter<TApplication>> &
     TRequestServices;
 
-/*----------------------------------
-- CLASS
-----------------------------------*/
-
-export default abstract class Controller<
+export type TControllerActionContext<
+    TInput = undefined,
     TApplication extends object = object,
-    TRouter extends object = object,
     TRequestServices extends object = {},
-    TContext extends TControllerBaseContext<TApplication> = TControllerDefaultContext<TApplication, TRequestServices>,
-> {
-    public constructor(public request: TContext) {}
+> = TControllerDefaultContext<TApplication, TRequestServices> & {
+    input: TInput;
+    models: TControllerModelsClient<TApplication>;
+    services: TApplication;
+};
 
-    public get app(): TApplication {
-        return this.request.app as TApplication;
-    }
+export type TControllerActionDefinition<
+    TInput = undefined,
+    TResult = unknown,
+    TApplication extends object = object,
+    TRequestServices extends object = {},
+> = {
+    input?: TValidationSchema | TValidationShape;
+    handler: (context: TControllerActionContext<TInput, TApplication, TRequestServices>) => TResult;
+};
 
-    public get services(): TApplication {
-        return this.app;
-    }
+export type TControllerDefinition<
+    TActions extends Record<string, TControllerActionDefinition<any, any, any, any>>,
+> = {
+    kind: 'controller';
+    path?: string;
+    actions: TActions;
+};
 
-    public get models(): TControllerModelsClient<TApplication> {
-        const app = this.app as {
-            models?: { client?: TControllerModelsClient<TApplication> };
-            Models?: { client?: TControllerModelsClient<TApplication> };
-        };
-        return (app.models?.client ?? app.Models?.client) as TControllerModelsClient<TApplication>;
-    }
+export type TControllerActionInput<TController, TMethod extends keyof any> = TController extends { actions: infer TActions }
+    ? TMethod extends keyof TActions
+        ? TActions[TMethod] extends TControllerActionDefinition<infer TInput, any, any, any>
+            ? TInput
+            : never
+        : never
+    : never;
 
-    public input<TSchema extends TValidationSchema>(schema: TSchema): zod.output<TSchema>;
-    public input<TShape extends TValidationShape>(schema: TShape): zod.output<zod.ZodObject<TShape>>;
-    public input(schema: TValidationSchema | TValidationShape) {
-        const store = context.getStore() as { inputSchemaUsed?: boolean } | undefined;
-
-        if (store?.inputSchemaUsed) throw new Error('Controller.input() can only be called once per request handler.');
-
-        if (store) store.inputSchemaUsed = true;
-
-        return toValidationSchema(schema).parse(this.request.request.data);
-    }
+export type TControllerActionResult<TController, TMethod extends keyof any> = TController extends {
+    actions: infer TActions;
 }
+    ? TMethod extends keyof TActions
+        ? TActions[TMethod] extends TControllerActionDefinition<any, infer TResult, any, any>
+            ? Awaited<TResult>
+            : never
+        : never
+    : never;
+
+export function defineAction<TSchema extends TValidationSchema, TResult>(
+    definition: {
+        input: TSchema;
+        handler: (context: TControllerActionContext<zod.output<TSchema>>) => TResult;
+    },
+): TControllerActionDefinition<zod.output<TSchema>, TResult>;
+export function defineAction<TShape extends TValidationShape, TResult>(
+    definition: {
+        input: TShape;
+        handler: (context: TControllerActionContext<zod.output<zod.ZodObject<TShape>>>) => TResult;
+    },
+): TControllerActionDefinition<zod.output<zod.ZodObject<TShape>>, TResult>;
+export function defineAction<TResult>(
+    definition: {
+        handler: (context: TControllerActionContext<undefined>) => TResult;
+    },
+): TControllerActionDefinition<undefined, TResult>;
+export function defineAction(definition: {
+    input?: TValidationSchema | TValidationShape;
+    handler: (context: TControllerActionContext<any>) => unknown;
+}) {
+    return definition;
+}
+
+export const defineController = <
+    TActions extends Record<string, TControllerActionDefinition<any, any, any, any>>,
+>({
+    path,
+    actions,
+}: {
+    path?: string;
+    actions: TActions;
+}): TControllerDefinition<TActions> => ({
+    kind: 'controller',
+    path,
+    actions,
+});
+
+export const runControllerAction = (
+    action: TControllerActionDefinition<any, any, any, any>,
+    requestContext: TControllerDefaultContext<any, any>,
+) => {
+    const input = action.input === undefined ? undefined : toValidationSchema(action.input).parse(requestContext.request.data);
+    const app = requestContext.app as {
+        models?: { client?: object };
+        Models?: { client?: object };
+    };
+
+    return action.handler({
+        ...requestContext,
+        input,
+        models: app.models?.client ?? app.Models?.client ?? {},
+        services: requestContext.app,
+    });
+};

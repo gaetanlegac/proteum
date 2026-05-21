@@ -10,7 +10,7 @@ import type { TRouteOptions } from '.';
 - PUBLIC API
 ----------------------------------*/
 
-// Supported `Router.page(...)` registration signature shared by client and compiler code.
+// Runtime page registration signature used by generated definePageRoute wrappers.
 export type TRegisterPageArgs<TProvidedData extends {} = {}, TPageOptions extends {} = TRouteOptions> =
     [
         path: string,

@@ -21,12 +21,12 @@ export const getRegisterPageArgs = (...args: TRegisterPageArgs<any, TRouteOption
     const [path, options, data, renderer] = args;
 
     if (!options || typeof options !== 'object' || Array.isArray(options)) {
-        throw new Error(`Router.page(${JSON.stringify(path)}) requires an explicit options object as its second argument.`);
+        throw new Error(`definePageRoute(${JSON.stringify(path)}) requires an explicit options object.`);
     }
 
     if (data !== null && typeof data !== 'function') {
         throw new Error(
-            `Router.page(${JSON.stringify(path)}) requires a data function or null as its third argument.`,
+            `definePageRoute(${JSON.stringify(path)}) requires a data function or null.`,
         );
     }
 

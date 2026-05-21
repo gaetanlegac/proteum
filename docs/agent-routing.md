@@ -93,6 +93,7 @@ The router standard is trigger -> canonical instruction file, not trigger -> cop
 
 Standard triggered reads:
 
+- Worktree Preflight (`cwd` inside `/.codex/worktrees/`, newly created Proteum worktree, or before editing in a Codex worktree): root contract fallback, then `.env` copy, `npx proteum refresh`, dependency install when needed, `npx proteum runtime status`, and tracked `npx proteum dev` for runtime-visible work.
 - Git lifecycle (`commit`, `and commit`, `stage`, `push`, `PR`, pull request): root contract fallback.
 - Before git writes after a bug fix, behavior change, decision change, or docs-relevant production change: `DOCUMENTATION.md`.
 - Before finishing production code changes: root contract fallback, `DOCUMENTATION.md`, `CODING_STYLE.md`, and touched area `AGENTS.md`.

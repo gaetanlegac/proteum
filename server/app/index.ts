@@ -40,6 +40,22 @@ export type TApplicationStartOptions = {
 
 export const Service = ServicesContainer;
 
+type TApplicationDefinitionValue<TValue, TApplication extends object> =
+    | TValue
+    | ((app: TApplication) => TValue);
+
+export type TApplicationDefinition<
+    TServices extends Record<string, unknown> = {},
+    TRouter = unknown,
+    TModels = unknown,
+    TCommands = unknown,
+> = {
+    services?: TApplicationDefinitionValue<TServices, Application & Partial<TServices>>;
+    router?: TApplicationDefinitionValue<TRouter, Application & TServices>;
+    models?: TApplicationDefinitionValue<TModels, Application & TServices & { Router: TRouter }>;
+    commands?: TApplicationDefinitionValue<TCommands, Application & TServices & { Router: TRouter; models?: TModels; Models?: TModels }>;
+};
+
 // Without prettify, we don't get a clear list of the class properties
 type Prettify<T> = { [K in keyof T]: T[K] } & {};
 
@@ -267,5 +283,66 @@ export abstract class Application<
         return startingServices;
     }
 }
+
+const resolveApplicationDefinitionValue = <TValue, TApplication extends object>(
+    value: TApplicationDefinitionValue<TValue, TApplication> | undefined,
+    app: TApplication,
+): TValue | undefined => (typeof value === 'function' ? (value as (app: TApplication) => TValue)(app) : value);
+
+const assignApplicationRecord = (target: object, value: unknown) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+
+    Object.assign(target, value);
+};
+
+export const defineApplication = <
+    TServices extends Record<string, unknown> = {},
+    TRouter = unknown,
+    TModels = unknown,
+    TCommands = unknown,
+>(
+    definition: TApplicationDefinition<TServices, TRouter, TModels, TCommands>,
+) => {
+    type TDefinedApplication = Application &
+        TServices & {
+            Router: TRouter;
+            models?: TModels;
+            Models?: TModels;
+            commands?: TCommands;
+        };
+
+    class DefinedApplication extends Application {
+        public constructor() {
+            super();
+
+            const self = this as unknown as TDefinedApplication & Record<string, unknown>;
+            const services = resolveApplicationDefinitionValue(
+                definition.services,
+                self as Application & Partial<TServices>,
+            );
+            assignApplicationRecord(self, services);
+
+            const router = resolveApplicationDefinitionValue(definition.router, self as Application & TServices);
+            if (router !== undefined) (self as Record<string, unknown>).Router = router;
+
+            const models = resolveApplicationDefinitionValue(
+                definition.models,
+                self as Application & TServices & { Router: TRouter },
+            );
+            if (models !== undefined) {
+                (self as Record<string, unknown>).models = models;
+                (self as Record<string, unknown>).Models = models;
+            }
+
+            const commands = resolveApplicationDefinitionValue(
+                definition.commands,
+                self as Application & TServices & { Router: TRouter; models?: TModels; Models?: TModels },
+            );
+            if (commands !== undefined) (self as Record<string, unknown>).commands = commands;
+        }
+    }
+
+    return DefinedApplication as unknown as new () => TDefinedApplication;
+};
 
 export default Application;

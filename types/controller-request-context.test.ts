@@ -1,5 +1,5 @@
 import type { Application } from '@server/app';
-import Controller from '@server/app/controller';
+import type { TControllerActionContext } from '@server/app/controller';
 import type { TServerRouter } from '@server/services/router';
 import type { TServiceModelsClient, TServiceRequestContext } from '@server/app/service';
 
@@ -38,18 +38,17 @@ interface TTestApp extends Application {
     };
 }
 
-class TypedRequestController extends Controller<TTestApp> {
-    public useAuth() {
-        return this.request.auth.check();
-    }
-}
-
-type TRequestAuth = TypedRequestController['request']['auth'];
-type TAuthCheckResult = ReturnType<TypedRequestController['useAuth']>;
+type TControllerContext = TControllerActionContext<undefined, TTestApp>;
+type TControllerContextAuth = TControllerContext['auth'];
+type TControllerModelsClient = TControllerContext['models'];
 type TServiceContextAuth = TServiceRequestContext<TTestApp>['auth'];
 type TModelsClient = TServiceModelsClient<TTestApp>;
 
-type _AssertTypedRequestService = Assert<Equals<TRequestAuth['check'], TTypedAuthRequestService['check']>>;
-type _AssertTypedAuthCheckResult = Assert<Equals<TAuthCheckResult, 'typed-user'>>;
+type _AssertTypedControllerRequestService = Assert<
+    Equals<TControllerContextAuth['check'], TTypedAuthRequestService['check']>
+>;
 type _AssertTypedServiceRequestContext = Assert<Equals<TServiceContextAuth['check'], TTypedAuthRequestService['check']>>;
+type _AssertTypedControllerModelsClient = Assert<
+    Equals<ReturnType<TControllerModelsClient['post']['findMany']>, 'posts'>
+>;
 type _AssertTypedModelsClient = Assert<Equals<ReturnType<TModelsClient['post']['findMany']>, 'posts'>>;

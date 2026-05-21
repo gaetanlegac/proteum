@@ -43,9 +43,19 @@ export type TApiFetchOptions = {
 
 export type TPostData = TPostDataWithFile;
 
-export type TPostDataWithFile = { [key: string]: PrimitiveValue };
+export type TPostDataJsonValue =
+    | PrimitiveValue
+    | null
+    | undefined
+    | Date
+    | TPostDataJsonValue[]
+    | { [key: string]: TPostDataJsonValue };
 
-export type TPostDataWithoutFile = { [key: string]: PrimitiveValue };
+export type TPostDataValue = TPostDataJsonValue | Blob | FileList;
+
+export type TPostDataWithFile = { [key: string]: TPostDataValue };
+
+export type TPostDataWithoutFile = { [key: string]: TPostDataJsonValue };
 
 export type TDataReturnedByFetchers<TProvidedData extends TFetcherList = {}> = {
     [Property in keyof TProvidedData]: ThenArg<TProvidedData[Property]>;

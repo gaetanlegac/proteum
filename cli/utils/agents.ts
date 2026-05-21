@@ -642,6 +642,7 @@ function renderEmbeddedProjectInstructions({ appRoot, coreRoot, includeMonorepoR
         '',
         'Keep this root file as a router. MCP-selected previews are enough for read-only discovery and diagnostics. Read the referenced full instruction file only before edits or git writes, when `fullRead`/`fullReadPolicy` requires it, or when the preview is insufficient.',
         '',
+        '- Worktree Preflight (`cwd` inside `/.codex/worktrees/`, newly created Proteum worktree, or before editing in a Codex worktree): read Root contract fallback, then before implementation copy `.env` from the main worktree when missing, run `npx proteum refresh`, run `npm i` when dependencies are missing or stale, run `npx proteum runtime status`, and for runtime-visible work start or reuse one tracked `npx proteum dev` session using the Task Lifecycle launch workflow.',
         '- Git lifecycle (`commit`, `and commit`, `stage`, `push`, `PR`, pull request): read Root contract fallback before any git write.',
         '- Before git writes after a bug fix, behavior change, decision change, or docs-relevant production change: read `DOCUMENTATION.md` and verify required docs, fix notes, or ADRs were updated or explicitly skipped with a reason.',
         '- Before finishing production code changes: read Root contract fallback, `DOCUMENTATION.md`, `CODING_STYLE.md`, `tests/AGENTS.md`, and any touched area `AGENTS.md`.',

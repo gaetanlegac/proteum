@@ -21,7 +21,7 @@ This file is the source of truth for codex coding style instructions in Proteum-
 - Keep short arrow functions and short returned object literals compact when they are easy to scan.
 - Keep JSX multiline only when it is clearly more readable; otherwise keep short JSX compact.
 - Avoid staircase formatting and unnecessary blank lines inside short callbacks.
-- Keep `Router.page(...)` and `Router.error(...)` registrations in the compact inline-call shape when possible, for example `Router.page('/path', {}, null, render);`.
+- Keep route definition metadata compact when possible, for example `definePageRoute({ path: '/path', options: {}, data: null, render });`.
 
 ## File organization
 

@@ -22,19 +22,19 @@ export const createPageTemplate = ({
     routePath: string;
     heading: string;
     message: string;
-}) => `import Router from '@/client/router';
+}) => `import { definePageRoute } from '@common/router/definitions';
 
-Router.page(
-    ${JSON.stringify(routePath)},
-    {
+export default definePageRoute({
+    path: ${JSON.stringify(routePath)},
+    options: {
         auth: false,
         layout: false,
     },
-    () => ({
+    data: () => ({
         heading: ${JSON.stringify(heading)},
         message: ${JSON.stringify(message)},
     }),
-    ({ heading, message }) => {
+    render: ({ heading, message }) => {
         return (
             <main>
                 <h1>{heading}</h1>
@@ -42,7 +42,7 @@ Router.page(
             </main>
         );
     },
-);
+});
 `;
 
 export const createControllerTemplate = ({
@@ -53,15 +53,19 @@ export const createControllerTemplate = ({
     appIdentifier: string;
     className: string;
     methodName: string;
-}) => `import Controller from '@server/app/controller';
+}) => `import { defineAction, defineController } from '@server/app/controller';
 
-export default class ${className} extends Controller<${appIdentifier}> {
-    public async ${methodName}() {
-        return {
-            ok: true,
-        };
-    }
-}
+export default defineController({
+    actions: {
+        ${methodName}: defineAction({
+            async handler() {
+                return {
+                    ok: true,
+                };
+            },
+        }),
+    },
+});
 `;
 
 export const createCommandTemplate = ({
@@ -89,12 +93,17 @@ export const createRouteTemplate = ({
 }: {
     httpMethod: string;
     routePath: string;
-}) => `import { Router } from '@app';
+}) => `import { defineServerRoute } from '@common/router/definitions';
 
-Router.${httpMethod}(${JSON.stringify(routePath)}, {}, async () => {
-    return {
-        ok: true,
-    };
+export default defineServerRoute({
+    method: ${JSON.stringify(httpMethod.toUpperCase())},
+    path: ${JSON.stringify(routePath)},
+    options: {},
+    async handler() {
+        return {
+            ok: true,
+        };
+    },
 });
 `;
 
@@ -156,24 +165,26 @@ export const routerBaseConfig = {
 } satisfies RouterBaseConfig;
 `;
 
-export const createServerIndexTemplate = ({ appIdentifier }: { appIdentifier: string }) => `import { Application } from '@server/app';
+export const createServerIndexTemplate = (_args: { appIdentifier: string }) => `import { defineApplication } from '@server/app';
 import Router from '@server/services/router';
 import SchemaRouter from '@server/services/schema/router';
 
 import * as appConfig from '@/server/config/app';
 
-export default class ${appIdentifier} extends Application {
-    public Router = new Router(
-        this,
-        {
-            ...appConfig.routerBaseConfig,
-            plugins: {
-                schema: new SchemaRouter({}, this),
+export default defineApplication({
+    services: (app) => ({
+        Router: new Router(
+            app,
+            {
+                ...appConfig.routerBaseConfig,
+                plugins: {
+                    schema: new SchemaRouter({}, app),
+                },
             },
-        },
-        this,
-    );
-}
+            app,
+        ),
+    }),
+});
 `;
 
 export const createClientTsconfigTemplate = (paths: TTsconfigTemplatePaths) => `{

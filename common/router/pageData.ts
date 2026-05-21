@@ -46,7 +46,7 @@ const formatRouteSource = (route: TAnyRoute) => {
 };
 
 export const getRouteOptionKey = (key: string) => {
-    if (reservedRouteOptionKeysSet.has(key)) throw new Error(`"${key}" is a reserved Router.page option key.`);
+    if (reservedRouteOptionKeysSet.has(key)) throw new Error(`"${key}" is a reserved route option key.`);
 
     return routeOptionKeysSet.has(key) ? (key as keyof TRouteOptions) : null;
 };
@@ -54,8 +54,8 @@ export const getRouteOptionKey = (key: string) => {
 export const validatePageDataResult = (route: TAnyRoute, result: unknown) => {
     if (!result || typeof result !== 'object' || Array.isArray(result)) {
         throw new Error(
-            `Router.page data for ${formatRouteTarget(route)} in ${formatRouteSource(route)} must return an object. ` +
-                `If the page has no data loader, pass null as the third argument.`,
+            `definePageRoute data for ${formatRouteTarget(route)} in ${formatRouteSource(route)} must return an object. ` +
+                `If the page has no data loader, set data to null.`,
         );
     }
 
@@ -63,8 +63,8 @@ export const validatePageDataResult = (route: TAnyRoute, result: unknown) => {
         if (!reservedPageDataKeys.has(key)) continue;
 
         throw new Error(
-            `Router.page data for ${formatRouteTarget(route)} in ${formatRouteSource(route)} cannot return reserved key "${key}". ` +
-                `Move route behavior into the explicit Router.page(path, options, data, render) options argument.`,
+            `definePageRoute data for ${formatRouteTarget(route)} in ${formatRouteSource(route)} cannot return reserved key "${key}". ` +
+                `Move route behavior into definePageRoute({ path, options, data, render }).options.`,
         );
     }
 

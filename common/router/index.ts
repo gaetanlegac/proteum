@@ -7,8 +7,6 @@ import type zod from 'zod';
 
 // types
 import type { default as ClientRouter, TRouterContext as ClientRouterContext } from '@client/services/router';
-import type { TRegisterPageArgs } from './contracts';
-
 import type { TAnyRouter, TRouterContext as ServerRouterContext, TRouteHttpMethod } from '@server/services/router';
 
 import type RouterRequest from './request';
@@ -18,13 +16,33 @@ import type { TAuthCheckInput, TAuthTrackingContext } from '@server/services/aut
 import type { TAppArrowFunction } from '@common/app';
 
 // Specfic
-import type { default as Page, TFrontRenderer, TPageDataProvider } from './response/page';
+import type { default as Page, TPageDataProvider } from './response/page';
 
 /*----------------------------------
 - TYPES: ROUTES
 ----------------------------------*/
 
 export type { Layout } from './layouts';
+export {
+    defineErrorRoute,
+    definePageRoute,
+    defineServerRoute,
+    defineServerRoutes,
+    expressHandler,
+    normalizeRouteDefinitions,
+    registerRouteDefinition,
+    withRouteMetadata,
+} from './definitions';
+export type {
+    TErrorRouteDefinition,
+    TExpressRouteHandler,
+    TPageRouteDefinition,
+    TRouteDefinition,
+    TRouteDefinitionExport,
+    TRouteDefinitionRegistrar,
+    TRouteMetadata,
+    TServerRouteDefinition,
+} from './definitions';
 
 export type { default as Request } from './request';
 export type { default as Response } from './response';
@@ -166,13 +184,5 @@ export const matchRoute = (route: TRouteMatch, request: RouterRequest) => {
 ----------------------------------*/
 
 export default abstract class RouterInterface {
-    public abstract page<TControllerData extends TObjetDonnees = {}>(
-        ...args: TRegisterPageArgs<TControllerData, TRouteOptions>
-    ): unknown;
-
-    public abstract error(
-        code: number,
-        options: Partial<TRouteOptions>,
-        renderer: TFrontRenderer<{}, { message: string }>,
-    ): unknown;
+    public abstract registerRouteDefinition(definition: unknown, metadata?: unknown): unknown;
 }

@@ -89,7 +89,6 @@ const buildServerRouteManifestEntries = (filepath: string) =>
 
 const generateClientRouteWrapperModules = () => {
     const clientRouteFiles = findClientRouteFiles(app.paths.pages).sort((a, b) => a.localeCompare(b));
-    const routeSourceFilepaths = new Set(clientRouteFiles.map((filepath) => normalizePath(path.resolve(filepath))));
     const routes = clientRouteFiles.map((filepath) => buildClientRouteManifestEntry(filepath));
 
     for (const filepath of clientRouteFiles) {
@@ -101,7 +100,6 @@ const generateClientRouteWrapperModules = () => {
             side: 'client',
             sourceFilepath: filepath,
             clientRoute: { chunkId: pageChunk.chunkId },
-            routeSourceFilepaths,
         });
 
         writeGeneratedRouteModule({
@@ -110,7 +108,6 @@ const generateClientRouteWrapperModules = () => {
             side: 'client',
             sourceFilepath: filepath,
             clientRoute: { chunkId: pageChunk.chunkId },
-            routeSourceFilepaths,
         });
     }
 
@@ -121,7 +118,6 @@ const generateServerRouteWrapperModules = () => {
     const serverRouteFiles = findServerRouteFiles(path.join(app.paths.root, 'server', 'routes')).sort((a, b) =>
         a.localeCompare(b),
     );
-    const routeSourceFilepaths = new Set(serverRouteFiles.map((filepath) => normalizePath(path.resolve(filepath))));
     const routes = serverRouteFiles.flatMap((filepath) => buildServerRouteManifestEntries(filepath));
 
     for (const filepath of serverRouteFiles) {
@@ -130,7 +126,6 @@ const generateServerRouteWrapperModules = () => {
             runtime: 'server',
             side: 'server',
             sourceFilepath: filepath,
-            routeSourceFilepaths,
         });
     }
 

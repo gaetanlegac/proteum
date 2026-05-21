@@ -11,6 +11,10 @@ Diagnostics source of truth: root-level `diagnostics.md`.
 - Use `server/routes/**` only for explicit HTTP behavior that should not be generated from controllers.
 - If the endpoint is a normal app API, prefer `server/controllers/**/*.ts`.
 - Good fits include redirects, resources, OAuth callbacks, webhooks, sitemap-like output, and custom public endpoints.
+- Route files default-export `defineServerRoute({ method, path, options, handler })` or `defineServerRoutes([...])`.
+- Keep `method`, `path`, and `options` static. Runtime services are received through the route factory or handler context.
+- Do not import `@app` in route files. Use `defineServerRoutes((app) => [...])` when routes need app services.
+- Use `expressHandler(...)` only when a route needs raw Express `req`, `res`, or `next`.
 - If a route needs a curated registry, keep server-only data in `/server/catalogs/**` and shared data in `/common/catalogs/**`.
 
 ## Absolute URLs

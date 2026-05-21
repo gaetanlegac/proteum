@@ -60,6 +60,7 @@ export type TRouterContext<TRouter extends TServerRouter> =
     // Request context
     {
         app: TServerRouterApplication<TRouter>;
+        services: TServerRouterApplication<TRouter>;
         context: TRouterContext<TRouter>; // = this
         request: ServerRequest<TRouter>;
         api: ServerRequest<TRouter>['api'];
@@ -155,14 +156,12 @@ export default class ServerResponse<
         const contextStore = context.getStore() as
             | {
                   requestContext?: TRouterContext<TAnyRouter>;
-                  inputSchemaUsed?: boolean;
                   ownerLabel?: string;
                   ownerFilepath?: string;
               }
             | undefined;
         if (contextStore) {
             contextStore.requestContext = requestContext;
-            contextStore.inputSchemaUsed = false;
             contextStore.ownerLabel = getRouteTraceTarget(route as TAnyRoute<TRouterContext<TServerRouter>>);
             contextStore.ownerFilepath = route.options.filepath || undefined;
         }
@@ -229,6 +228,7 @@ export default class ServerResponse<
         const requestContext: TRouterContext<TRouter> = {
             // Router context
             app: this.app,
+            services: this.app,
             context: undefined!,
             request: this.request,
             response: this,

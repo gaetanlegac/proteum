@@ -228,6 +228,37 @@ const createSwallowedErrorRule = () => ({
     },
 });
 
+const createNoAppImportRule = () => ({
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Disallow Proteum contextual @app imports in user code.',
+        },
+        messages: {
+            noAppImport:
+                '`@app` is not a real runtime module. Receive app services through typed route/controller callback context instead.',
+        },
+        schema: [],
+    },
+    create(context) {
+        return {
+            ImportDeclaration(node) {
+                if (node.source?.value === '@app') context.report({ node, messageId: 'noAppImport' });
+            },
+            CallExpression(node) {
+                if (
+                    node.callee?.type === 'Identifier' &&
+                    node.callee.name === 'require' &&
+                    node.arguments?.[0]?.type === 'Literal' &&
+                    node.arguments[0].value === '@app'
+                ) {
+                    context.report({ node, messageId: 'noAppImport' });
+                }
+            },
+        };
+    },
+});
+
 const createProteumEslintConfig = ({ ignores = [] } = {}) => [
     {
         ignores: [...defaultIgnores, ...ignores],
@@ -253,6 +284,7 @@ const createProteumEslintConfig = ({ ignores = [] } = {}) => [
             '@typescript-eslint': tseslint.plugin,
             proteum: {
                 rules: {
+                    'no-app-import': createNoAppImportRule(),
                     'no-swallowed-caught-error': createSwallowedErrorRule(),
                 },
             },
@@ -262,6 +294,7 @@ const createProteumEslintConfig = ({ ignores = [] } = {}) => [
         },
         rules: {
             '@typescript-eslint/no-explicit-any': 'error',
+            'proteum/no-app-import': 'error',
             'proteum/no-swallowed-caught-error': 'error',
             'no-restricted-syntax': [
                 'error',
