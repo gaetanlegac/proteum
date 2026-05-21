@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -52,6 +53,42 @@ const createProteumApp = (appRoot, { routerPort = 3020 } = {}) => {
             layouts: [],
             diagnostics: [],
         }),
+    );
+};
+
+const hashFile = (filepath) => crypto.createHash('sha256').update(fs.readFileSync(filepath)).digest('hex');
+
+const writeFreshWorktreeBootstrapMarker = (appRoot) => {
+    const timestamp = new Date().toISOString();
+    fs.mkdirSync(path.join(appRoot, 'node_modules'), { recursive: true });
+    writeFile(path.join(appRoot, '.env'), 'PORT=3020\n');
+    writeFile(path.join(appRoot, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    writeFile(path.join(appRoot, 'AGENTS.md'), '# Agents\n');
+
+    writeFile(
+        path.join(appRoot, '.proteum', 'worktree-bootstrap.json'),
+        JSON.stringify(
+            {
+                version: 1,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                proteumVersion: require('../package.json').version,
+                packageLockHash: hashFile(path.join(appRoot, 'package-lock.json')),
+                proteumConfigHash: hashFile(path.join(appRoot, 'proteum.config.ts')),
+                agentsHash: hashFile(path.join(appRoot, 'AGENTS.md')),
+                env: { present: true, copied: false },
+                refresh: { status: 'ok', ranAt: timestamp },
+                dependencies: {
+                    status: 'up-to-date',
+                    ranAt: timestamp,
+                    nodeModulesPresent: true,
+                    packageLockHash: hashFile(path.join(appRoot, 'package-lock.json')),
+                },
+                runtimeStatus: { status: 'ok', checkedAt: timestamp, summary: 'runtime ok' },
+            },
+            null,
+            2,
+        ),
     );
 };
 
@@ -150,6 +187,7 @@ test('top-level help lists the machine-scope mcp router', () => {
 
     assert.equal(result.status, 0);
     assert.match(result.stdout, /proteum mcp\b/);
+    assert.match(result.stdout, /proteum worktree\b/);
     assert.match(result.stdout, /machine-scope MCP router/);
 });
 
@@ -285,6 +323,52 @@ test('runtime status manifest guard points to explain manifest', () => {
     assert.equal(payload.ok, false);
     assert.match(payload.summary, /not supported/);
     assert.match(payload.nextActions[0].command, /proteum explain --manifest/);
+});
+
+test('runtime status blocks unbootstrapped Codex worktrees', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-cli-worktree-block-'));
+    const appRoot = path.join(root, '.codex', 'worktrees', 'product');
+    createProteumApp(appRoot);
+
+    const result = spawnSync(process.execPath, [cliBin, 'runtime', 'status'], {
+        cwd: appRoot,
+        encoding: 'utf8',
+    });
+    const payload = JSON.parse(result.stdout);
+
+    assert.equal(result.status, 1);
+    assert.equal(payload.ok, false);
+    assert.match(payload.summary, /has not completed Proteum worktree bootstrap/);
+    assert.match(payload.nextActions[0].command, /proteum worktree init --source <source-app-root>/);
+});
+
+test('runtime status allows fresh Codex worktree bootstrap markers and reports stale refresh action', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-cli-worktree-fresh-'));
+    const appRoot = path.join(root, '.codex', 'worktrees', 'product');
+    createProteumApp(appRoot);
+    writeFreshWorktreeBootstrapMarker(appRoot);
+
+    const fresh = spawnSync(process.execPath, [cliBin, 'runtime', 'status'], {
+        cwd: appRoot,
+        encoding: 'utf8',
+    });
+    const freshPayload = JSON.parse(fresh.stdout);
+
+    assert.equal(fresh.status, 0);
+    assert.equal(freshPayload.ok, true);
+    assert.equal(freshPayload.data.worktreeBootstrap.state, 'fresh');
+
+    writeFile(path.join(appRoot, 'package-lock.json'), '{"lockfileVersion":3,"changed":true}\n');
+
+    const stale = spawnSync(process.execPath, [cliBin, 'runtime', 'status'], {
+        cwd: appRoot,
+        encoding: 'utf8',
+    });
+    const stalePayload = JSON.parse(stale.stdout);
+
+    assert.equal(stale.status, 1);
+    assert.equal(stalePayload.ok, false);
+    assert.match(stalePayload.nextActions[0].command, /--refresh/);
 });
 
 test('runtime status reports occupied configured port without probing page bodies', async () => {

@@ -1,9 +1,15 @@
 import cli from '..';
 import Compiler from '../compiler';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
+import {
+    createWorktreeBootstrapDiagnostics,
+    getWorktreeBootstrapStatus,
+    type TWorktreeBootstrapDiagnostic,
+} from '../runtime/worktreeBootstrap';
 import { buildContractsDoctorResponse } from '@common/dev/contractsDoctor';
-import { buildDoctorResponse, renderDoctorHuman, renderDoctorResponseHuman } from '@common/dev/diagnostics';
+import { buildDoctorResponse, renderDoctorResponseHuman } from '@common/dev/diagnostics';
 import { compactList, printAgentResponse, printJson, truncateForAgent } from '../utils/agentOutput';
+import type { TDoctorResponse } from '@common/dev/diagnostics';
 
 const allowedDoctorArgs = new Set(['contracts', 'full', 'human', 'json', 'strict']);
 
@@ -30,6 +36,31 @@ const compactDiagnostic = (diagnostic: ReturnType<typeof buildDoctorResponse>['d
     fixHint: diagnostic.fixHint ? truncateForAgent(diagnostic.fixHint) : undefined,
 });
 
+const mergeBootstrapDiagnostics = ({
+    bootstrapDiagnostics,
+    response,
+    strict,
+}: {
+    bootstrapDiagnostics: TWorktreeBootstrapDiagnostic[];
+    response: TDoctorResponse;
+    strict: boolean;
+}): TDoctorResponse => {
+    if (bootstrapDiagnostics.length === 0) return response;
+
+    const diagnostics = [...response.diagnostics, ...bootstrapDiagnostics];
+    const errors = diagnostics.filter((diagnostic) => diagnostic.level === 'error').length;
+    const warnings = diagnostics.filter((diagnostic) => diagnostic.level === 'warning').length;
+
+    return {
+        diagnostics,
+        summary: {
+            errors,
+            strictFailed: response.summary.strictFailed || (strict && diagnostics.length > 0),
+            warnings,
+        },
+    };
+};
+
 export const run = async (): Promise<void> => {
     validateDoctorArgs();
 
@@ -37,10 +68,25 @@ export const run = async (): Promise<void> => {
     await compiler.refreshGeneratedTypings();
 
     const manifest = readProteumManifest(cli.paths.appRoot);
-    const response =
+    const rawResponse =
         cli.args.contracts === true
             ? buildContractsDoctorResponse(manifest, cli.args.strict === true)
             : buildDoctorResponse(manifest, cli.args.strict === true);
+    const bootstrapStatus = getWorktreeBootstrapStatus({
+        appRoot: cli.paths.appRoot,
+        proteumVersion: String(cli.packageJson.version || ''),
+    });
+    const response =
+        cli.args.contracts === true
+            ? rawResponse
+            : mergeBootstrapDiagnostics({
+                  bootstrapDiagnostics: createWorktreeBootstrapDiagnostics({
+                      appRoot: cli.paths.appRoot,
+                      status: bootstrapStatus,
+                  }),
+                  response: rawResponse,
+                  strict: cli.args.strict === true,
+              });
 
     if (cli.args.full === true) {
         printJson(response);
@@ -53,7 +99,12 @@ export const run = async (): Promise<void> => {
                       response,
                       title: 'Proteum doctor contracts',
                   })
-                : renderDoctorHuman(manifest, cli.args.strict === true),
+                : renderDoctorResponseHuman({
+                      emptyMessage: 'No diagnostics were found.',
+                      manifest,
+                      response,
+                      title: 'Proteum doctor',
+                  }),
         );
     } else {
         printAgentResponse({

@@ -4,6 +4,7 @@ import path from 'path';
 import cli, { type TArgsObject } from '../context';
 import { applyLegacyBooleanArgs, assertNoLegacyArgs } from './argv';
 import { buildUsage, ProteumCommand, runCommandModule } from './command';
+import { createWorktreeBootstrapBlockResponse, getWorktreeBootstrapStatus } from './worktreeBootstrap';
 import { createStartDevCommand, quoteShellPath, resolveProteumAppRootContext } from '../utils/appRoots';
 import { printJson } from '../utils/agentOutput';
 
@@ -67,6 +68,19 @@ const printNonAppRootResponse = ({
 };
 
 const isCurrentWorkdirProteumAppRoot = () => resolveProteumAppRootContext(String(cli.args.workdir || process.cwd())).isAppRoot;
+
+const blockIfWorktreeBootstrapRequired = () => {
+    const status = getWorktreeBootstrapStatus({
+        appRoot: cli.paths.appRoot,
+        proteumVersion: String(cli.packageJson.version || ''),
+    });
+
+    if (!status.blocking) return false;
+
+    printJson(createWorktreeBootstrapBlockResponse(status));
+    process.exitCode = 1;
+    return true;
+};
 
 class InitCommand extends ProteumCommand {
     public static paths = [['init']];
@@ -156,6 +170,38 @@ class ConfigureCommand extends ProteumCommand {
     }
 }
 
+class WorktreeCommand extends ProteumCommand {
+    public static paths = [['worktree']];
+
+    public static usage = buildUsage('worktree');
+
+    public source = Option.String('--source', { description: 'Source Proteum app root used for .env copy and worktree creation.' });
+    public branch = Option.String('--branch', { description: 'Branch name created by `worktree create`.' });
+    public base = Option.String('--base', { description: 'Base ref used by `worktree create`.' });
+    public refresh = Option.Boolean('--refresh', false, { description: 'Refresh an existing stale bootstrap marker.' });
+    public skipDeps = Option.Boolean('--skip-deps', false, { description: 'Skip dependency install while recording an explicit reason.' });
+    public reason = Option.String('--reason', { description: 'Reason required when --skip-deps is used.' });
+    public json = Option.Boolean('--json', false, { description: 'Print machine-readable worktree bootstrap output.' });
+    public args = Option.Rest();
+
+    public async execute() {
+        const [action = '', target = ''] = this.args;
+
+        this.setCliArgs({
+            action,
+            base: this.base ?? '',
+            branch: this.branch ?? '',
+            json: this.json,
+            reason: this.reason ?? '',
+            refresh: this.refresh,
+            skipDeps: this.skipDeps,
+            source: this.source ?? '',
+            target,
+        });
+        await runCommandModule(() => import('../commands/worktree'));
+    }
+}
+
 class DevCommand extends ProteumCommand {
     public static paths = [['dev']];
 
@@ -199,6 +245,7 @@ class DevCommand extends ProteumCommand {
             printNonAppRootResponse({ commandName: 'dev', cwd: String(cli.args.workdir || process.cwd()) });
             return 1;
         }
+        if (action !== 'stop' && blockIfWorktreeBootstrapRequired()) return 1;
         await runCommandModule(() => import('../commands/dev'));
     }
 }
@@ -213,6 +260,7 @@ class RefreshCommand extends ProteumCommand {
     public async execute() {
         assertNoLegacyArgs('refresh', this.legacyArgs);
         this.setCliArgs();
+        if (blockIfWorktreeBootstrapRequired()) return 1;
         await runCommandModule(() => import('../commands/refresh'));
     }
 }
@@ -753,6 +801,7 @@ class RuntimeCommand extends ProteumCommand {
             return 1;
         }
 
+        if (blockIfWorktreeBootstrapRequired()) return 1;
         await runCommandModule(() => import('../commands/runtime'));
     }
 }
@@ -846,6 +895,7 @@ class VerifyCommand extends ProteumCommand {
             websitePort: this.websitePort ?? '',
         });
 
+        if (blockIfWorktreeBootstrapRequired()) return 1;
         await runCommandModule(() => import('../commands/verify'));
     }
 }
@@ -854,6 +904,7 @@ export const registeredCommands = {
     init: InitCommand,
     create: CreateCommand,
     configure: ConfigureCommand,
+    worktree: WorktreeCommand,
     dev: DevCommand,
     refresh: RefreshCommand,
     build: BuildCommand,
@@ -889,6 +940,7 @@ export const createCli = (version: string) => {
     clipanion.register(InitCommand);
     clipanion.register(CreateCommand);
     clipanion.register(ConfigureCommand);
+    clipanion.register(WorktreeCommand);
     clipanion.register(DevCommand);
     clipanion.register(RefreshCommand);
     clipanion.register(BuildCommand);

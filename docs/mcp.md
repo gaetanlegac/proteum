@@ -49,6 +49,8 @@ Example tool calls:
 
 `workflow_start` is the only app-bound bootstrap tool that may resolve from `cwd` when `projectId` is not known. It may return offline app candidates when no matching dev server is running yet. Other app-bound tools require a live `projectId`; if they omit it, the router returns a compact error that tells the agent to call `projects_list` or `project_resolve`. There is no single-project fallback, because wrong-project reads are worse than an explicit routing retry.
 
+When the selected app root is inside `/.codex/worktrees/`, `workflow_start` first checks `.proteum/worktree-bootstrap.json`. If the marker is missing or stale, it returns `ok: false` with a single next action such as `npx proteum worktree init --source <source-app-root>` or the same command with `--refresh`. The router does not forward to the app MCP endpoint until bootstrap is complete, unless `PROTEUM_ALLOW_UNBOOTSTRAPPED_WORKTREE=1` is set; bypasses remain visible in MCP, `runtime status`, and `doctor`.
+
 ## Dev Runtime Endpoint
 
 During `proteum dev`, the app exposes the same app-level MCP contract through the official streamable HTTP transport:
@@ -76,9 +78,10 @@ If machine MCP routing fails:
 
 1. Run `proteum mcp status`.
 2. Run `proteum runtime status` from the intended app root. If you are in a monorepo wrapper, use the returned app candidates and exact next action instead of starting dev from the wrapper.
-3. If no live app session exists, use the exact Start Dev next action returned by runtime status. It checks the configured router/HMR ports and suggests an alternate free port when the manifest default is occupied.
-4. If a live session exists but runtime/MCP is unreachable, stop the listed session file with `proteum dev stop --session-file <path>`, then start dev again.
-5. Retry MCP `workflow_start` and use the returned `projectId`.
+3. If the app root is inside `/.codex/worktrees/` and runtime status or workflow start reports missing/stale bootstrap, run `proteum worktree init --source <source-app-root>` or the returned `--refresh` command first.
+4. If no live app session exists, use the exact Start Dev next action returned by runtime status. It checks the configured router/HMR ports and suggests an alternate free port when the manifest default is occupied.
+5. If a live session exists but runtime/MCP is unreachable, stop the listed session file with `proteum dev stop --session-file <path>`, then start dev again.
+6. Retry MCP `workflow_start` and use the returned `projectId`.
 
 Offline `project_resolve` and `workflow_start` candidates also inspect configured router/HMR ports before returning `nextAction`. If the configured port already serves the same app but no live machine project is registered, the next action is runtime tracking repair, not starting a second dev server.
 

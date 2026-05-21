@@ -16,16 +16,14 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 ## Fast Triggers
 
 - If `cwd` is inside `/.codex/worktrees/`, run Worktree Preflight before implementation:
-  - Copy `.env` from the main worktree when missing.
-  - Run `npx proteum refresh`.
-  - Run `npm i` when dependencies are missing or stale.
+  - Run `npx proteum worktree init --source <source-app-root>` when the bootstrap marker is missing.
+  - Run `npx proteum worktree init --source <source-app-root> --refresh` when Proteum reports stale bootstrap state.
+  - Use `--skip-deps --reason "..."` only when dependency installation is intentionally skipped.
   - Run `npx proteum runtime status`.
   - For runtime-visible work, start or reuse one tracked `npx proteum dev` session using the Task Lifecycle launch workflow.
 - If you are working in a newly created Proteum worktree, before following the rest of these instructions:
-  - Copy `.env` from the main worktree.
-  - Run `npx proteum refresh`.
+  - Run `npx proteum worktree init --source <source-app-root>`.
   - Read and acknowledge the applicable `AGENTS.md` files.
-  - Run `npm i`.
   - Run the dev server with the task-safe elevated-permissions launch workflow from `Task Lifecycle`, keep it running so user can see the results by himself, and print the live server URL as a clickable Markdown link.
 - If the user pastes raw errors without asking for a fix, do not implement changes yet. First run the task-safe local reproduction path: identify the likely app, route, command, or request from the error, boot or reuse the relevant dev server with the elevated-permissions workflow in `Task Lifecycle`, reproduce the failing surface locally, and inspect server output, browser console output, diagnostics, traces, or the smallest relevant command result. If the error does not identify enough context to reproduce, say what is missing and use the available local evidence before guessing. Then list likely causes and, for each one, give probability, why, and how to fix it. After this, every time you implement a fix:
     - test, re-run analysis and give a comparison table of before and after

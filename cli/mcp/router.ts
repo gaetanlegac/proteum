@@ -37,6 +37,11 @@ import {
     type TProteumAppRootSummary,
 } from '../utils/appRoots';
 import { inspectDevPort, type TDevPortInspection } from '../runtime/ports';
+import {
+    compactWorktreeBootstrapStatus,
+    createWorktreeBootstrapMcpBlockResponse,
+    getWorktreeBootstrapStatus,
+} from '../runtime/worktreeBootstrap';
 
 type TDevMcpClient = {
     callTool: (input: { arguments?: Record<string, unknown>; name: string }) => Promise<CallToolResult>;
@@ -134,12 +139,17 @@ const createOfflineNextAction = async ({
     baseRoot,
     portInspection,
     summary,
+    version,
 }: {
     appRoot: string;
     baseRoot?: string;
     portInspection?: TDevPortInspection;
     summary: TProteumAppRootSummary;
+    version: string;
 }) => {
+    const bootstrapStatus = getWorktreeBootstrapStatus({ appRoot, proteumVersion: version });
+    if (bootstrapStatus.blocking) return bootstrapStatus.nextAction;
+
     if (!summary.manifest) {
         return {
             label: 'Check Runtime Status',
@@ -178,10 +188,12 @@ const compactOfflineProject = async ({
     appRoot,
     baseRoot,
     matchReason,
+    version,
 }: {
     appRoot: string;
     baseRoot?: string;
     matchReason: string;
+    version: string;
 }): Promise<TOfflineProject> => {
     const summary = readProteumAppRootSummary(appRoot, baseRoot);
     const portInspection = summary.manifest
@@ -196,7 +208,7 @@ const compactOfflineProject = async ({
         devPort: portInspection,
         live: false,
         matchReason,
-        nextAction: await createOfflineNextAction({ appRoot: summary.appRoot, baseRoot, portInspection, summary }),
+        nextAction: await createOfflineNextAction({ appRoot: summary.appRoot, baseRoot, portInspection, summary, version }),
         projectId: await resolveProteumProjectId(summary.appRoot),
         state: 'offline',
     };
@@ -297,7 +309,7 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
             if (!matches.has(record.projectId)) matches.set(record.projectId, { project: compactProjectMatch(record, reason), record });
         };
         const addOfflineMatch = async (appRoot: string, reason: string, baseRoot?: string) => {
-            const offline = await compactOfflineProject({ appRoot, baseRoot, matchReason: reason });
+            const offline = await compactOfflineProject({ appRoot, baseRoot, matchReason: reason, version });
             if (!matches.has(offline.projectId)) matches.set(offline.projectId, { offline, project: offline });
         };
         const normalizedProjectId = typeof projectId === 'string' ? projectId.trim() : '';
@@ -386,16 +398,38 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
         return { error: null, record: inspection.record };
     };
 
+    const augmentForwardedPayload = (result: CallToolResult, record: TMachineDevSessionRecord) => {
+        if (result.content[0]?.type !== 'text') return result;
+
+        try {
+            const payload = JSON.parse(result.content[0].text);
+            const bootstrapStatus = getWorktreeBootstrapStatus({ appRoot: record.appRoot, proteumVersion: version });
+
+            return jsonToolResult({
+                ...payload,
+                data: {
+                    ...(payload.data || {}),
+                    worktreeBootstrap: compactWorktreeBootstrapStatus(bootstrapStatus),
+                },
+            });
+        } catch {
+            return result;
+        }
+    };
+
     const forwardTool = async (name: string, input: Record<string, unknown>) => {
         const resolution = await resolveProject(input.projectId);
         if (!resolution.record) return resolution.error;
 
         try {
             const client = await getClient(resolution.record);
-            return await client.callTool({
+            const result = await client.callTool({
                 arguments: stripProjectRouting(input),
                 name,
             });
+
+            if (name === 'runtime_status' || name === 'doctor') return augmentForwardedPayload(result, resolution.record);
+            return result;
         } catch (error) {
             await closeClient(resolution.record);
             return errorToolResult(`Could not reach Proteum dev MCP for ${resolution.record.projectId}.`, {
@@ -407,6 +441,9 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
     };
 
     const createOfflineWorkflowStartResult = (offline: TOfflineProject, input: Record<string, unknown>) => {
+        const bootstrapStatus = getWorktreeBootstrapStatus({ appRoot: offline.appRoot, proteumVersion: version });
+        if (bootstrapStatus.blocking) return jsonToolResult(createWorktreeBootstrapMcpBlockResponse(bootstrapStatus, offline), true);
+
         let manifest: ReturnType<typeof readProteumManifest>;
         try {
             manifest = readProteumManifest(offline.appRoot);
@@ -458,6 +495,7 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
             ...payload,
             data: {
                 project: offline,
+                worktreeBootstrap: compactWorktreeBootstrapStatus(bootstrapStatus),
                 ...payload.data,
             },
             nextActions: [
@@ -497,6 +535,11 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
             });
         }
 
+        const bootstrapStatus = getWorktreeBootstrapStatus({ appRoot: record.appRoot, proteumVersion: version });
+        if (bootstrapStatus.blocking) {
+            return jsonToolResult(createWorktreeBootstrapMcpBlockResponse(bootstrapStatus, compactProject(record)), true);
+        }
+
         try {
             const client = await getClient(record);
             const result = await client.callTool({
@@ -525,6 +568,7 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
                 ...payload,
                 data: {
                     project: compactProject(record),
+                    worktreeBootstrap: compactWorktreeBootstrapStatus(bootstrapStatus),
                     ...payload.data,
                 },
                 ...(routedNextActions && routedNextActions.length > 0 ? { nextActions: routedNextActions } : {}),

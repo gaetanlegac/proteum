@@ -106,7 +106,8 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(agentsContent, /proteum-mcp-v1/);
     assert.match(agentsContent, /## Triggered Instruction Reads/);
     assert.match(agentsContent, /Worktree Preflight/);
-    assert.match(agentsContent, /copy `\.env` from the main worktree when missing/);
+    assert.match(agentsContent, /npx proteum worktree init --source <source-app-root>/);
+    assert.match(agentsContent, /--skip-deps --reason/);
     assert.match(agentsContent, /Git lifecycle/);
     assert.match(agentsContent, /read Root contract fallback before any git write/);
     assert.match(agentsContent, /Before git writes after a bug fix, behavior change, decision change, or docs-relevant production change/);

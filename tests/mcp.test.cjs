@@ -785,6 +785,88 @@ test('machine MCP router resolves offline monorepo app candidates before dev is 
     await server.close();
 });
 
+test('machine MCP workflow_start blocks offline unbootstrapped Codex worktrees', async (t) => {
+    const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-worktree-offline-'));
+    process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
+    t.onTestFinished(() => {
+        if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+        else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
+    });
+
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-worktree-repo-'));
+    const appRoot = path.join(repoRoot, '.codex', 'worktrees', 'product');
+    writeProteumAppFixture(appRoot, { identifier: 'ProductApp', name: 'Product', routerPort: 3020 });
+
+    const server = createProteumMachineMcpServer({ version: 'test' });
+    const client = new Client({ name: 'machine-mcp-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const workflow = await client.callTool({ name: 'workflow_start', arguments: { cwd: appRoot, task: 'runtime health' } });
+    const payload = JSON.parse(workflow.content[0].text);
+
+    assert.equal(payload.ok, false);
+    assert.match(payload.summary, /has not completed Proteum worktree bootstrap/);
+    assert.equal(payload.nextActions.length, 1);
+    assert.match(payload.nextActions[0].command, /proteum worktree init --source <source-app-root>/);
+
+    await client.close();
+    await server.close();
+});
+
+test('machine MCP workflow_start blocks live unbootstrapped Codex worktrees before forwarding', async (t) => {
+    const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-worktree-live-'));
+    process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
+    t.onTestFinished(() => {
+        if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+        else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
+    });
+
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-worktree-live-repo-'));
+    const appRoot = path.join(repoRoot, '.codex', 'worktrees', 'product');
+    writeProteumAppFixture(appRoot, { identifier: 'ProductApp', name: 'Product', routerPort: 3020 });
+    await writeMachineDevSessionRecord({
+        ...createDevSessionRecord({
+            appRoot,
+            port: 3020,
+            sessionFilePath: path.join(appRoot, 'var/run/proteum/dev/3020.json'),
+        }),
+        publicUrl: 'http://localhost:3020',
+        state: 'ready',
+    });
+
+    let forwarded = false;
+    const server = createProteumMachineMcpServer({
+        createDevMcpClient: async () => ({
+            callTool: async () => {
+                forwarded = true;
+                throw new Error('should not forward');
+            },
+            close: async () => {},
+        }),
+        version: 'test',
+    });
+    const client = new Client({ name: 'machine-mcp-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const workflow = await client.callTool({ name: 'workflow_start', arguments: { cwd: appRoot, task: 'runtime health' } });
+    const payload = JSON.parse(workflow.content[0].text);
+
+    assert.equal(payload.ok, false);
+    assert.equal(forwarded, false);
+    assert.match(payload.nextActions[0].command, /proteum worktree init --source <source-app-root>/);
+
+    await client.close();
+    await server.close();
+});
+
 test('machine MCP offline resolution inspects occupied ports before suggesting dev start', async (t) => {
     const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
     const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-offline-port-registry-'));

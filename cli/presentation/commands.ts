@@ -7,6 +7,7 @@ export const proteumCommandNames = [
     'init',
     'create',
     'configure',
+    'worktree',
     'dev',
     'refresh',
     'build',
@@ -60,7 +61,7 @@ export const proteumCommandGroups: Array<{ title: string; names: TProteumCommand
     { title: 'Daily workflow', names: ['dev', 'refresh', 'build'] },
     { title: 'Quality gates', names: ['typecheck', 'lint', 'check', 'e2e'] },
     { title: 'Manifest and contracts', names: ['connect', 'doctor', 'explain', 'orient', 'diagnose', 'perf', 'db', 'runtime', 'mcp', 'trace', 'command', 'session', 'verify'] },
-    { title: 'Project scaffolding', names: ['init', 'configure', 'create'] },
+    { title: 'Project scaffolding', names: ['init', 'configure', 'create', 'worktree'] },
 ];
 
 export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = {
@@ -131,6 +132,41 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'Monorepo mode writes reusable root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root, then writes only app-root and area instruction files into the current Proteum app root.',
             'Every managed instruction file contains a `# Proteum Instructions` section with the full embedded Proteum project instruction corpus.',
             'Existing content outside `# Proteum Instructions` is preserved. Directories and foreign symlinks are replaced only after confirmation.',
+        ],
+        status: 'experimental',
+    },
+    worktree: {
+        name: 'worktree',
+        category: 'Project scaffolding',
+        summary: 'Initialize or create Codex worktrees with a Proteum bootstrap marker.',
+        usage:
+            'proteum worktree <init|create> [target-repo-root] --source <app-root> [--branch <branch>] [--base <ref>] [--refresh] [--skip-deps --reason <text>] [--json]',
+        bestFor:
+            'Making newly created Codex worktrees explicit and machine-checkable before agents run refresh, runtime, dev, verify, or MCP workflow reads.',
+        examples: [
+            {
+                description: 'Initialize the current Codex worktree from a source app root',
+                command: 'proteum worktree init --source /path/to/main-app',
+            },
+            {
+                description: 'Refresh a stale bootstrap marker',
+                command: 'proteum worktree init --source /path/to/main-app --refresh',
+            },
+            {
+                description: 'Create a new Git worktree and bootstrap the matching Proteum app root',
+                command:
+                    'proteum worktree create /path/to/.codex/worktrees/feature --source /path/to/main-app --branch feature/worktree-bootstrap',
+            },
+            {
+                description: 'Record an intentional dependency-install skip',
+                command: 'proteum worktree init --source /path/to/main-app --skip-deps --reason "dependencies are shared by the parent workspace"',
+            },
+        ],
+        notes: [
+            'Bootstrap writes `.proteum/worktree-bootstrap.json` with hashes, step timestamps, dependency status, runtime status, and Proteum version.',
+            'When `.env` is missing, `--source` is required and must point to an app root with a readable `.env`.',
+            'Guarded commands block inside `/.codex/worktrees/` until bootstrap is complete or explicitly bypassed with `PROTEUM_ALLOW_UNBOOTSTRAPPED_WORKTREE=1`.',
+            '`worktree create` preserves the source app root path relative to the source repository root, so monorepo app roots are bootstrapped in the matching target location.',
         ],
         status: 'experimental',
     },

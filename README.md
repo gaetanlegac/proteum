@@ -385,6 +385,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
 | `proteum configure agents` | Interactively configure tracked Proteum instruction files for standalone or monorepo apps |
 | `proteum create` | Scaffold a page, controller, command, route, or root service inside an app |
+| `proteum worktree` | Create or initialize Codex worktrees with a machine-readable bootstrap marker |
 
 Recommended daily workflow:
 
@@ -438,6 +439,8 @@ Useful scaffolding commands:
 proteum init my-app --name "My App"
 proteum init my-app --name "My App" --dry-run --json
 proteum configure agents
+proteum worktree init --source /path/to/main-app
+proteum worktree create /path/to/.codex/worktrees/feature --source /path/to/main-app --branch feature/name
 proteum create page marketing/faq --route /faq
 proteum create controller Founder/projects --method list
 proteum create service Conversion/Plans
@@ -446,6 +449,8 @@ proteum create service Conversion/Plans
 `proteum configure agents` writes a compact managed `# Proteum Instructions` router plus the task-specific instruction files that router points to. Standalone mode writes root documents into the app root; monorepo mode writes shared root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root and keeps only app-local instruction files in the Proteum app root. It preserves content outside managed sections and asks before replacing directories or foreign symlinks. If you decline, that path is left untouched.
 
 Every `proteum dev` start runs the same idempotent instruction check. It updates missing or stale managed sections automatically and prompts only when a blocked path would need to be replaced.
+
+`proteum worktree init` writes `.proteum/worktree-bootstrap.json` for app roots under `/.codex/worktrees/`. The marker records `.env` copy status, refresh and dependency results, runtime status, key file hashes, and the active Proteum version. `proteum dev`, `proteum refresh`, `proteum runtime status`, `proteum verify`, and MCP `workflow_start` block inside Codex worktrees until the marker is fresh. Run `npx proteum worktree init --source <source-app-root>` for a new worktree, or add `--refresh` when stale state is reported. `PROTEUM_ALLOW_UNBOOTSTRAPPED_WORKTREE=1` bypasses the block but remains visible in runtime status, doctor, and MCP output.
 
 `proteum connect`, `proteum explain`, `proteum doctor`, and `proteum diagnose` share the same generated manifest and contract state. `proteum perf` uses the same dev request-trace store as the profiler `Perf` tab. `proteum runtime status` also inspects the configured router/HMR ports and returns an exact Start Dev action, so agents do not need to `curl` page routes to identify port owners. `proteum dev` exposes the app-root MCP contract at `/__proteum/mcp` and ensures one managed machine MCP daemon is running; `proteum mcp` is the machine-scope router agents register once. Agents should start with MCP `workflow_start`, use offline candidates to choose the correct app root when no dev server is live, then route repeated reads by the returned live `projectId`. For the full diagnostics and tracing model, see [docs/diagnostics.md](docs/diagnostics.md), [docs/mcp.md](docs/mcp.md), and [docs/request-tracing.md](docs/request-tracing.md).
 
@@ -572,13 +577,14 @@ If you are an LLM or automation agent, start here:
 
 1. Use `proteum mcp` as the one registered MCP server; `proteum dev` ensures the managed machine daemon is running.
 2. Call MCP `workflow_start` with `cwd` or a known `projectId`; if it is ambiguous or returns offline app candidates, use `project_resolve { cwd }`, choose the intended app root, follow its port-inspected next action when needed, then retry `workflow_start`.
-3. Use the returned live `projectId` with MCP `runtime_status`, `orient`, `instructions_resolve`, `route_candidates`, `explain_summary`, `diagnose`, `trace_show`, `perf_request`, and `logs_tail` before CLI equivalents for repeated read-only app state.
-4. Treat returned instruction previews as the allowed scope for read-only discovery and diagnostics. Read full file contents only before edits or git writes, when `fullRead`/`fullReadPolicy` requires it, or when compact previews are insufficient.
-5. Use compact CLI commands for fallback, `dev`, `build`, `check`, `verify`, migrations, E2E, and final reproducible terminal evidence.
-6. Use `proteum diagnose`, `proteum perf`, and compact `proteum trace` for reproducible command evidence when MCP is unavailable or the terminal output itself is needed.
-7. If machine MCP routing fails, run `proteum mcp status` and `proteum runtime status` from the intended app root; if no live session exists, use the exact MCP offline or runtime-status next action. If the same app already responds on the configured port without live tracking, use or repair that runtime instead of starting another server. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again and retry `workflow_start`. Do not run diagnose, trace, or perf reads while runtime health is unreachable, and do not `curl` normal page routes to identify port ownership.
-8. Inspect `server/index.ts`, controllers, services, or pages only after the routing/diagnostic surfaces identify the relevant owner. Do not run broad owner searches after MCP already returned the route/page/controller owner.
-9. If the task touches a protected route or controller in dev and login UX is not the feature under test, use `proteum e2e --session-email <email> --session-role <role>` for Playwright suites or `proteum session <email> --role <role>` before direct HTTP calls.
+3. If the app root is inside `/.codex/worktrees/` and `workflow_start` or a guarded CLI command reports missing/stale bootstrap, run the returned `npx proteum worktree init --source <source-app-root>` command before runtime reads.
+4. Use the returned live `projectId` with MCP `runtime_status`, `orient`, `instructions_resolve`, `route_candidates`, `explain_summary`, `diagnose`, `trace_show`, `perf_request`, and `logs_tail` before CLI equivalents for repeated read-only app state.
+5. Treat returned instruction previews as the allowed scope for read-only discovery and diagnostics. Read full file contents only before edits or git writes, when `fullRead`/`fullReadPolicy` requires it, or when compact previews are insufficient.
+6. Use compact CLI commands for fallback, `dev`, `build`, `check`, `verify`, migrations, E2E, and final reproducible terminal evidence.
+7. Use `proteum diagnose`, `proteum perf`, and compact `proteum trace` for reproducible command evidence when MCP is unavailable or the terminal output itself is needed.
+8. If machine MCP routing fails, run `proteum mcp status` and `proteum runtime status` from the intended app root; if no live session exists, use the exact MCP offline or runtime-status next action. If the same app already responds on the configured port without live tracking, use or repair that runtime instead of starting another server. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again and retry `workflow_start`. Do not run diagnose, trace, or perf reads while runtime health is unreachable, and do not `curl` normal page routes to identify port ownership.
+9. Inspect `server/index.ts`, controllers, services, or pages only after the routing/diagnostic surfaces identify the relevant owner. Do not run broad owner searches after MCP already returned the route/page/controller owner.
+10. If the task touches a protected route or controller in dev and login UX is not the feature under test, use `proteum e2e --session-email <email> --session-role <role>` for Playwright suites or `proteum session <email> --role <role>` before direct HTTP calls.
 
 For implementation rules in a real Proteum app, treat the routed local `AGENTS.md` files plus `proteum orient`, compact CLI diagnostics, and MCP repeated-read surfaces as the task contract. This README is the framework overview, not the project-local instruction layer.
 

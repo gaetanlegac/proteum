@@ -7,6 +7,7 @@ import cli from '..';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
 import { listDevSessionInspections, writeMachineDevSessionRecord, type TDevSessionInspection } from '../runtime/devSessions';
 import { inspectDevPort, type TDevPortInspection } from '../runtime/ports';
+import { compactWorktreeBootstrapStatus, getWorktreeBootstrapStatus } from '../runtime/worktreeBootstrap';
 import { printAgentResponse, printJson, quoteCommandArgument } from '../utils/agentOutput';
 import type { TDoctorResponse } from '@common/dev/diagnostics';
 import type { TProteumManifest } from '@common/dev/proteumManifest';
@@ -193,6 +194,10 @@ export const run = async () => {
               port: manifest.env.resolved.routerPort,
           })
         : undefined;
+    const worktreeBootstrap = getWorktreeBootstrapStatus({
+        appRoot: cli.paths.appRoot,
+        proteumVersion: String(cli.packageJson.version || ''),
+    });
 
     const payload = {
         appRoot: cli.paths.appRoot,
@@ -216,6 +221,7 @@ export const run = async () => {
         sessions: sessions.map(compactSession),
         health,
         configuredDevPort,
+        worktreeBootstrap: compactWorktreeBootstrapStatus(worktreeBootstrap),
     };
 
     if (cli.args.full === true) {

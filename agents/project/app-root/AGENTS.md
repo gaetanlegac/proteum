@@ -8,9 +8,7 @@ Do not put here: reusable Proteum architecture contracts, shared verification ru
 ## App-Root Triggers
 
 - If you are working in a newly created Proteum worktree, before following the rest of these instructions:
-  - Copy `.env` from the main worktree.
-  - Run `npx proteum refresh`.
+  - Run `npx proteum worktree init --source <source-app-root>`.
   - Read and acknowledge the applicable `AGENTS.md` files.
-  - Run `npm i`.
   - Run the dev server with the task-safe elevated-permissions launch workflow from the reusable root `AGENTS.md`, keep it running so user can see the results by himself, and print the live server URL as a clickable Markdown link. If `proteum dev` reports blocked instruction paths, resolve them before continuing.
 - If the task changes UX, copy, onboarding, pricing, product semantics, or commercial positioning, use root-level `DOCUMENTATION.md` to choose the smallest relevant `./docs/` pack before editing. If a dev server is already running, print the live dev server URL as a clickable Markdown link.
