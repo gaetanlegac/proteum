@@ -92,6 +92,24 @@ const createCommandsManager = (app: Application) => new CommandsManager(app, { d
 const createDevCommandsRegistry = (app: Application) => new DevCommandsRegistry(app);
 const createDevDiagnosticsRegistry = (app: Application) => new DevDiagnosticsRegistry(app);
 
+const normalizeReportedError = (rejection: unknown, fallbackMessage: string): Error => {
+    if (rejection instanceof Error) return rejection;
+    if (typeof rejection === 'string') return new Error(rejection);
+
+    return new Error(fallbackMessage);
+};
+
+const getNumericErrorProperty = (error: Error, property: 'http' | 'status' | 'statusCode') => {
+    const value = (error as Error & Partial<Record<typeof property, unknown>>)[property];
+    return typeof value === 'number' ? value : undefined;
+};
+
+const getErrorHttpCode = (error: Error) =>
+    getNumericErrorProperty(error, 'http') ??
+    getNumericErrorProperty(error, 'status') ??
+    getNumericErrorProperty(error, 'statusCode') ??
+    500;
+
 /*----------------------------------
 - FUNCTIONS
 ----------------------------------*/
@@ -138,12 +156,12 @@ export abstract class Application<
         // Handle unhandled crash
         this.on('error', (e, request) => this.container.handleBug(e, 'An error occured in the application', request));
 
-        process.on('unhandledRejection', (error: any, _promise: any) => {
+        process.on('unhandledRejection', (error: unknown) => {
             // Log so we know it's coming from unhandledRejection
             console.error('unhandledRejection', error);
 
             // We don't log the error here because it's the role of the app to decidehiw to log errors
-            this.runHook('error', error);
+            void this.reportError(error);
         });
 
         // We can't pass this in super so we assign here
@@ -153,6 +171,14 @@ export abstract class Application<
 
     public report(...anomalyArgs: ConstructorParameters<typeof Anomaly>) {
         return this.container.Console.createBugReport(new Anomaly(...anomalyArgs));
+    }
+
+    public async reportError(rejection: unknown, request?: ServerRequest<TServerRouter>) {
+        const error = normalizeReportedError(rejection, 'Unknown application error');
+        const code = getErrorHttpCode(error);
+
+        if (code === 500) await this.runHook('error', error, request);
+        else await this.runHook('error.' + code, error, request);
     }
 
     /*----------------------------------

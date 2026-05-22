@@ -109,7 +109,7 @@ export default class ApiClient implements ApiClientService {
             .then((data: TObjetDonnees) => {
                 this.set(data);
             })
-            .catch((error: Error) => {
+            .catch((error: unknown) => {
                 this.app.handleError(error);
             });
     }
@@ -270,7 +270,7 @@ export default class ApiClient implements ApiClientService {
                           );
 
                           // API Error hook
-                          this.app.handleError(e as Error);
+                          this.app.handleError(e);
 
                           throw e;
                       }

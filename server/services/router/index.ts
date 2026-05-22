@@ -637,7 +637,7 @@ export default class ServerRouter<
                 error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown request.finished hook error');
 
             try {
-                await this.app.runHook('error', typedError, request);
+                await this.app.reportError(typedError, request);
             } catch (hookError) {
                 console.error('request.finished hook error', typedError, 'Error hook failure', hookError);
             }
@@ -1111,7 +1111,7 @@ export default class ServerRouter<
             console.log(LogPrefix, 'Error catched from the router:', error);
 
             // Report error
-            await this.app.runHook('error', error, request);
+            await this.app.reportError(error, request);
 
             // Don't exose technical errors to users
             if (this.app.env.profile === 'prod')
@@ -1123,7 +1123,7 @@ export default class ServerRouter<
             /*if (this.app.env.profile === "dev")
                 console.warn(e);*/
 
-            await this.app.runHook('error.' + code, error, request);
+            await this.app.reportError(error, request);
         }
 
         // Return error based on the request format

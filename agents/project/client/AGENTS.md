@@ -25,7 +25,11 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 - Never depend on legacy `@app` imports on the client.
 - Errors from controller calls should never be silently swallowed. Rethrow or surface them clearly.
 - Caught frontend errors must always preserve the original failure. Never write `catch {}`, `.catch(() => ...)`, or a catch handler that only shows a generic toast/state without using the caught error.
-- Valid frontend error handling includes rethrowing the error, passing it to `useContext().app.handleError(error)` or `context.app.handleError(error)`, logging/reporting it with the original error, or surfacing original detail such as `error.message` in user-visible feedback.
+- Valid terminal frontend error handling is `throw error`, `useContext().app.handleError(error)`, or `context.app.handleError(error)`.
+- Do not normalize caught values in app code before calling `handleError`; the app handles `unknown` values and returns a displayable message.
+- If the app customizes `handleError`, keep the signature `handleError(error: unknown, fallbackMessage?: string): string`.
+- Toasts and form errors are local feedback only; use `setError(context.app.handleError(error, fallbackMessage))` or rethrow the caught error.
+- `console.*(error)` is not error handling and must not be the last stop for a caught error.
 
 ## Design
 

@@ -7,8 +7,6 @@ if (typeof window === 'undefined') throw new Error(`This file shouldn't be loade
 
 window.dev && require('preact/debug');
 
-// Core
-import { CoreError } from '@common/errors';
 import type { Layout } from '@common/router';
 import { createDialog } from '@client/components/Dialog/Manager';
 
@@ -53,6 +51,21 @@ const isIgnorableBrowserErrorMessage = (message: string) =>
     message === 'ResizeObserver loop completed with undelivered notifications.' ||
     message === 'ResizeObserver loop limit exceeded';
 
+export const getClientErrorMessage = (error: unknown, fallbackMessage = 'Unknown client error'): string => {
+    if (error instanceof Error && error.message) return error.message;
+    if (typeof error === 'string' && error.trim()) return error;
+    if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' && error.message)
+        return error.message;
+
+    return fallbackMessage;
+};
+
+export const normalizeClientError = (error: unknown, fallbackMessage?: string): Error => {
+    if (error instanceof Error) return error;
+
+    return new Error(getClientErrorMessage(error, fallbackMessage));
+};
+
 /*----------------------------------
 - CLASS
 ----------------------------------*/
@@ -88,8 +101,7 @@ export default abstract class Application {
     public bindErrorHandlers() {
         // Impossible de recup le stacktrace ...
         window.addEventListener('unhandledrejection', (e) => {
-            const error = new Error(e.reason); // How to get stacktrace ?
-            this.handleError(error);
+            this.handleError(e.reason);
         });
 
         window.onerror = (message, file, line, col, stacktrace) => {
@@ -109,7 +121,12 @@ export default abstract class Application {
         };
     }
 
-    public abstract handleError(error: CoreError | Error): void;
+    public handleError(error: unknown, fallbackMessage?: string): string {
+        const normalizedError = normalizeClientError(error, fallbackMessage);
+        console.error(normalizedError);
+
+        return getClientErrorMessage(error, fallbackMessage);
+    }
 
     public abstract handleUpdate(): void;
 

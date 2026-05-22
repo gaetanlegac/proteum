@@ -38,3 +38,7 @@ Diagnostics source of truth: root-level `diagnostics.md`.
 
 - Never silence caught errors.
 - If you need to wrap a failure, preserve enough detail and the original error.
+- Prefer `throw error` when the current request or job should fail.
+- For catch-and-continue server work, detached promises, custom Express responses, or background jobs, call `await this.app.reportError(error, request)` when a request is available, or `await this.app.reportError(error)` without one.
+- Do not call `app.runHook('error', ...)` directly from app code; route caught errors through `app.reportError(...)` so HTTP-specific error hooks stay centralized.
+- `console.*(error)` is not error handling and must not be the last stop for a caught error.

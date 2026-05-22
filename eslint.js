@@ -121,77 +121,89 @@ const getCalleePropertyName = (callee) => {
     return null;
 };
 
-const preservingCallNames = new Set([
-    'captureError',
-    'captureException',
-    'consoleError',
-    'handleError',
-    'logError',
-    'onError',
-    'reject',
-    'reportError',
-    'setError',
-    'setErrorMessage',
-]);
+const getErrorHandlingSide = (filename) => {
+    const normalized = filename.replace(/\\/g, '/');
+    if (/(^|\/)client\//.test(normalized)) return 'client';
+    if (/(^|\/)(server|commands)\//.test(normalized)) return 'server';
 
-const preservingMemberNames = new Set(['captureException', 'error', 'handleError', 'reject', 'warn']);
-
-const isPreservingCall = (callExpression, names) => {
-    const propertyName = getCalleePropertyName(callExpression.callee);
-    if (!propertyName) return false;
-    if (callExpression.callee.type === 'MemberExpression' && callExpression.callee.object?.name === 'console')
-        return false;
-
-    const isKnownPreserver =
-        preservingCallNames.has(propertyName) ||
-        (callExpression.callee.type === 'MemberExpression' && preservingMemberNames.has(propertyName));
-
-    return isKnownPreserver && nodeReferencesName(callExpression, names);
+    return 'shared';
 };
 
-const handlerPreservesCaughtError = (node, names) => {
+const getMemberPropertyName = (node) => {
+    if (node?.type !== 'MemberExpression') return null;
+    if (node.property.type === 'Identifier') return node.property.name;
+    if (node.property.type === 'Literal') return String(node.property.value);
+
+    return null;
+};
+
+const isConsoleMember = (node) =>
+    node?.type === 'MemberExpression' && node.object?.type === 'Identifier' && node.object.name === 'console';
+
+const isAppReceiver = (node) => {
+    if (!node) return false;
+    if (node.type === 'Identifier' && node.name === 'app') return true;
+    if (node.type === 'MemberExpression' && getMemberPropertyName(node) === 'app') return true;
+
+    return false;
+};
+
+const isClientErrorHandlerCall = (callExpression) =>
+    callExpression.callee.type === 'MemberExpression' &&
+    getMemberPropertyName(callExpression.callee) === 'handleError' &&
+    isAppReceiver(callExpression.callee.object);
+
+const isServerErrorReporterCall = (callExpression) =>
+    callExpression.callee.type === 'MemberExpression' &&
+    getMemberPropertyName(callExpression.callee) === 'reportError' &&
+    isAppReceiver(callExpression.callee.object);
+
+const isPromiseRejectCall = (callExpression) => getCalleePropertyName(callExpression.callee) === 'reject';
+
+const isPreservingCall = (callExpression, names, side) => {
+    if (!nodeReferencesName(callExpression, names)) return false;
+    if (isConsoleMember(callExpression.callee)) return false;
+    if (isPromiseRejectCall(callExpression)) return true;
+    if (side === 'client') return isClientErrorHandlerCall(callExpression);
+    if (side === 'server') return isServerErrorReporterCall(callExpression);
+
+    return isClientErrorHandlerCall(callExpression) || isServerErrorReporterCall(callExpression);
+};
+
+const handlerPreservesCaughtError = (node, names, side) => {
     let preserves = false;
 
     traverseNode(node, (child) => {
         if (child.type === 'ThrowStatement' && nodeReferencesName(child.argument, names)) preserves = true;
-        if (child.type === 'CallExpression' && isPreservingCall(child, names)) preserves = true;
+        if (child.type === 'CallExpression' && isPreservingCall(child, names, side)) preserves = true;
     });
 
     return preserves;
 };
 
-const directPromiseCatchHandlers = new Set([
-    'captureError',
-    'captureException',
-    'consoleError',
-    'handleError',
-    'logError',
-    'reportError',
-]);
-
 const isDirectPromiseCatchHandler = (node) => {
     const name = getCalleePropertyName(node);
-    if (name && directPromiseCatchHandlers.has(name)) return true;
-    return false;
+    return name === 'reject';
 };
 
 const createSwallowedErrorRule = () => ({
     meta: {
         type: 'problem',
         docs: {
-            description: 'Require caught errors to be preserved, reported, rethrown, or surfaced with original detail.',
+            description: 'Require caught errors to reach the standard app error path or be rethrown.',
         },
         messages: {
             missingParam:
-                'Caught errors must be bound and preserved. Use `catch (error)` and rethrow, report, route, or surface original details.',
+                'Caught errors must be bound and routed through the standard error path. Use `catch (error)` and rethrow, call app.reportError on the server, or call app.handleError on the client.',
             unusedParam:
-                'Caught error `{{name}}` is discarded. Rethrow it, report it, route it to app error handling, or surface its original details.',
+                'Caught error `{{name}}` is discarded. Rethrow it, call app.reportError on the server, or call app.handleError on the client.',
             unpreserved:
-                'Caught error `{{name}}` is used but not preserved. Rethrow it, report it, route it, or surface original error details.',
+                'Caught error `{{name}}` is used but not routed through the standard error path. Rethrow it, call app.reportError on the server, or call app.handleError on the client.',
         },
         schema: [],
     },
     create(context) {
+        const side = getErrorHandlingSide(context.filename || context.getFilename?.() || '');
         const reportHandler = (node, params, body) => {
             const names = params.flatMap((param) => collectPatternNames(param));
             if (names.length === 0) {
@@ -205,7 +217,7 @@ const createSwallowedErrorRule = () => ({
                 return;
             }
 
-            if (!handlerPreservesCaughtError(body, collectDerivedErrorNames(body, names))) {
+            if (!handlerPreservesCaughtError(body, collectDerivedErrorNames(body, names), side)) {
                 context.report({ node, messageId: 'unpreserved', data: { name: referencedName } });
             }
         };
