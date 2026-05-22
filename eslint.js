@@ -139,6 +139,8 @@ const preservingMemberNames = new Set(['captureException', 'error', 'handleError
 const isPreservingCall = (callExpression, names) => {
     const propertyName = getCalleePropertyName(callExpression.callee);
     if (!propertyName) return false;
+    if (callExpression.callee.type === 'MemberExpression' && callExpression.callee.object?.name === 'console')
+        return false;
 
     const isKnownPreserver =
         preservingCallNames.has(propertyName) ||
@@ -170,7 +172,7 @@ const directPromiseCatchHandlers = new Set([
 const isDirectPromiseCatchHandler = (node) => {
     const name = getCalleePropertyName(node);
     if (name && directPromiseCatchHandlers.has(name)) return true;
-    return node?.type === 'MemberExpression' && node.object?.type === 'Identifier' && node.object.name === 'console';
+    return false;
 };
 
 const createSwallowedErrorRule = () => ({

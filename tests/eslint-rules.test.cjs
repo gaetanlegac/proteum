@@ -61,6 +61,32 @@ test('proteum lint rejects generic catch feedback that drops original error deta
     assert.equal(messages.some((message) => message.ruleId === swallowedErrorRuleId), true);
 });
 
+test('proteum lint rejects console calls as caught error preservation', () => {
+    for (const method of ['error', 'warn']) {
+        const messages = lint(`
+            export const run = async () => {
+                try {
+                    await Investor.api.getDashboard();
+                } catch (error) {
+                    console.${method}(error);
+                }
+            };
+        `);
+
+        assert.equal(messages.some((message) => message.ruleId === swallowedErrorRuleId), true);
+    }
+});
+
+test('proteum lint rejects direct console promise catch handlers', () => {
+    const messages = lint(`
+        export const run = () => {
+            Investor.api.ensureApiKey().catch(console.log);
+        };
+    `);
+
+    assert.equal(messages.some((message) => message.ruleId === swallowedErrorRuleId), true);
+});
+
 test('proteum lint allows rethrowing the caught error', () => {
     const messages = lint(`
         export const run = async () => {
