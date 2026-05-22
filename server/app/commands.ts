@@ -44,7 +44,11 @@ export abstract class Commands<TApplication extends TCommandApplication = TComma
     }
 
     public get models(): object {
-        const models = this.app.models?.client ?? this.app.Models?.client;
+        const appRecord = this.app as unknown as Record<string, unknown>;
+        const explicitModels = Object.prototype.hasOwnProperty.call(appRecord, 'models')
+            ? (appRecord.models as { client?: object } | undefined)
+            : undefined;
+        const models = explicitModels?.client ?? this.app.Models?.client;
 
         if (!models)
             throw new Error(`${this.constructor.name} tried to access models but no Models service is registered.`);

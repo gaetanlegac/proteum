@@ -388,7 +388,7 @@ export default class ServerRouter<
             }
         }
 
-        this.afterRegister();
+        this.refreshRouteRegistration();
     }
 
     private registerControllers(definitions: TGeneratedControllerDefinition[]) {
@@ -434,8 +434,10 @@ export default class ServerRouter<
             return this.error(definition.code, withRouteMetadata(definition.options, metadata), definition.render);
         }
 
+        const method = definition.method === '*' ? '*' : (definition.method.toUpperCase() as TRouteHttpMethod);
+
         return this.registerApi(
-            definition.method,
+            method,
             definition.path,
             withRouteMetadata(definition.options, metadata),
             definition.handler as TServerController<this>,
@@ -567,7 +569,11 @@ export default class ServerRouter<
         );
     }
 
-    private async afterRegister() {
+    public refreshRouteRegistration() {
+        this.afterRegister();
+    }
+
+    private afterRegister() {
         // Ordonne par ordre de priorité
         this.config.debug && console.info('Loading routes ...');
         this.routes.sort((r1, r2) => {
@@ -581,6 +587,7 @@ export default class ServerRouter<
             return 0;
         });
         // - Génère les définitions de route pour le client
+        this.ssrRoutes = [];
         this.config.debug && console.info(`Registered routes:`);
         for (const route of this.routes) {
             const chunkId = route.options.id;

@@ -145,7 +145,11 @@ export default abstract class Service<
             models?: { client?: TServiceModelsClient<TApplication> };
             Models?: { client?: TServiceModelsClient<TApplication> };
         };
-        const models = app.models?.client ?? app.Models?.client;
+        const appRecord = app as Record<string, unknown>;
+        const explicitModels = Object.prototype.hasOwnProperty.call(appRecord, 'models')
+            ? (appRecord.models as { client?: TServiceModelsClient<TApplication> } | undefined)
+            : undefined;
+        const models = explicitModels?.client ?? app.Models?.client;
 
         if (!models)
             throw new Error(`${this.constructor.name} tried to access models but no Models service is registered.`);

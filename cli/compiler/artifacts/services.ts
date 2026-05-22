@@ -305,6 +305,23 @@ const getObjectLiteralFromFactory = (expression: ts.Expression): ts.ObjectLitera
     return getObjectLiteralFactoryDetails(expression)?.object;
 };
 
+const getExpressionFromFactory = (expression: ts.Expression): ts.Expression => {
+    const unwrappedExpression = unwrapExpression(expression);
+
+    if (ts.isArrowFunction(unwrappedExpression) || ts.isFunctionExpression(unwrappedExpression)) {
+        const body = unwrappedExpression.body;
+        if (!ts.isBlock(body)) return unwrapExpression(body);
+
+        for (const statement of body.statements) {
+            if (!ts.isReturnStatement(statement) || !statement.expression) continue;
+
+            return unwrapExpression(statement.expression);
+        }
+    }
+
+    return unwrappedExpression;
+};
+
 const getObjectLiteralFactoryDetails = (expression: ts.Expression): TObjectLiteralFactoryDetails | undefined => {
     const unwrappedExpression = unwrapExpression(expression);
 
@@ -505,8 +522,13 @@ const parseServiceInstantiation = (
     imports: Map<string, TImportedBinding>,
     sourceFilepath: string,
     configArgIndex: number,
+    localInitializers = new Map<string, ts.Expression>(),
 ): TParsedService | undefined => {
-    const unwrappedExpression = unwrapExpression(expression);
+    const factoryExpression = getExpressionFromFactory(expression);
+    const unwrappedExpression =
+        ts.isIdentifier(factoryExpression) && localInitializers.has(factoryExpression.text)
+            ? getExpressionFromFactory(localInitializers.get(factoryExpression.text)!)
+            : factoryExpression;
     if (!ts.isNewExpression(unwrappedExpression)) return undefined;
 
     const resolvedService = resolveImportedService(unwrappedExpression.expression, imports, sourceFilepath);
@@ -588,6 +610,7 @@ const parseDefineApplicationBootstrap = (
     sourceFile: ts.SourceFile,
     imports: Map<string, TImportedBinding>,
 ): TParsedAppBootstrap | undefined => {
+    const topLevelInitializers = collectConstInitializers(sourceFile);
     const definitionArg = getDefaultDefineApplicationObject(sourceFile);
     if (!definitionArg) return undefined;
 
@@ -602,7 +625,14 @@ const parseDefineApplicationBootstrap = (
     const routerProperty = getObjectLiteralProperty(definitionArg, 'router');
 
     if (routerProperty && ts.isPropertyAssignment(routerProperty)) {
-        const routerService = parseServiceInstantiation('Router', routerProperty.initializer, imports, sourceFile.fileName, 1);
+        const routerService = parseServiceInstantiation(
+            'Router',
+            routerProperty.initializer,
+            imports,
+            sourceFile.fileName,
+            1,
+            topLevelInitializers,
+        );
         if (routerService && !rootServices.some((service) => service.registeredName === 'Router')) {
             rootServices.push(routerService);
         }
@@ -621,12 +651,16 @@ const parseDefineApplicationBootstrap = (
         const routerInitializer =
             routerExpression ||
             (routerProperty && ts.isPropertyAssignment(routerProperty) ? routerProperty.initializer : undefined);
-        const unwrappedRouterInitializer = routerInitializer ? unwrapExpression(routerInitializer) : undefined;
+        const unwrappedRouterInitializer = routerInitializer ? getExpressionFromFactory(routerInitializer) : undefined;
         const initializer =
             unwrappedRouterInitializer &&
             ts.isIdentifier(unwrappedRouterInitializer) &&
-            localServiceInitializers.has(unwrappedRouterInitializer.text)
-                ? unwrapExpression(localServiceInitializers.get(unwrappedRouterInitializer.text)!)
+            (localServiceInitializers.has(unwrappedRouterInitializer.text) ||
+                topLevelInitializers.has(unwrappedRouterInitializer.text))
+                ? getExpressionFromFactory(
+                      (localServiceInitializers.get(unwrappedRouterInitializer.text) ||
+                          topLevelInitializers.get(unwrappedRouterInitializer.text))!,
+                  )
                 : unwrappedRouterInitializer;
 
         if (initializer && ts.isNewExpression(initializer)) {
@@ -637,8 +671,8 @@ const parseDefineApplicationBootstrap = (
     return { rootServices, routerPlugins };
 };
 
-const parseAppBootstrap = (): TParsedAppBootstrap => {
-    const sourceFile = createSourceFile(getAppServerEntryFilepath());
+export const parseAppBootstrapSource = (sourceFilepath: string): TParsedAppBootstrap => {
+    const sourceFile = createSourceFile(sourceFilepath);
     const imports = buildImportIndex(sourceFile);
     const definitionBootstrap = parseDefineApplicationBootstrap(sourceFile, imports);
 
@@ -655,6 +689,8 @@ const parseAppBootstrap = (): TParsedAppBootstrap => {
 
     return definitionBootstrap;
 };
+
+const parseAppBootstrap = (): TParsedAppBootstrap => parseAppBootstrapSource(getAppServerEntryFilepath());
 
 const commandServiceSearchRoots = [
     { root: coreServicesRoot, prefix: '@server/services/' },

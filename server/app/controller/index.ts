@@ -166,11 +166,15 @@ export const runControllerAction = (
         models?: { client?: object };
         Models?: { client?: object };
     };
+    const appRecord = app as Record<string, unknown>;
+    const explicitModels = Object.prototype.hasOwnProperty.call(appRecord, 'models')
+        ? (appRecord.models as { client?: object } | undefined)
+        : undefined;
 
     return action.handler({
         ...requestContext,
         input,
-        models: app.models?.client ?? app.Models?.client ?? {},
+        models: explicitModels?.client ?? app.Models?.client ?? {},
         services: requestContext.app,
     });
 };

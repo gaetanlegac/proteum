@@ -39,6 +39,7 @@ export type {
     TPageRouteDefinition,
     TRouteDefinition,
     TRouteDefinitionExport,
+    TRouteDefinitionHttpMethod,
     TRouteDefinitionRegistrar,
     TRouteMetadata,
     TServerRouteDefinition,

@@ -20,6 +20,8 @@ export type TRouteMetadata = {
     id?: string;
 };
 
+export type TRouteDefinitionHttpMethod = TRouteHttpMethod | Lowercase<Exclude<TRouteHttpMethod, '*'>>;
+
 export type TPageRouteDefinition<TProvidedData extends {} = {}> = {
     kind: 'page';
     path: string;
@@ -37,7 +39,7 @@ export type TErrorRouteDefinition = {
 
 export type TServerRouteDefinition<TRouter extends TAnyRouter = TAnyRouter> = {
     kind: 'server';
-    method: TRouteHttpMethod;
+    method: TRouteDefinitionHttpMethod;
     path: string;
     options: Partial<TRouteOptions>;
     handler: (context: TRouterContext<TRouter>) => any;

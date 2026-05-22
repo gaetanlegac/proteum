@@ -26,13 +26,57 @@ const {
     runControllerAction,
     schema,
 } = require('../server/app/controller/index.ts');
+const Service = require('../server/app/service/index.ts').default;
 const { expressHandler, registerRouteDefinition } = require('../common/router/definitions.ts');
+const { parseProteumEnvConfig } = require('../common/env/proteumEnv.ts');
 
 const createTempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-definition-contracts-'));
 
 const writeFile = (filepath, content) => {
     fs.mkdirSync(path.dirname(filepath), { recursive: true });
     fs.writeFileSync(filepath, content);
+};
+
+const loadServiceArtifactsForAppRoot = (appRoot) => {
+    const Module = require('node:module');
+    const modulePath = require.resolve('../cli/compiler/artifacts/services.ts');
+    const originalLoad = Module._load;
+    const appStub = { paths: { root: appRoot }, identity: { identifier: 'TestApp' }, containerServices: [] };
+    const cliStub = { paths: { core: { root: coreRoot } } };
+
+    delete require.cache[modulePath];
+    Module._load = function patchedLoad(request, parent, isMain) {
+        if (parent?.filename === modulePath && request === '../../app') {
+            return { __esModule: true, default: appStub };
+        }
+        if (parent?.filename === modulePath && request === '../..') {
+            return { __esModule: true, default: cliStub };
+        }
+
+        return originalLoad.call(this, request, parent, isMain);
+    };
+
+    try {
+        return require(modulePath);
+    } finally {
+        Module._load = originalLoad;
+    }
+};
+
+const withProteumEnv = (env, run) => {
+    const previous = {};
+    for (const key of Object.keys(env)) previous[key] = process.env[key];
+
+    Object.assign(process.env, env);
+
+    try {
+        return run();
+    } finally {
+        for (const key of Object.keys(env)) {
+            if (previous[key] === undefined) delete process.env[key];
+            else process.env[key] = previous[key];
+        }
+    }
 };
 
 test('route indexer reads explicit page definitions with static metadata', () => {
@@ -61,6 +105,29 @@ export default definePageRoute({
     assert.equal(definition.targetResolution, 'static-expression');
     assert.equal(definition.hasData, false);
     assert.deepEqual(definition.normalizedOptionKeys, ['auth']);
+});
+
+test('router port override updates absolute runtime URLs', () => {
+    const root = createTempDir();
+
+    const config = withProteumEnv(
+        {
+            ENV_NAME: 'local',
+            ENV_PROFILE: 'dev',
+            PORT: '3010',
+            URL: 'http://localhost:3010',
+            URL_INTERNAL: 'http://localhost:3010',
+        },
+        () =>
+            parseProteumEnvConfig({
+                appDir: root,
+                routerPortOverride: 3100,
+            }),
+    );
+
+    assert.equal(config.router.port, 3100);
+    assert.equal(config.router.currentDomain, 'http://localhost:3100');
+    assert.equal(config.router.internalUrl, 'http://localhost:3100');
 });
 
 test('route wrapper imports explicit definitions without lifting source helpers', () => {
@@ -262,6 +329,40 @@ test('controller definitions parse input through explicit actions', () => {
     assert.deepEqual(result, { greeting: 'Hello Proteum' });
 });
 
+test('service model accessor prefers explicit Models service without recursing through inherited app getter', () => {
+    class ModelConsumer extends Service {}
+
+    const app = Object.create(Service.prototype);
+    app.app = app;
+    app.Models = { client: { model: true } };
+
+    const service = new ModelConsumer(app, {}, app);
+
+    assert.deepEqual(service.models, { model: true });
+});
+
+test('controller action context reads Models service without recursing through inherited app getter', () => {
+    const app = Object.create(Service.prototype);
+    app.app = app;
+    app.Models = { client: { model: true } };
+
+    const controller = defineController({
+        path: 'Example',
+        actions: {
+            ReadModels: defineAction({
+                handler: ({ models }) => models,
+            }),
+        },
+    });
+
+    const result = runControllerAction(controller.actions.ReadModels, {
+        app,
+        request: { data: {} },
+    });
+
+    assert.deepEqual(result, { model: true });
+});
+
 test('controller indexer rejects legacy controller classes', () => {
     const root = createTempDir();
     const controllersRoot = path.join(root, 'server/controllers');
@@ -283,4 +384,70 @@ export default class Legacy extends Controller {
         () => indexControllers([{ importPrefix: '@/server/controllers/', root: controllersRoot }]),
         /legacy controller class/,
     );
+});
+
+test('service artifact parser reads defineApplication router factories', () => {
+    const root = createTempDir();
+    const filepath = path.join(root, 'server/index.ts');
+    const { parseAppBootstrapSource } = loadServiceArtifactsForAppRoot(root);
+
+    writeFile(
+        filepath,
+        `import { defineApplication } from '@server/app';
+import Router from '@server/services/router';
+import SchemaRouter from '@server/services/schema/router';
+
+export default defineApplication({
+    router: (app) => new Router(
+        app,
+        {
+            plugins: {
+                schema: new SchemaRouter({}, app),
+            },
+        },
+        app,
+    ),
+});
+`,
+    );
+
+    const bootstrap = parseAppBootstrapSource(filepath);
+
+    assert.deepEqual(bootstrap.rootServices.map((service) => service.registeredName), ['Router']);
+    assert.deepEqual(bootstrap.routerPlugins.map((service) => service.registeredName), ['schema']);
+});
+
+test('service artifact parser reads named defineApplication router factories', () => {
+    const root = createTempDir();
+    const filepath = path.join(root, 'server/index.ts');
+    const { parseAppBootstrapSource } = loadServiceArtifactsForAppRoot(root);
+
+    writeFile(
+        filepath,
+        `import { defineApplication } from '@server/app';
+import Router from '@server/services/router';
+import SchemaRouter from '@server/services/schema/router';
+
+const createRouter = (app) => new Router(
+    app,
+    {
+        plugins: {
+            schema: new SchemaRouter({}, app),
+        },
+    },
+    app,
+);
+
+const App = defineApplication({
+    router: createRouter,
+});
+
+export default App;
+`,
+    );
+
+    const bootstrap = parseAppBootstrapSource(filepath);
+
+    assert.deepEqual(bootstrap.rootServices.map((service) => service.registeredName), ['Router']);
+    assert.deepEqual(bootstrap.routerPlugins.map((service) => service.registeredName), ['schema']);
 });

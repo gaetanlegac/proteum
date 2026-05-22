@@ -44,16 +44,27 @@ type TApplicationDefinitionValue<TValue, TApplication extends object> =
     | TValue
     | ((app: TApplication) => TValue);
 
+type TDefinedApplicationContext<
+    TServices extends Record<string, unknown>,
+    TRouter,
+    TModels = unknown,
+> = Application &
+    TServices & {
+        Router: TRouter;
+        models?: TModels;
+        Models?: TModels;
+    };
+
 export type TApplicationDefinition<
     TServices extends Record<string, unknown> = {},
     TRouter = unknown,
     TModels = unknown,
     TCommands = unknown,
 > = {
-    services?: TApplicationDefinitionValue<TServices, Application & Partial<TServices>>;
-    router?: TApplicationDefinitionValue<TRouter, Application & TServices>;
-    models?: TApplicationDefinitionValue<TModels, Application & TServices & { Router: TRouter }>;
-    commands?: TApplicationDefinitionValue<TCommands, Application & TServices & { Router: TRouter; models?: TModels; Models?: TModels }>;
+    services?: TApplicationDefinitionValue<TServices, TDefinedApplicationContext<TServices, TRouter>>;
+    router?: TApplicationDefinitionValue<TRouter, TDefinedApplicationContext<TServices, TRouter>>;
+    models?: TApplicationDefinitionValue<TModels, TDefinedApplicationContext<TServices, TRouter>>;
+    commands?: TApplicationDefinitionValue<TCommands, TDefinedApplicationContext<TServices, TRouter, TModels>>;
 };
 
 // Without prettify, we don't get a clear list of the class properties
@@ -94,7 +105,7 @@ export abstract class Application<
     public app!: this;
     public servicesContainer!: TServicesContainer;
     public userType!: TUser;
-    public declare Router: object;
+    public declare Router: unknown;
 
     /*----------------------------------
     - PROPERTIES
@@ -318,16 +329,19 @@ export const defineApplication = <
             const self = this as unknown as TDefinedApplication & Record<string, unknown>;
             const services = resolveApplicationDefinitionValue(
                 definition.services,
-                self as Application & Partial<TServices>,
+                self as TDefinedApplicationContext<TServices, TRouter>,
             );
             assignApplicationRecord(self, services);
 
-            const router = resolveApplicationDefinitionValue(definition.router, self as Application & TServices);
+            const router = resolveApplicationDefinitionValue(
+                definition.router,
+                self as TDefinedApplicationContext<TServices, TRouter>,
+            );
             if (router !== undefined) (self as Record<string, unknown>).Router = router;
 
             const models = resolveApplicationDefinitionValue(
                 definition.models,
-                self as Application & TServices & { Router: TRouter },
+                self as TDefinedApplicationContext<TServices, TRouter>,
             );
             if (models !== undefined) {
                 (self as Record<string, unknown>).models = models;
@@ -336,7 +350,7 @@ export const defineApplication = <
 
             const commands = resolveApplicationDefinitionValue(
                 definition.commands,
-                self as Application & TServices & { Router: TRouter; models?: TModels; Models?: TModels },
+                self as TDefinedApplicationContext<TServices, TRouter, TModels>,
             );
             if (commands !== undefined) (self as Record<string, unknown>).commands = commands;
         }

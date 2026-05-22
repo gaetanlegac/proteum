@@ -539,7 +539,7 @@ Logs: ${
     public jsonToHTML(json: unknown): string {
         if (!json) return 'No data';
 
-        const coloredJson = highlight(stringify(json, null, 4), { language: 'json', ignoreIllegals: true });
+        const coloredJson = highlight(stringify(json, undefined, 4), { language: 'json', ignoreIllegals: true });
 
         const html = ansi2Html.toHtml(coloredJson);
 

@@ -238,6 +238,16 @@ const parseAbsoluteUrl = ({
     return value;
 };
 
+const applyRouterPortOverrideToUrl = (value: string, routerPortOverride: number | undefined) => {
+    if (routerPortOverride === undefined) return value;
+
+    const url = new URL(value);
+    url.port = String(routerPortOverride);
+    const serialized = url.toString();
+
+    return value.endsWith('/') ? serialized : serialized.replace(/\/$/, '');
+};
+
 const parseConnectedProjectAbsoluteUrl = ({
     appDir,
     namespace,
@@ -323,16 +333,18 @@ export const parseProteumEnvConfig = ({
         value: getRequiredEnvValue({ key: 'PORT', context }),
         context,
     });
-    const currentDomain = parseAbsoluteUrl({
+    const configuredCurrentDomain = parseAbsoluteUrl({
         key: 'URL',
         value: getRequiredEnvValue({ key: 'URL', context }),
         context,
     });
-    const internalUrl = parseAbsoluteUrl({
+    const configuredInternalUrl = parseAbsoluteUrl({
         key: 'URL_INTERNAL',
         value: getRequiredEnvValue({ key: 'URL_INTERNAL', context }),
         context,
     });
+    const currentDomain = applyRouterPortOverrideToUrl(configuredCurrentDomain, routerPortOverride);
+    const internalUrl = applyRouterPortOverrideToUrl(configuredInternalUrl, routerPortOverride);
 
     const traceEnable = parseBooleanEnvValue({
         key: 'TRACE_ENABLE',
