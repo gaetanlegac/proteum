@@ -106,6 +106,7 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 - Do not import runtime values from `@models`.
 - Do not use `@request` runtime globals.
 - Do not use `@app` on the client.
+- Do not import `@app` in route, page, or controller files. Runtime app/services/router access belongs in typed callback parameters.
 - Prefer type inference rooted in the explicit application graph in `server/index.ts`.
 
 ## Surface Contracts
@@ -125,6 +126,51 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 - Companion client-callable entrypoints live in `server/controllers/**`.
 - `proteum create service ...` scaffolds the service file, a typed config export under `server/config/*.ts`, and the root registration in `server/index.ts`; review and adapt the generated names before committing.
 
+Example app root shape; replace names with the project app type and service names:
+
+```ts
+import { defineApplication, type Application } from '@server/app';
+import Router from '@server/services/router';
+import SchemaRouter from '@server/services/schema/router';
+import BillingService from '@/server/services/Billing';
+
+import * as appConfig from '@/server/config/app';
+
+type ProjectServices = {
+    Billing: BillingService;
+};
+
+type ProjectRouterPlugins = {
+    schema: SchemaRouter;
+};
+
+export type ProjectRouter = Router<ProjectApp, ProjectRouterPlugins>;
+export interface ProjectApp extends Application, ProjectServices {
+    Router: ProjectRouter;
+}
+
+const createProjectRouter = (app: ProjectApp): ProjectRouter =>
+    new Router<ProjectApp, ProjectRouterPlugins>(
+        app,
+        {
+            ...appConfig.routerBaseConfig,
+            plugins: {
+                schema: new SchemaRouter({}, app),
+            },
+        },
+        app,
+    );
+
+const ProjectApplication = defineApplication<ProjectServices, ProjectRouter>({
+    services: (app) => ({
+        Billing: new BillingService(app, {}, app),
+    }),
+    router: createProjectRouter,
+});
+
+export default ProjectApplication;
+```
+
 ### Connected Projects
 
 - Declare connected namespaces in `proteum.config.ts` with explicit values such as `connect: { Product: { source: PRODUCT_CONNECTED_SOURCE, urlInternal: PRODUCT_URL_INTERNAL } }`.
@@ -142,6 +188,20 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 - Set `path: 'Custom/path'` on `defineController(...)` to override the base path.
 - Generated client calls use `POST`.
 - Prefer `proteum create controller ...` for new controller boilerplate, then adapt the generated method to real service calls.
+
+```ts
+import { defineAction, defineController, schema } from '@server/app/controller';
+
+export default defineController({
+    path: 'Billing',
+    actions: {
+        read: defineAction({
+            input: schema.object({ accountId: schema.string() }),
+            handler: ({ input }) => ({ accountId: input.accountId }),
+        }),
+    },
+});
+```
 
 ### Commands
 
@@ -166,6 +226,17 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 - Error pages use `defineErrorRoute({ code, options, render })` in `client/pages/_messages/**`.
 - Prefer `proteum create page ...` for new page boilerplate, then review the explicit route path, options object, and data payload.
 
+```tsx
+import { definePageRoute } from '@common/router/definitions';
+
+export default definePageRoute({
+    path: '/billing',
+    options: { auth: true },
+    data: ({ BillingController }) => ({ billing: BillingController.read({ accountId: 'current' }) }),
+    render: ({ billing }) => <BillingPage billing={billing} />,
+});
+```
+
 ### Manual Routes
 
 - Use `server/routes/**` only for explicit HTTP behavior that should not be a generated controller action.
@@ -173,6 +244,17 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 - Receive app services through `defineServerRoutes((app) => [...])` and use handler context for `request`, `response`, router plugins, and custom router context.
 - If the route is a normal app API, prefer a controller.
 - Prefer `proteum create route ...` for new manual-route boilerplate.
+
+```ts
+import { defineServerRoute } from '@common/router/definitions';
+
+export default defineServerRoute({
+    method: 'GET',
+    path: '/health',
+    options: {},
+    handler: ({ response }) => response.json({ ok: true }),
+});
+```
 
 ### Models And Aliases
 

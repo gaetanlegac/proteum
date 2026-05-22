@@ -136,8 +136,9 @@ test('proteum lint allows surfacing a message derived from the caught error', ()
 test('proteum lint allows routing promise failures to app error handling', () => {
     const messages = lint(`
         export const run = () => {
+            const context = useContext();
             Investor.api.ensureApiKey().catch((error) => {
-                Router.app.handleError(error);
+                context.app.handleError(error);
             });
         };
     `);

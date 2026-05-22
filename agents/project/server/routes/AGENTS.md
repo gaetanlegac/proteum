@@ -17,6 +17,31 @@ Diagnostics source of truth: root-level `diagnostics.md`.
 - Use `expressHandler(...)` only when a route needs raw Express `req`, `res`, or `next`.
 - If a route needs a curated registry, keep server-only data in `/server/catalogs/**` and shared data in `/common/catalogs/**`.
 
+Example route file; replace `ProjectApp` with the concrete app type exported from `server/index.ts`.
+
+```ts
+import { defineServerRoute, defineServerRoutes, expressHandler } from '@common/router/definitions';
+import type { ProjectApp } from '@/server/index';
+
+export default defineServerRoutes((app: ProjectApp) => [
+    defineServerRoute({
+        method: 'GET',
+        path: '/health',
+        options: {},
+        handler: ({ response }) => response.json({ ok: true }),
+    }),
+    defineServerRoute({
+        method: 'POST',
+        path: '/webhook',
+        options: {},
+        handler: expressHandler((request, response) => {
+            app.Webhooks.handle(request.body);
+            response.status(204).send('');
+        }),
+    }),
+]);
+```
+
 ## Absolute URLs
 
-Use `Router.url('/relative/path')` to generate absolute URLs.
+Use `context.Router.url('/relative/path')` inside handlers, or `app.Router.url('/relative/path')` inside `defineServerRoutes((app) => ...)`, to generate absolute URLs.

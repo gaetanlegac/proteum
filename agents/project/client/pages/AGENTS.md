@@ -18,10 +18,23 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 - Keep route metadata static and serializable. Runtime app/client references belong only inside `data` and `render`.
 - Do not import `@app`, `@/client/router`, or `@client/router` in page files.
 
+```tsx
+import { definePageRoute } from '@common/router/definitions';
+
+export default definePageRoute({
+    path: '/dashboard',
+    options: { auth: true },
+    data: ({ AccountController }) => ({
+        account: AccountController.accountPage(),
+    }),
+    render: ({ account }) => <Dashboard account={account} />,
+});
+```
+
 ## Data And Render
 
 - Route behavior belongs in the explicit `options` object, not in page data.
-- `data` returns one flat object or `null` is passed as the third argument when no page data is needed.
+- `data` returns one flat object, or the route definition sets `data: null` when no page data is needed.
 - Returning route-option keys such as `auth`, `layout`, `static`, `redirectLogged`, or their `_`-prefixed variants from `data` is a contract error.
 - Controller fetchers and promises returned from `data` resolve before render.
 - If a page needs route data, return it from `data` and read it in `render`.

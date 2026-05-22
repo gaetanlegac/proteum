@@ -104,6 +104,12 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.match(agentsContent, /\/__proteum\/mcp/);
     assert.match(agentsContent, /central MCP ready banner/);
     assert.match(agentsContent, /proteum-mcp-v1/);
+    assert.match(agentsContent, /## Explicit App-Building Contract/);
+    assert.match(agentsContent, /defineApplication\(\{ services, router, models, commands \}\)/);
+    assert.match(agentsContent, /definePageRoute\(\{ path, options, data, render \}\)/);
+    assert.match(agentsContent, /defineController\(\{ path, actions \}\)/);
+    assert.match(agentsContent, /Never import `@app` in page, route, or controller files/);
+    assert.match(agentsContent, /Never call top-level `Router\.page\(\.\.\.\)`/);
     assert.match(agentsContent, /## Triggered Instruction Reads/);
     assert.match(agentsContent, /Worktree Preflight/);
     assert.match(agentsContent, /npx proteum worktree init --source <source-app-root>/);

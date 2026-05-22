@@ -25,7 +25,7 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 - Never depend on legacy `@app` imports on the client.
 - Errors from controller calls should never be silently swallowed. Rethrow or surface them clearly.
 - Caught frontend errors must always preserve the original failure. Never write `catch {}`, `.catch(() => ...)`, or a catch handler that only shows a generic toast/state without using the caught error.
-- Valid frontend error handling includes rethrowing the error, passing it to `Router.app.handleError(error)`, logging/reporting it with the original error, or surfacing original detail such as `error.message` in user-visible feedback.
+- Valid frontend error handling includes rethrowing the error, passing it to `useContext().app.handleError(error)` or `context.app.handleError(error)`, logging/reporting it with the original error, or surfacing original detail such as `error.message` in user-visible feedback.
 
 ## Design
 
