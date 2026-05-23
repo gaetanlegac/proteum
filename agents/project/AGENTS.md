@@ -161,10 +161,12 @@ const createProjectRouter = (app: ProjectApp): ProjectRouter =>
         app,
     );
 
-const ProjectApplication = defineApplication<ProjectServices, ProjectRouter>({
-    services: (app) => ({
-        Billing: new BillingService(app, {}, app),
-    }),
+const createProjectServices = (app: ProjectApp): ProjectServices => ({
+    Billing: new BillingService(app, {}, app),
+});
+
+const ProjectApplication = defineApplication({
+    services: createProjectServices,
     router: createProjectRouter,
 });
 
@@ -190,7 +192,7 @@ export default ProjectApplication;
 - Prefer `proteum create controller ...` for new controller boilerplate, then adapt the generated method to real service calls.
 
 ```ts
-import { defineAction, defineController, schema } from '@server/app/controller';
+import { defineAction, defineController, schema } from '@generated/server/controller';
 
 export default defineController({
     path: 'Billing',

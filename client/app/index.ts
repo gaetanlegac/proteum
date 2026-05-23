@@ -121,7 +121,7 @@ export default abstract class Application {
         };
     }
 
-    public handleError(error: unknown, fallbackMessage?: string): string {
+    public handleError(error: unknown, fallbackMessage?: any): string | void {
         const normalizedError = normalizeClientError(error, fallbackMessage);
         console.error(normalizedError);
 

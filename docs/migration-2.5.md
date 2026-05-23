@@ -14,7 +14,7 @@ Proteum 2.5 is a breaking cleanup release. It removes contextual app/router magi
 
 ## 1. Install The Published Package
 
-Update every Proteum app package in the repo to `proteum@^2.5.0`, then reinstall from npm.
+Update every Proteum app package in the repo to `proteum@^2.5.1`, then reinstall from npm.
 
 ```bash
 npm install
@@ -71,14 +71,37 @@ const createProjectRouter = (app: ProjectApp): ProjectRouter =>
         app,
     );
 
-const ProjectApplication = defineApplication<ProjectServices, ProjectRouter>({
-    services: (app) => ({
-        Billing: new BillingService(app, {}, app),
-    }),
+const createProjectServices = (app: ProjectApp): ProjectServices => ({
+    Billing: new BillingService(app, {}, app),
+});
+
+const ProjectApplication = defineApplication({
+    services: createProjectServices,
     router: createProjectRouter,
 });
 
 export default ProjectApplication;
+```
+
+Generated app globals read the named app type exported by `server/index.ts`. Derive that named type from the default `defineApplication` export when the app does not need a more explicit bootstrap type:
+
+```ts
+import type ProjectApplication from '@/server/index';
+
+type ProjectApp = InstanceType<typeof ProjectApplication>;
+```
+
+In app roots with service constructors that need earlier services during boot, use an explicit exported app type plus a progressively assigned service factory:
+
+```ts
+export type ProjectServices = {
+    Models: ModelsService;
+    Domains: DomainsService;
+};
+
+export type ProjectApp = Application & ProjectServices & {
+    Router: ProjectRouter;
+};
 ```
 
 ## 4. Migrate Pages
@@ -139,7 +162,7 @@ Use `defineServerRoutes((app) => [...])` only when the route definitions need ap
 Replace controller classes and `this.input(schema)` with explicit actions.
 
 ```ts
-import { defineAction, defineController, schema } from '@server/app/controller';
+import { defineAction, defineController, schema } from '@generated/server/controller';
 
 export default defineController({
     path: 'Billing',
@@ -158,8 +181,27 @@ Rules:
 - Read parsed input from `context.input`.
 - Read request state from `request`, `response`, `api`, `auth`, and router-plugin context.
 - Call business logic through `services`, `models`, or `app`.
+- Import controller definition helpers from `@generated/server/controller` when app-specific services, models, router, or request plugins are needed. The generated helper binds context to the concrete app type exported by `server/index.ts`.
+- Keep action schemas aligned with existing typed service methods. If a service method accepts `{ domainIds?: string[]; entries?: Entry[] }`, the `defineAction({ input })` schema must mark those fields optional too. Proteum 2.5 generates strict client types from these schemas, so stale schemas that were previously hidden by loose clients become compile errors.
 
-## 7. Remove Legacy Magic
+## 7. Migrate Commands
+
+Commands should no longer import a default `App` type from `server/index.ts`. The default export is now the application constructor returned by `defineApplication`.
+
+```ts
+import { Commands } from '@server/app/commands';
+import type ProjectApplication from '@/server/index';
+
+type ProjectApp = InstanceType<typeof ProjectApplication>;
+
+export default class BillingCommands extends Commands<ProjectApp> {
+    public async sync() {
+        return this.app.Billing.sync();
+    }
+}
+```
+
+## 8. Remove Legacy Magic
 
 Search user source for old contracts and remove every match.
 
@@ -175,7 +217,7 @@ Allowed replacements:
 - `this.app`, `this.services`, and `this.models` inside typed services.
 - `defineServerRoutes((app) => [...])` when server route definitions need app services.
 
-## 8. Standardize Caught Error Handling
+## 9. Standardize Caught Error Handling
 
 Every caught error must end at the same framework error surface. Local UI feedback or protocol responses can still happen, but they are not the terminal error handling step by themselves.
 
@@ -195,7 +237,7 @@ Client rules:
 
 Do not treat `console.error(error)`, `console.warn(error)`, or any other `console.*(error)` call as error handling. Console calls can be temporary diagnostics, but they must not be the last stop for a caught error.
 
-## 9. Refresh Generated Artifacts
+## 10. Refresh Generated Artifacts
 
 Do not edit `.proteum/**` manually. Regenerate it from source.
 
@@ -206,7 +248,7 @@ npx proteum typecheck
 
 If connected local projects are used through `file:` sources, start or validate producer apps before validating the consumer.
 
-## 10. Validate Runtime Behavior
+## 11. Validate Runtime Behavior
 
 Run the smallest trustworthy checks first, then broaden when the touched surface requires it.
 
@@ -222,5 +264,6 @@ For protected flows, prefer Proteum session helpers over automating login unless
 
 - Production route-generation errors where top-level `Router.express(...)` was lifted outside registration are fixed by moving the route into `defineServerRoute({ handler: expressHandler(...) })`.
 - `@app` import errors are fixed by moving runtime access into `data`, `render`, route handlers, controller action handlers, or typed services.
-- Missing `this.app.Router` typings are fixed by exporting the concrete app and router types from `server/index.ts`.
+- Missing `this.app.Router`, service, or `env` typings are fixed by exporting the project app type from `server/index.ts`, letting `defineApplication({ services, router })` infer from typed factories, and refreshing generated artifacts.
 - Static metadata errors are fixed by moving runtime-dependent values out of `path`, `method`, `options`, and error `code`.
+- Shared package interfaces should match the server controller schemas they wrap. A shared client type that allows `null` or extra enum values while the server schema rejects them will now fail assignment against the generated controller client.

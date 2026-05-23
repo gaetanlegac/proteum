@@ -18,6 +18,7 @@ const {
     indexRouteDefinitions,
     writeGeneratedRouteModule,
 } = require('../cli/compiler/common/generatedRouteModules.ts');
+const { createTypedControllerHelperContent } = require('../cli/compiler/artifacts/controllerHelper.ts');
 const { findClientRouteFiles } = require('../cli/compiler/artifacts/discovery.ts');
 const { indexControllers } = require('../cli/compiler/common/controllers.ts');
 const {
@@ -105,6 +106,51 @@ export default definePageRoute({
     assert.equal(definition.targetResolution, 'static-expression');
     assert.equal(definition.hasData, false);
     assert.deepEqual(definition.normalizedOptionKeys, ['auth']);
+});
+
+test('route indexer accepts imported const-only option metadata', () => {
+    const root = createTempDir();
+    const filepath = path.join(root, 'client/pages/feed.tsx');
+    const catalogFilepath = path.join(root, 'client/catalogs/routes.ts');
+
+    writeFile(
+        catalogFilepath,
+        `export const PAGE_AUTH = {
+    feed: {
+        auth: {
+            hasFeature: 'opportunitiesFreq',
+        },
+        authTracking: {
+            source: 'investor_feed',
+            feature: 'opportunitiesFreq',
+            action: 'open-feed',
+            triggerKind: 'open',
+        },
+    },
+} as const;
+`,
+    );
+    writeFile(
+        filepath,
+        `import { definePageRoute } from '@common/router/definitions';
+import { PAGE_AUTH } from '@/client/catalogs/routes';
+
+export default definePageRoute({
+    path: '/feed',
+    options: {
+        auth: PAGE_AUTH.feed.auth,
+        authTracking: PAGE_AUTH.feed.authTracking,
+    },
+    data: null,
+    render: () => null,
+});
+`,
+    );
+
+    const [definition] = indexRouteDefinitions({ side: 'client', sourceFilepath: filepath });
+
+    assert.equal(definition.path, '/feed');
+    assert.deepEqual(definition.normalizedOptionKeys, ['auth', 'authTracking']);
 });
 
 test('router port override updates absolute runtime URLs', () => {
@@ -262,6 +308,37 @@ export default defineServerRoutes(({ Users }) => [
     assert.equal(definition.targetResolution, 'static-expression');
 });
 
+test('server route factories can push explicit route definitions from a block body', () => {
+    const root = createTempDir();
+    const filepath = path.join(root, 'server/routes/api.ts');
+
+    writeFile(
+        filepath,
+        `import { defineServerRoute, defineServerRoutes } from '@common/router/definitions';
+
+export default defineServerRoutes((app) => {
+    const { Users } = app;
+    const routeOptions = {};
+    const routes = [];
+
+    routes.push(defineServerRoute({
+        method: 'GET',
+        path: '/api/users',
+        options: routeOptions,
+        handler: async () => Users.list(),
+    }));
+
+    return routes;
+});
+`,
+    );
+
+    const [definition] = indexRouteDefinitions({ side: 'server', sourceFilepath: filepath });
+
+    assert.equal(definition.methodName, 'get');
+    assert.equal(definition.path, '/api/users');
+});
+
 test('route definitions register through explicit router registrar', () => {
     const calls = [];
 
@@ -386,6 +463,17 @@ export default class Legacy extends Controller {
     );
 });
 
+test('generated typed controller helper binds action context to app root', () => {
+    const content = createTypedControllerHelperContent('TestApp');
+
+    assert.match(content, /@server\/app\/controller/);
+    assert.match(content, /@\/server\/index/);
+    assert.match(content, /export type TApplication = import\('@\/server\/index'\)\.TestApp/);
+    assert.match(content, /export type TControllerRequestServices = import\('@\/server\/index'\)\.TControllerRequestServices/);
+    assert.match(content, /TControllerActionContext<\n    TInput,\n    TApplication,\n    TControllerRequestServices\n>/);
+    assert.match(content, /handler: \(context: TTypedControllerActionContext<z\.output<TSchema>>\) => TResult/);
+});
+
 test('service artifact parser reads defineApplication router factories', () => {
     const root = createTempDir();
     const filepath = path.join(root, 'server/index.ts');
@@ -449,5 +537,46 @@ export default App;
     const bootstrap = parseAppBootstrapSource(filepath);
 
     assert.deepEqual(bootstrap.rootServices.map((service) => service.registeredName), ['Router']);
+    assert.deepEqual(bootstrap.routerPlugins.map((service) => service.registeredName), ['schema']);
+});
+
+test('service artifact parser reads named defineApplication service factories', () => {
+    const root = createTempDir();
+    const filepath = path.join(root, 'server/index.ts');
+    const serviceFilepath = path.join(root, 'server/services/Billing.ts');
+    const { parseAppBootstrapSource } = loadServiceArtifactsForAppRoot(root);
+
+    writeFile(serviceFilepath, 'export default class Billing {}');
+    writeFile(
+        filepath,
+        `import { defineApplication } from '@server/app';
+import Router from '@server/services/router';
+import SchemaRouter from '@server/services/schema/router';
+import Billing from '@/server/services/Billing';
+
+const createServices = (app) => ({
+    Billing: new Billing(app, {}, app),
+});
+
+const createRouter = (app) => new Router(
+    app,
+    {
+        plugins: {
+            schema: new SchemaRouter({}, app),
+        },
+    },
+    app,
+);
+
+export default defineApplication({
+    services: createServices,
+    router: createRouter,
+});
+`,
+    );
+
+    const bootstrap = parseAppBootstrapSource(filepath);
+
+    assert.deepEqual(bootstrap.rootServices.map((service) => service.registeredName), ['Billing', 'Router']);
     assert.deepEqual(bootstrap.routerPlugins.map((service) => service.registeredName), ['schema']);
 });

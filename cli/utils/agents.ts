@@ -643,7 +643,7 @@ function renderEmbeddedProjectInstructions({ appRoot, coreRoot, includeMonorepoR
         '- App roots default-export `defineApplication({ services, router, models, commands })`; `server/index.ts` is the canonical type root for the project app, services, router plugins, request context, and models.',
         '- Client page files default-export `definePageRoute({ path, options, data, render })` or `defineErrorRoute({ code, options, render })`; route paths come from the definition object, not from `Router.page(...)` or the file path.',
         '- Manual HTTP route files default-export `defineServerRoute({ method, path, options, handler })` or `defineServerRoutes(...)`; use `expressHandler(...)` only when raw Express `req`, `res`, or `next` is required.',
-        '- Controllers default-export `defineController({ path, actions })`; actions use `defineAction({ input, handler })`, and parsed input is read from the handler context.',
+        '- Controllers default-export `defineController({ path, actions })` from `@generated/server/controller`; actions use `defineAction({ input, handler })`, and parsed input is read from the app-typed handler context.',
         '- Never import `@app` in page, route, or controller files. Never call top-level `Router.page(...)`, `Router.error(...)`, `Router.get(...)`, `Router.post(...)`, `Router.put(...)`, `Router.patch(...)`, `Router.delete(...)`, or `Router.express(...)` in app source.',
         '- Runtime app, service, request, response, router, auth, and custom router-plugin access belongs only in typed callback parameters such as `data`, `render`, route `handler`, controller action `handler`, `defineServerRoutes((app) => ...)`, or typed service `this.app`/`this.services`.',
         '',

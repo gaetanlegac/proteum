@@ -194,7 +194,7 @@ export default class ClientRouter<
     } = {};
 
     public async registerRoutes() {
-        const loaders = appRoutes as TRoutesLoaders;
+        const loaders = appRoutes as unknown as TRoutesLoaders;
         let currentRoute: TUnresolvedRoute | undefined;
         debug && console.log(LogPrefix, `Indexing routes and finding the current route from ssr data:`, this.context);
 

@@ -64,7 +64,74 @@ const parseSourceFile = (filepath: string, code: string) =>
         filepath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
     );
 
+const parsedSourceFileCache = new Map<string, ts.SourceFile | null>();
+
 const normalizeFilepath = (value: string) => path.resolve(value).replace(/\\/g, '/');
+
+const resolveExistingModuleFilepath = (baseFilepath: string) => {
+    const candidates = [
+        baseFilepath,
+        `${baseFilepath}.ts`,
+        `${baseFilepath}.tsx`,
+        `${baseFilepath}.js`,
+        `${baseFilepath}.jsx`,
+        path.join(baseFilepath, 'index.ts'),
+        path.join(baseFilepath, 'index.tsx'),
+        path.join(baseFilepath, 'index.js'),
+        path.join(baseFilepath, 'index.jsx'),
+    ];
+
+    return candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
+};
+
+const getAppRootFromSourceFile = (sourceFilepath: string) => {
+    const normalized = normalizeFilepath(sourceFilepath);
+    const markers = ['/client/', '/server/', '/common/', '/commands/'];
+    const markerIndex = markers
+        .map((marker) => ({ marker, index: normalized.indexOf(marker) }))
+        .filter(({ index }) => index >= 0)
+        .sort((left, right) => left.index - right.index)[0];
+
+    return markerIndex ? normalized.slice(0, markerIndex.index) : path.dirname(sourceFilepath);
+};
+
+const resolveStaticImportFilepath = (sourceFile: ts.SourceFile, moduleSpecifier: string) => {
+    if (moduleSpecifier.startsWith('.')) {
+        return resolveExistingModuleFilepath(path.resolve(path.dirname(sourceFile.fileName), moduleSpecifier));
+    }
+
+    const appRoot = getAppRootFromSourceFile(sourceFile.fileName);
+    const aliases: Array<[string, string]> = [
+        ['@/', appRoot],
+        ['@client/', path.join(appRoot, 'client')],
+        ['@server/', path.join(appRoot, 'server')],
+        ['@common/', path.join(appRoot, 'common')],
+    ];
+
+    for (const [prefix, root] of aliases) {
+        if (!moduleSpecifier.startsWith(prefix)) continue;
+
+        const relativeImport = moduleSpecifier.slice(prefix.length);
+        return resolveExistingModuleFilepath(path.join(root, relativeImport));
+    }
+
+    return undefined;
+};
+
+const readStaticImportSourceFile = (filepath: string) => {
+    const normalized = normalizeFilepath(filepath);
+    if (parsedSourceFileCache.has(normalized)) return parsedSourceFileCache.get(normalized) || undefined;
+
+    if (!fs.existsSync(normalized)) {
+        parsedSourceFileCache.set(normalized, null);
+        return undefined;
+    }
+
+    const sourceFile = parseSourceFile(normalized, fs.readFileSync(normalized, 'utf8'));
+    parsedSourceFileCache.set(normalized, sourceFile);
+
+    return sourceFile;
+};
 
 const getNodeText = (sourceFile: ts.SourceFile, node: ts.Node) =>
     sourceFile.text.slice(node.getStart(sourceFile), node.getEnd());
@@ -115,39 +182,46 @@ const tryEvaluateStaticExpression = (
     resolvedBindings: Map<string, string | number | undefined>,
     activeBindings = new Set<string>(),
 ): string | number | undefined => {
-    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+    const expression = unwrapStaticExpression(node);
+    const resolvedExpression = resolveStaticExpressionNode(expression, bindingInitializers, activeBindings);
 
-    if (ts.isNumericLiteral(node)) {
-        const value = Number(node.text);
+    if (resolvedExpression !== expression) {
+        return tryEvaluateStaticExpression(resolvedExpression, bindingInitializers, resolvedBindings, activeBindings);
+    }
+
+    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+
+    if (ts.isNumericLiteral(expression)) {
+        const value = Number(expression.text);
         return Number.isFinite(value) ? value : undefined;
     }
 
-    if (ts.isParenthesizedExpression(node)) {
-        return tryEvaluateStaticExpression(node.expression, bindingInitializers, resolvedBindings, activeBindings);
+    if (ts.isParenthesizedExpression(expression)) {
+        return tryEvaluateStaticExpression(expression.expression, bindingInitializers, resolvedBindings, activeBindings);
     }
 
-    if (ts.isIdentifier(node)) {
-        if (resolvedBindings.has(node.text)) return resolvedBindings.get(node.text);
+    if (ts.isIdentifier(expression)) {
+        if (resolvedBindings.has(expression.text)) return resolvedBindings.get(expression.text);
 
-        const initializer = bindingInitializers.get(node.text);
-        if (!initializer || activeBindings.has(node.text)) return undefined;
+        const initializer = bindingInitializers.get(expression.text);
+        if (!initializer || activeBindings.has(expression.text)) return undefined;
 
-        activeBindings.add(node.text);
+        activeBindings.add(expression.text);
         const value = tryEvaluateStaticExpression(initializer, bindingInitializers, resolvedBindings, activeBindings);
-        activeBindings.delete(node.text);
-        resolvedBindings.set(node.text, value);
+        activeBindings.delete(expression.text);
+        resolvedBindings.set(expression.text, value);
 
         return value;
     }
 
-    if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
-        const operand = tryEvaluateStaticExpression(node.operand, bindingInitializers, resolvedBindings, activeBindings);
+    if (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.MinusToken) {
+        const operand = tryEvaluateStaticExpression(expression.operand, bindingInitializers, resolvedBindings, activeBindings);
         return typeof operand === 'number' ? -operand : undefined;
     }
 
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-        const left = tryEvaluateStaticExpression(node.left, bindingInitializers, resolvedBindings, activeBindings);
-        const right = tryEvaluateStaticExpression(node.right, bindingInitializers, resolvedBindings, activeBindings);
+    if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+        const left = tryEvaluateStaticExpression(expression.left, bindingInitializers, resolvedBindings, activeBindings);
+        const right = tryEvaluateStaticExpression(expression.right, bindingInitializers, resolvedBindings, activeBindings);
 
         if (left === undefined || right === undefined) return undefined;
 
@@ -157,10 +231,10 @@ const tryEvaluateStaticExpression = (
         return undefined;
     }
 
-    if (ts.isTemplateExpression(node)) {
-        let output = node.head.text;
+    if (ts.isTemplateExpression(expression)) {
+        let output = expression.head.text;
 
-        for (const span of node.templateSpans) {
+        for (const span of expression.templateSpans) {
             const value = tryEvaluateStaticExpression(span.expression, bindingInitializers, resolvedBindings, activeBindings);
             if (value === undefined) return undefined;
 
@@ -183,6 +257,70 @@ const unwrapStaticExpression = (node: ts.Expression): ts.Expression => {
     return node;
 };
 
+const getStaticPropertyName = (node: ts.PropertyName | ts.Expression) => {
+    if (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) return node.text;
+    return undefined;
+};
+
+const getStaticObjectPropertyInitializer = (node: ts.ObjectLiteralExpression, propertyName: string) => {
+    for (const property of node.properties) {
+        if (ts.isPropertyAssignment(property)) {
+            const key = getObjectLiteralPropertyKey(property.name);
+            if (key === propertyName) return property.initializer;
+            continue;
+        }
+
+        if (ts.isShorthandPropertyAssignment(property) && property.name.text === propertyName) {
+            return property.name;
+        }
+    }
+
+    return undefined;
+};
+
+const resolveStaticExpressionNode = (
+    node: ts.Expression,
+    bindingInitializers: Map<string, ts.Expression>,
+    activeBindings = new Set<string>(),
+): ts.Expression => {
+    const expression = unwrapStaticExpression(node);
+
+    if (ts.isIdentifier(expression)) {
+        const initializer = bindingInitializers.get(expression.text);
+        if (!initializer || activeBindings.has(expression.text)) return expression;
+
+        activeBindings.add(expression.text);
+        const resolved = resolveStaticExpressionNode(initializer, bindingInitializers, activeBindings);
+        activeBindings.delete(expression.text);
+
+        return resolved;
+    }
+
+    if (ts.isPropertyAccessExpression(expression)) {
+        const container = resolveStaticExpressionNode(expression.expression, bindingInitializers, activeBindings);
+        const unwrappedContainer = unwrapStaticExpression(container);
+        if (!ts.isObjectLiteralExpression(unwrappedContainer)) return expression;
+
+        const initializer = getStaticObjectPropertyInitializer(unwrappedContainer, expression.name.text);
+        return initializer ? resolveStaticExpressionNode(initializer, bindingInitializers, activeBindings) : expression;
+    }
+
+    if (ts.isElementAccessExpression(expression)) {
+        const argument = expression.argumentExpression && unwrapStaticExpression(expression.argumentExpression);
+        const propertyName = argument && getStaticPropertyName(argument);
+        if (!propertyName) return expression;
+
+        const container = resolveStaticExpressionNode(expression.expression, bindingInitializers, activeBindings);
+        const unwrappedContainer = unwrapStaticExpression(container);
+        if (!ts.isObjectLiteralExpression(unwrappedContainer)) return expression;
+
+        const initializer = getStaticObjectPropertyInitializer(unwrappedContainer, propertyName);
+        return initializer ? resolveStaticExpressionNode(initializer, bindingInitializers, activeBindings) : expression;
+    }
+
+    return expression;
+};
+
 const isStaticSerializableExpression = (
     node: ts.Expression,
     bindingInitializers: Map<string, ts.Expression>,
@@ -190,6 +328,11 @@ const isStaticSerializableExpression = (
     activeBindings = new Set<string>(),
 ): boolean => {
     const expression = unwrapStaticExpression(node);
+    const resolvedExpression = resolveStaticExpressionNode(expression, bindingInitializers, activeBindings);
+
+    if (resolvedExpression !== expression) {
+        return isStaticSerializableExpression(resolvedExpression, bindingInitializers, resolvedBindings, activeBindings);
+    }
 
     if (
         ts.isStringLiteral(expression) ||
@@ -275,20 +418,8 @@ const assertStaticSerializableMetadata = (
     );
 };
 
-const collectStaticBindings = (sourceFile: ts.SourceFile) => {
-    const bindingInitializers = new Map<string, ts.Expression>();
+const resolveStaticBindings = (bindingInitializers: Map<string, ts.Expression>) => {
     const resolvedBindings = new Map<string, string | number | undefined>();
-
-    for (const statement of sourceFile.statements) {
-        if (!ts.isVariableStatement(statement)) continue;
-        if (!(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
-
-        for (const declaration of statement.declarationList.declarations) {
-            if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
-
-            bindingInitializers.set(declaration.name.text, declaration.initializer);
-        }
-    }
 
     for (const bindingName of bindingInitializers.keys()) {
         if (resolvedBindings.has(bindingName)) continue;
@@ -305,10 +436,66 @@ const collectStaticBindings = (sourceFile: ts.SourceFile) => {
     return resolvedBindings;
 };
 
-const collectStaticBindingInitializers = (sourceFile: ts.SourceFile) => {
+const collectStaticBindings = (sourceFile: ts.SourceFile) =>
+    resolveStaticBindings(collectStaticBindingInitializers(sourceFile));
+
+const collectExportedStaticBindingInitializers = (sourceFile: ts.SourceFile) => {
     const bindingInitializers = new Map<string, ts.Expression>();
 
     for (const statement of sourceFile.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+        if (!(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+
+        for (const declaration of statement.declarationList.declarations) {
+            if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+
+            bindingInitializers.set(declaration.name.text, declaration.initializer);
+        }
+    }
+
+    return bindingInitializers;
+};
+
+const collectImportedStaticBindingInitializers = (
+    sourceFile: ts.SourceFile,
+    visitedFiles = new Set<string>([normalizeFilepath(sourceFile.fileName)]),
+) => {
+    const bindingInitializers = new Map<string, ts.Expression>();
+
+    for (const statement of sourceFile.statements) {
+        if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+
+        const namedBindings = statement.importClause?.namedBindings;
+        if (!namedBindings || !ts.isNamedImports(namedBindings)) continue;
+
+        const importedFilepath = resolveStaticImportFilepath(sourceFile, statement.moduleSpecifier.text);
+        if (!importedFilepath) continue;
+
+        const normalizedImportFilepath = normalizeFilepath(importedFilepath);
+        if (visitedFiles.has(normalizedImportFilepath)) continue;
+
+        const importedSourceFile = readStaticImportSourceFile(normalizedImportFilepath);
+        if (!importedSourceFile) continue;
+
+        const exportedInitializers = collectExportedStaticBindingInitializers(importedSourceFile);
+        for (const element of namedBindings.elements) {
+            const importedName = element.propertyName?.text || element.name.text;
+            const initializer = exportedInitializers.get(importedName);
+            if (!initializer) continue;
+
+            bindingInitializers.set(element.name.text, initializer);
+        }
+    }
+
+    return bindingInitializers;
+};
+
+const collectStatementStaticBindingInitializers = (
+    statements: readonly ts.Statement[],
+    bindingInitializers = new Map<string, ts.Expression>(),
+) => {
+    for (const statement of statements) {
         if (!ts.isVariableStatement(statement)) continue;
         if (!(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
 
@@ -321,6 +508,9 @@ const collectStaticBindingInitializers = (sourceFile: ts.SourceFile) => {
 
     return bindingInitializers;
 };
+
+const collectStaticBindingInitializers = (sourceFile: ts.SourceFile) =>
+    collectStatementStaticBindingInitializers(sourceFile.statements, collectImportedStaticBindingInitializers(sourceFile));
 
 const getPropertyAssignment = (node: ts.ObjectLiteralExpression, propertyName: string) => {
     for (const property of node.properties) {
@@ -339,15 +529,42 @@ const getCallExpressionName = (node: ts.Expression) => {
     return undefined;
 };
 
+const collectServerRouteDefinitionExpressions = (routesArg: ts.Expression | undefined) => {
+    if (!routesArg) return undefined;
+
+    if (ts.isArrayLiteralExpression(routesArg)) return [...routesArg.elements];
+
+    if (!(ts.isArrowFunction(routesArg) || ts.isFunctionExpression(routesArg))) return undefined;
+
+    if (ts.isArrayLiteralExpression(routesArg.body)) return [...routesArg.body.elements];
+    if (!ts.isBlock(routesArg.body)) return undefined;
+
+    const routeExpressions: ts.Expression[] = [];
+
+    for (const statement of routesArg.body.statements) {
+        if (!ts.isExpressionStatement(statement)) continue;
+        if (!ts.isCallExpression(statement.expression)) continue;
+        if (!ts.isPropertyAccessExpression(statement.expression.expression)) continue;
+        if (statement.expression.expression.name.text !== 'push') continue;
+
+        for (const argument of statement.expression.arguments) {
+            const unwrappedArgument = unwrapStaticExpression(argument);
+            if (!ts.isCallExpression(unwrappedArgument)) continue;
+
+            const helperName = getCallExpressionName(unwrappedArgument.expression);
+            if (helperName === 'defineServerRoute') routeExpressions.push(unwrappedArgument);
+        }
+    }
+
+    return routeExpressions.length > 0 ? routeExpressions : undefined;
+};
+
 const resolveIdentifierExpression = (
     expression: ts.Expression,
     sourceFile: ts.SourceFile,
 ): ts.Expression => {
-    const unwrapped = unwrapStaticExpression(expression);
-    if (!ts.isIdentifier(unwrapped)) return unwrapped;
-
     const bindingInitializers = collectStaticBindingInitializers(sourceFile);
-    return bindingInitializers.get(unwrapped.text) || unwrapped;
+    return resolveStaticExpressionNode(expression, bindingInitializers);
 };
 
 const getDefaultRouteDefinitionExpression = (sourceFile: ts.SourceFile) => {
@@ -402,10 +619,11 @@ const parseExplicitRouteCall = (
     sourceFile: ts.SourceFile,
     side: TRouteSide,
     node: ts.Expression,
+    scopedStaticBindingInitializers?: Map<string, ts.Expression>,
 ): TExplicitRouteDefinition[] => {
     const expression = unwrapStaticExpression(resolveIdentifierExpression(node, sourceFile));
-    const staticBindingInitializers = collectStaticBindingInitializers(sourceFile);
-    const staticBindings = collectStaticBindings(sourceFile);
+    const staticBindingInitializers = scopedStaticBindingInitializers || collectStaticBindingInitializers(sourceFile);
+    const staticBindings = resolveStaticBindings(staticBindingInitializers);
 
     if (!ts.isCallExpression(expression)) {
         throw new Error(`Route module ${sourceFile.fileName} must default-export a define*Route(...) call.`);
@@ -422,20 +640,19 @@ const parseExplicitRouteCall = (
         }
 
         const [routesArg] = [...expression.arguments];
-        const routeListExpression =
-            routesArg && ts.isArrayLiteralExpression(routesArg)
-                ? routesArg
-                : routesArg &&
-                    (ts.isArrowFunction(routesArg) || ts.isFunctionExpression(routesArg)) &&
-                    ts.isArrayLiteralExpression(routesArg.body)
-                  ? routesArg.body
-                  : undefined;
+        const routeExpressions = collectServerRouteDefinitionExpressions(routesArg);
+        const routeBindingInitializers =
+            routesArg && (ts.isArrowFunction(routesArg) || ts.isFunctionExpression(routesArg)) && ts.isBlock(routesArg.body)
+                ? collectStatementStaticBindingInitializers(routesArg.body.statements, new Map(staticBindingInitializers))
+                : staticBindingInitializers;
 
-        if (!routeListExpression) {
-            throw new Error(`defineServerRoutes(...) in ${sourceFile.fileName} must receive a static array literal or a factory returning one.`);
+        if (!routeExpressions) {
+            throw new Error(
+                `defineServerRoutes(...) in ${sourceFile.fileName} must receive a static array literal, a factory returning one, or a factory that pushes defineServerRoute(...) entries into a local routes array.`,
+            );
         }
 
-        return routeListExpression.elements.map((element) => parseExplicitRouteCall(sourceFile, side, element)).flat();
+        return routeExpressions.map((element) => parseExplicitRouteCall(sourceFile, side, element, routeBindingInitializers)).flat();
     }
 
     const [definitionArg] = [...expression.arguments];
@@ -446,7 +663,7 @@ const parseExplicitRouteCall = (
     const sourceLocation = getNodeLocation(sourceFile, expression);
     const optionsExpression = getPropertyAssignment(definitionArg, 'options');
     const resolvedOptionsExpression = optionsExpression
-        ? unwrapStaticExpression(resolveIdentifierExpression(optionsExpression, sourceFile))
+        ? unwrapStaticExpression(resolveStaticExpressionNode(optionsExpression, staticBindingInitializers))
         : undefined;
     const optionsArg =
         resolvedOptionsExpression && ts.isObjectLiteralExpression(resolvedOptionsExpression)

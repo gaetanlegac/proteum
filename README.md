@@ -140,7 +140,7 @@ Use this for linked or workspace-local TypeScript packages that ship source file
 
 ## Example: Server Bootstrap
 
-Proteum app services are declared explicitly through typed config exports plus a concrete `Application` subclass.
+Proteum app services and router plugins are declared explicitly through typed config exports plus a default-exported `defineApplication(...)` definition object.
 
 ```ts
 // server/config/user.ts
@@ -167,27 +167,47 @@ export const routerBaseConfig = {
 
 ```ts
 // server/index.ts
-import { defineApplication } from '@server/app';
+import { defineApplication, type Application } from '@server/app';
 import Router from '@server/services/router';
 import SchemaRouter from '@server/services/schema/router';
 import Users from '@/server/services/Users';
 import * as userConfig from '@/server/config/user';
 
-export default defineApplication({
-  services: (app) => ({
-    Users: new Users(app, userConfig.usersConfig, app),
-    Router: new Router(
-      app,
-      {
-        ...userConfig.routerBaseConfig,
-        plugins: {
-          schema: new SchemaRouter({}, app),
-        },
+type MyAppServices = {
+  Users: Users;
+};
+
+type MyRouterPlugins = {
+  schema: SchemaRouter;
+};
+
+export type MyRouter = Router<MyApp, MyRouterPlugins>;
+export interface MyApp extends Application, MyAppServices {
+  Router: MyRouter;
+}
+
+const createRouter = (app: MyApp): MyRouter =>
+  new Router<MyApp, MyRouterPlugins>(
+    app,
+    {
+      ...userConfig.routerBaseConfig,
+      plugins: {
+        schema: new SchemaRouter({}, app),
       },
-      app
-    ),
-  }),
+    },
+    app
+  );
+
+const createServices = (app: MyApp): MyAppServices => ({
+  Users: new Users(app, userConfig.usersConfig, app),
 });
+
+const MyApplication = defineApplication({
+  services: createServices,
+  router: createRouter,
+});
+
+export default MyApplication;
 ```
 
 Proteum reads `server/index.ts` as the source of truth for installed root services and router plugins, and reads `server/config/*.ts` `Services.config(...)` exports for typed config such as service priority overrides.
@@ -233,7 +253,7 @@ Default public asset validators depend on the environment: dev disables `ETag` a
 Proteum pages are explicit SSR entrypoints.
 
 ```tsx
-import { definePageRoute } from '@common/router';
+import { definePageRoute } from '@common/router/definitions';
 
 export default definePageRoute({
   path: '/',
@@ -263,7 +283,7 @@ What happens here:
 Proteum controllers are explicit request entrypoints.
 
 ```ts
-import { defineAction, defineController, schema } from '@server/app/controller';
+import { defineAction, defineController, schema } from '@generated/server/controller';
 
 export default defineController({
   path: 'Auth',
@@ -654,6 +674,12 @@ npx proteum check
 npx proteum build --prod
 ```
 
+## Migrating To 2.5
+
+Proteum 2.5 removes the old contextual route/controller magic. Apps migrate by replacing ambient `@app` imports, top-level `Router.*(...)` route calls, controller classes, and `Application` subclasses with explicit definition objects and typed runtime callback parameters.
+
+Use [the 2.5 migration guide](docs/migration-2.5.md) for the full checklist.
+
 ## Repository Structure
 
 This repository is organized around the same explicit framework surface it exposes:
@@ -662,7 +688,7 @@ This repository is organized around the same explicit framework surface it expos
 - `client/`: client runtime, page registration, islands, and router behavior
 - `server/`: controller base classes, services, runtime, and SSR server behavior
 - `common/`: shared router contracts, models, request/response types, and utilities
-- `doc/`: focused design notes and internal documentation
+- `docs/`: focused design notes and internal documentation
 - `agents/`: agent-specific conventions and scaffolding used in Proteum-based projects
 
 ## Status

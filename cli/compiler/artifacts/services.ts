@@ -615,10 +615,14 @@ const parseDefineApplicationBootstrap = (
     if (!definitionArg) return undefined;
 
     const servicesProperty = getObjectLiteralProperty(definitionArg, 'services');
-    const servicesDetails =
+    const servicesInitializer =
         servicesProperty && ts.isPropertyAssignment(servicesProperty)
-            ? getObjectLiteralFactoryDetails(servicesProperty.initializer)
+            ? ts.isIdentifier(unwrapExpression(servicesProperty.initializer)) &&
+              topLevelInitializers.has((unwrapExpression(servicesProperty.initializer) as ts.Identifier).text)
+                ? topLevelInitializers.get((unwrapExpression(servicesProperty.initializer) as ts.Identifier).text)!
+                : servicesProperty.initializer
             : undefined;
+    const servicesDetails = servicesInitializer ? getObjectLiteralFactoryDetails(servicesInitializer) : undefined;
     const servicesObject = servicesDetails?.object;
     const localServiceInitializers = servicesDetails?.localInitializers || new Map<string, ts.Expression>();
     const rootServices = parseRootServiceObject(servicesObject, imports, sourceFile.fileName, localServiceInitializers);
@@ -826,6 +830,7 @@ const createCommandServiceStubDeclarations = (rootServices: TParsedService[]): T
     const typeNamesByAliasImportPath = new Map<string, string>();
     const pendingSources: TCommandServiceStubSource[] = [];
     const seenSources = new Set<string>();
+    const appTypeReference = `import("@server/app/index").Application & import("@/server/index").${app.identity.identifier}`;
     const getStubTypeName = (source: TCommandServiceStubSource) => {
         const existingTypeName = typeNamesByAliasImportPath.get(source.aliasImportPath);
         if (existingTypeName) return existingTypeName;
@@ -863,7 +868,7 @@ const createCommandServiceStubDeclarations = (rootServices: TParsedService[]): T
             stubs.set(
                 source.aliasImportPath,
                 `declare class ${getStubTypeName(source)} {
-    app: InstanceType<typeof import("@/server/index").default>;
+    app: ${appTypeReference};
     [key: string]: any;
 }`,
             );
@@ -871,7 +876,7 @@ const createCommandServiceStubDeclarations = (rootServices: TParsedService[]): T
         }
 
         const className = getStubTypeName(source);
-        const classMembers = [`    app: InstanceType<typeof import("@/server/index").default>;`];
+        const classMembers = [`    app: ${appTypeReference};`];
 
         for (const member of defaultClass.members) {
             if (isPrivateOrProtectedInstanceMember(member)) continue;
@@ -994,6 +999,7 @@ export const generateServiceArtifacts = () => {
     const appServices = rootServices.map((service) => resolveManifestService(service, 'app'));
     const routerPluginServices = routerPlugins.map((service) => resolveManifestService(service, 'Router.plugins'));
     const commandServiceStubs = createCommandServiceStubDeclarations(rootServices);
+    const appTypeReference = `import("@server/app/index").Application & import("@/server/index").${appIdentifier}`;
 
     writeIfChanged(
         path.join(app.paths.client.generated, 'server-index.d.ts'),
@@ -1002,7 +1008,7 @@ export const generateServiceArtifacts = () => {
 
     writeIfChanged(
         path.join(app.paths.client.generated, 'services.d.ts'),
-        `declare type ${appIdentifier} = InstanceType<typeof import("@/server/index").default>;
+        `declare type ${appIdentifier} = ${appTypeReference};
     
 declare module '@models/types' {
     export * from '@generated/client/models';
@@ -1066,7 +1072,7 @@ export default (): ClientContext => {
 
     writeIfChanged(
         path.join(app.paths.common.generated, 'services.d.ts'),
-        `declare type ${appIdentifier} = InstanceType<typeof import("@/server/index").default>;
+        `declare type ${appIdentifier} = ${appTypeReference};
 
 declare module '@models/types' {
     export * from '@generated/common/models';
@@ -1083,7 +1089,7 @@ declare module '@models/types' {
 
     writeIfChanged(
         path.join(app.paths.server.generated, 'commands.d.ts'),
-        `declare type ${appIdentifier} = InstanceType<typeof import("@/server/index").default>;
+        `declare type ${appIdentifier} = ${appTypeReference};
 
 declare module "@models/types" {
     const Models: any;
@@ -1127,7 +1133,7 @@ export default ${appIdentifier};
 
     writeIfChanged(
         path.join(app.paths.server.generated, 'services.d.ts'),
-        `declare type ${appIdentifier} = InstanceType<typeof import("@/server/index").default>;
+        `declare type ${appIdentifier} = ${appTypeReference};
 
 declare module '@common/errors' {
         

@@ -53,7 +53,7 @@ export const createControllerTemplate = ({
     appIdentifier: string;
     className: string;
     methodName: string;
-}) => `import { defineAction, defineController } from '@server/app/controller';
+}) => `import { defineAction, defineController } from '@generated/server/controller';
 
 export default defineController({
     actions: {
@@ -75,7 +75,9 @@ export const createCommandTemplate = ({
     className: string;
     methodName: string;
 }) => `import { Commands } from '@server/app/commands';
-import type App from '@/server/index';
+import type AppApplication from '@/server/index';
+
+type App = InstanceType<typeof AppApplication>;
 
 export default class ${className} extends Commands<App> {
     public async ${methodName}() {
@@ -171,9 +173,12 @@ import SchemaRouter from '@server/services/schema/router';
 
 import * as appConfig from '@/server/config/app';
 
-export default defineApplication({
-    services: (app) => ({
-        Router: new Router(
+export type TControllerRequestServices = {};
+
+const ${_args.appIdentifier}Application = defineApplication({
+    services: () => ({}),
+    router: (app) =>
+        new Router(
             app,
             {
                 ...appConfig.routerBaseConfig,
@@ -183,8 +188,11 @@ export default defineApplication({
             },
             app,
         ),
-    }),
 });
+
+export type ${_args.appIdentifier} = InstanceType<typeof ${_args.appIdentifier}Application>;
+
+export default ${_args.appIdentifier}Application;
 `;
 
 export const createClientTsconfigTemplate = (paths: TTsconfigTemplatePaths) => `{

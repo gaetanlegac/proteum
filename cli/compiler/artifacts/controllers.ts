@@ -5,6 +5,7 @@ import cli from '../..';
 import { indexControllers, printControllerTree, type TControllerFileMeta } from '../common/controllers';
 import { TProteumManifestController } from '../common/proteumManifest';
 import writeIfChanged from '../writeIfChanged';
+import { createTypedControllerHelperContent } from './controllerHelper';
 import { resolveConnectedProjectContracts, writeConnectedProjectContract } from './connectedProjects';
 import { normalizeAbsolutePath } from './shared';
 
@@ -318,6 +319,8 @@ ${controllerEntries.join('\n')}
 export default controllers;
 `,
     );
+
+    writeIfChanged(path.join(app.paths.server.generated, 'controller.ts'), createTypedControllerHelperContent(app.identity.identifier));
 
     return {
         connectedProjects: connectedProjectContracts,

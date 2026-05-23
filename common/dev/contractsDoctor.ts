@@ -152,8 +152,24 @@ const isRouterRenderCallback = (node: ts.FunctionLikeDeclaration) => {
     return lastFunctionArgument === unwrappedNode;
 };
 
+const isDefinitionRouteRenderCallback = (node: ts.FunctionLikeDeclaration) => {
+    const unwrappedNode = unwrapExpression(node);
+    const parent = unwrappedNode.parent;
+    if (!ts.isPropertyAssignment(parent)) return false;
+    if (!ts.isIdentifier(parent.name) || parent.name.text !== 'render') return false;
+    if (!ts.isObjectLiteralExpression(parent.parent)) return false;
+
+    const callExpression = parent.parent.parent;
+    if (!ts.isCallExpression(callExpression)) return false;
+    if (!ts.isIdentifier(callExpression.expression)) return false;
+
+    const helperName = callExpression.expression.text;
+    return helperName === 'definePageRoute' || helperName === 'defineErrorRoute';
+};
+
 const isValidHookContainer = (node: ts.FunctionLikeDeclaration) => {
     if (isRouterRenderCallback(node)) return true;
+    if (isDefinitionRouteRenderCallback(node)) return true;
 
     const functionName = getFunctionName(node);
     if (!functionName) return false;

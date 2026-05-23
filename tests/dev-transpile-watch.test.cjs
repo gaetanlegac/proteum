@@ -377,8 +377,9 @@ import SchemaRouter from '@server/services/schema/router';
 import * as appConfig from '@/server/config/app';
 
 export default defineApplication({
-    services: (app) => ({
-        Router: new Router(
+    services: () => ({}),
+    router: (app) =>
+        new Router(
             app,
             {
                 ...appConfig.routerBaseConfig,
@@ -388,7 +389,6 @@ export default defineApplication({
             },
             app,
         ),
-    }),
 });
 `,
     );
@@ -405,9 +405,6 @@ export default class TranspileWatchClient extends ClientApplication {
 
     public boot() {}
     public handleUpdate() {}
-    public handleError(error: Error) {
-        throw error;
-    }
 }
 `,
     );
