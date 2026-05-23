@@ -16,23 +16,24 @@ const createZodTypeFactorySelector = (factoryName) =>
 
 const skippedTraversalKeys = new Set(['parent', 'loc', 'range', 'tokens', 'comments']);
 
-const traverseNode = (node, visit, parent = null, parentKey = null) => {
+const traverseNode = (node, visit, parent = null, parentKey = null, ancestors = []) => {
     if (!node || typeof node !== 'object') return;
 
-    visit(node, parent, parentKey);
+    visit(node, parent, parentKey, ancestors);
 
     for (const key of Object.keys(node)) {
         if (skippedTraversalKeys.has(key)) continue;
 
         const value = node[key];
+        const nextAncestors = [...ancestors, { node, childKey: key }];
         if (Array.isArray(value)) {
             value.forEach((child) => {
-                if (child && typeof child.type === 'string') traverseNode(child, visit, node, key);
+                if (child && typeof child.type === 'string') traverseNode(child, visit, node, key, nextAncestors);
             });
             continue;
         }
 
-        if (value && typeof value.type === 'string') traverseNode(value, visit, node, key);
+        if (value && typeof value.type === 'string') traverseNode(value, visit, node, key, nextAncestors);
     }
 };
 
@@ -160,8 +161,35 @@ const isServerErrorReporterCall = (callExpression) =>
 
 const isPromiseRejectCall = (callExpression) => getCalleePropertyName(callExpression.callee) === 'reject';
 
-const isPreservingCall = (callExpression, names, side) => {
+const hasOptionalCallBoundary = (callExpression, ancestors = []) => {
+    if (callExpression.optional === true) return true;
+
+    let hasOptional = false;
+    traverseNode(callExpression.callee, (child) => {
+        if (child.type === 'ChainExpression' || child.optional === true) hasOptional = true;
+    });
+
+    return hasOptional || ancestors.some(({ node }) => node.type === 'ChainExpression');
+};
+
+const isUnderConditionalControlFlow = (ancestors = []) =>
+    ancestors.some(({ node, childKey }) => {
+        if (node.type === 'IfStatement') return childKey === 'consequent' || childKey === 'alternate';
+        if (node.type === 'ConditionalExpression') return childKey === 'consequent' || childKey === 'alternate';
+        if (node.type === 'LogicalExpression') return childKey === 'right';
+        if (node.type === 'SwitchCase') return childKey === 'consequent';
+
+        return (
+            ['ForInStatement', 'ForOfStatement', 'ForStatement', 'WhileStatement', 'DoWhileStatement'].includes(
+                node.type,
+            ) && childKey === 'body'
+        );
+    });
+
+const isPreservingCall = (callExpression, names, side, ancestors = []) => {
     if (!nodeReferencesName(callExpression, names)) return false;
+    if (hasOptionalCallBoundary(callExpression, ancestors)) return false;
+    if (isUnderConditionalControlFlow(ancestors)) return false;
     if (isConsoleMember(callExpression.callee)) return false;
     if (isPromiseRejectCall(callExpression)) return true;
     if (side === 'client') return isClientErrorHandlerCall(callExpression);
@@ -173,9 +201,15 @@ const isPreservingCall = (callExpression, names, side) => {
 const handlerPreservesCaughtError = (node, names, side) => {
     let preserves = false;
 
-    traverseNode(node, (child) => {
-        if (child.type === 'ThrowStatement' && nodeReferencesName(child.argument, names)) preserves = true;
-        if (child.type === 'CallExpression' && isPreservingCall(child, names, side)) preserves = true;
+    traverseNode(node, (child, _parent, _parentKey, ancestors) => {
+        if (
+            child.type === 'ThrowStatement' &&
+            nodeReferencesName(child.argument, names) &&
+            !isUnderConditionalControlFlow(ancestors)
+        ) {
+            preserves = true;
+        }
+        if (child.type === 'CallExpression' && isPreservingCall(child, names, side, ancestors)) preserves = true;
     });
 
     return preserves;

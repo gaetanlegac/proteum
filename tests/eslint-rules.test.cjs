@@ -146,6 +146,28 @@ test('proteum lint allows client catches routed to context app error handling', 
     assert.equal(messages.filter((message) => message.ruleId === swallowedErrorRuleId).length, 0);
 });
 
+test('proteum lint rejects optional client error handler calls', () => {
+    for (const statement of [
+        'app?.handleError(error);',
+        'context.app?.handleError(error);',
+        'window.app?.handleError(error);',
+    ]) {
+        const messages = lint(`
+            export const run = async () => {
+                const app = useContext();
+                const context = useContext();
+                try {
+                    await Investor.api.ensureApiKey();
+                } catch (error) {
+                    ${statement}
+                }
+            };
+        `);
+
+        assert.equal(messages.some((message) => message.ruleId === swallowedErrorRuleId), true);
+    }
+});
+
 test('proteum lint allows client catches using app error messages for UI feedback', () => {
     const messages = lint(`
         export const run = async () => {
@@ -221,6 +243,67 @@ test('proteum lint allows server catches routed to app error reporting', () => {
     assert.equal(messages.filter((message) => message.ruleId === swallowedErrorRuleId).length, 0);
 });
 
+test('proteum lint allows server catches routed to instance app error reporting', () => {
+    const messages = lint(
+        `
+            export class WorkerController {
+                async run(context) {
+                    try {
+                        await context.services.Worker.run();
+                    } catch (error) {
+                        await this.app.reportError(error, context.request);
+                    }
+                }
+            }
+        `,
+        'server/example.ts',
+    );
+
+    assert.equal(messages.filter((message) => message.ruleId === swallowedErrorRuleId).length, 0);
+});
+
+test('proteum lint rejects optional server error reporter calls', () => {
+    for (const statement of [
+        'app.reportError?.(error);',
+        'app?.reportError(error);',
+        'context.app?.reportError(error);',
+    ]) {
+        const messages = lint(
+            `
+                export const run = async (context) => {
+                    const app = context.app;
+                    try {
+                        await context.services.Worker.run();
+                    } catch (error) {
+                        ${statement}
+                    }
+                };
+            `,
+            'server/example.ts',
+        );
+
+        assert.equal(messages.some((message) => message.ruleId === swallowedErrorRuleId), true);
+    }
+});
+
+test('proteum lint rejects conditional server error reporter calls', () => {
+    const messages = lint(
+        `
+            export const run = async (context) => {
+                const app = context.app;
+                try {
+                    await context.services.Worker.run();
+                } catch (error) {
+                    if (app) app.reportError(error, context.request);
+                }
+            };
+        `,
+        'server/example.ts',
+    );
+
+    assert.equal(messages.some((message) => message.ruleId === swallowedErrorRuleId), true);
+});
+
 test('proteum lint rejects server catches routed to client app error handling', () => {
     const messages = lint(
         `
@@ -264,6 +347,23 @@ test('proteum lint allows manual promise rejection', () => {
                         reject(error);
                     });
                 });
+        `,
+        'common/example.ts',
+    );
+
+    assert.equal(messages.filter((message) => message.ruleId === swallowedErrorRuleId).length, 0);
+});
+
+test('proteum lint allows returning manual promise rejection', () => {
+    const messages = lint(
+        `
+            export const run = async (input) => {
+                try {
+                    await input.load();
+                } catch (error) {
+                    return Promise.reject(error);
+                }
+            };
         `,
         'common/example.ts',
     );
