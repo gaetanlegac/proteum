@@ -205,6 +205,20 @@ test('mcp help describes projectId routing', () => {
     assert.match(output, /--stdio/);
 });
 
+test('verify help documents changed-file verification flags', () => {
+    const result = spawnSync(process.execPath, [cliBin, 'verify', '--help'], {
+        cwd: coreRoot,
+        encoding: 'utf8',
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    assert.equal(result.status, 0);
+    assert.match(output, /changed/);
+    assert.match(output, /--staged/);
+    assert.match(output, /--base/);
+    assert.match(output, /--dry-run/);
+});
+
 test('mcp daemon launch prints a central MCP connection banner', async () => {
     const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-daemon-launch-'));
     const reserveServer = http.createServer((req, res) => res.end('reserved'));

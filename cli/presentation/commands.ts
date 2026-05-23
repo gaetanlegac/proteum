@@ -612,10 +612,18 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'verify',
         category: 'Manifest and contracts',
         summary: 'Run focused owner/request/browser verification or the full framework reference-app validation pass.',
-        usage: 'proteum verify [framework-change|owner <query>|request <path>|browser <path>] [--port <port>|--url <baseUrl>] [--session-email <email>] [--session-role <role>] [--method <verb>] [--data-json <json>] [--strict-global] [--crosspath <path>] [--product <path>] [--website <path>] [--crosspath-port <port>] [--product-port <port>] [--website-port <port>] [--route <path>] [--json]',
+        usage: 'proteum verify [changed|framework-change|owner <query>|request <path>|browser <path>] [--staged] [--base <ref>] [--dry-run] [--port <port>|--url <baseUrl>] [--session-email <email>] [--session-role <role>] [--method <verb>] [--data-json <json>] [--strict-global] [--crosspath <path>] [--product <path>] [--website <path>] [--crosspath-port <port>] [--product-port <port>] [--website-port <port>] [--route <path>] [--json]',
         bestFor:
             'Choosing the smallest trustworthy verification surface first, then separating introduced blocking findings from unrelated pre-existing diagnostics.',
         examples: [
+            {
+                description: 'Plan targeted checks for changed files without running them',
+                command: 'proteum verify changed --dry-run',
+            },
+            {
+                description: 'Run targeted checks for staged changes only',
+                command: 'proteum verify changed --staged',
+            },
             {
                 description: 'Run the default framework smoke verification against the reference apps',
                 command: 'proteum verify framework-change',
@@ -638,6 +646,8 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             },
         ],
         notes: [
+            '`proteum verify changed` reads optional `proteum.verify.config.ts`, combines changed-file detection with built-in Vitest defaults, prints the selected plan, then runs every selected check.',
+            '`proteum verify changed --dry-run --json` is the safest agent entrypoint when you need to inspect selected checks without changing cache or test artifacts.',
             '`proteum verify owner` starts from `proteum orient`, then chooses the smallest trustworthy verify path instead of defaulting to broad global checks.',
             '`proteum verify owner`, `request`, and `browser` emit `introducedFindings`, `preExistingFindings`, `verificationSteps`, and `result` in JSON.',
             'Focused verification fails on introduced blocking findings by default and only fails on unrelated pre-existing blockers when `--strict-global` is passed.',

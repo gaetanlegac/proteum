@@ -32,6 +32,38 @@ export type TApplicationSetupConfig = {
     connect?: TConnectedProjectsConfig;
 };
 
+export type TVerificationCheckScope = 'targeted' | 'area' | 'full' | 'static';
+
+export type TVerificationSuiteConfig =
+    | string
+    | {
+          command: string;
+          cwd?: string;
+          description?: string;
+          scope?: TVerificationCheckScope;
+      };
+
+export type TVerificationRuleConfig = {
+    id: string;
+    match: readonly string[];
+    reason: string;
+    run: readonly string[];
+    scope?: TVerificationCheckScope;
+};
+
+export type TVerificationDocsOnlyConfig =
+    | boolean
+    | {
+          reason?: string;
+      };
+
+export type TVerificationConfig = {
+    always?: readonly string[];
+    docsOnly?: TVerificationDocsOnlyConfig;
+    rules?: readonly TVerificationRuleConfig[];
+    suites?: Record<string, TVerificationSuiteConfig>;
+};
+
 const isRecord = (value: unknown): value is TObjectRecord =>
     value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -85,6 +117,137 @@ const readStringRecord = ({
     }
 
     return output;
+};
+
+const readStringArray = ({
+    filepath,
+    path,
+    value,
+}: {
+    filepath: string;
+    path: string;
+    value: unknown;
+}) => {
+    if (!Array.isArray(value)) throw new Error(`Invalid ${path} in ${filepath}. Expected an array of strings.`);
+
+    const output = value.map((entry, index) => {
+        if (typeof entry !== 'string' || entry.trim() === '')
+            throw new Error(`Invalid ${path}.${index} in ${filepath}. Expected a non-empty string.`);
+
+        return entry.trim();
+    });
+
+    return [...new Set(output)];
+};
+
+const verificationScopes = new Set<TVerificationCheckScope>(['targeted', 'area', 'full', 'static']);
+
+const readVerificationScope = ({
+    filepath,
+    path,
+    value,
+}: {
+    filepath: string;
+    path: string;
+    value: unknown;
+}) => {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string' || !verificationScopes.has(value as TVerificationCheckScope)) {
+        throw new Error(
+            `Invalid ${path} in ${filepath}. Expected one of ${Array.from(verificationScopes).join(', ')}.`,
+        );
+    }
+
+    return value as TVerificationCheckScope;
+};
+
+const normalizeVerificationSuiteConfig = ({
+    filepath,
+    key,
+    value,
+}: {
+    filepath: string;
+    key: string;
+    value: unknown;
+}): TVerificationSuiteConfig => {
+    if (typeof value === 'string') return readRequiredString({ filepath, path: `suites.${key}`, value });
+    if (!isRecord(value)) throw new Error(`Invalid suites.${key} in ${filepath}. Expected a command string or object.`);
+
+    return {
+        command: readRequiredString({ filepath, path: `suites.${key}.command`, value: value.command }),
+        cwd: readOptionalString({ filepath, path: `suites.${key}.cwd`, value: value.cwd }),
+        description: readOptionalString({ filepath, path: `suites.${key}.description`, value: value.description }),
+        scope: readVerificationScope({ filepath, path: `suites.${key}.scope`, value: value.scope }),
+    };
+};
+
+const normalizeVerificationSuitesConfig = ({
+    filepath,
+    value,
+}: {
+    filepath: string;
+    value: unknown;
+}): Record<string, TVerificationSuiteConfig> => {
+    if (value === undefined) return {};
+    if (!isRecord(value)) throw new Error(`Invalid suites in ${filepath}. Expected an object.`);
+
+    const output: Record<string, TVerificationSuiteConfig> = {};
+
+    for (const [key, entry] of Object.entries(value)) {
+        if (!key.trim()) throw new Error(`Invalid suites key in ${filepath}. Expected a non-empty string.`);
+        output[key] = normalizeVerificationSuiteConfig({ filepath, key, value: entry });
+    }
+
+    return output;
+};
+
+const normalizeVerificationRuleConfig = ({
+    filepath,
+    index,
+    value,
+}: {
+    filepath: string;
+    index: number;
+    value: unknown;
+}): TVerificationRuleConfig => {
+    if (!isRecord(value)) throw new Error(`Invalid rules.${index} in ${filepath}. Expected an object.`);
+
+    return {
+        id: readRequiredString({ filepath, path: `rules.${index}.id`, value: value.id }),
+        match: readStringArray({ filepath, path: `rules.${index}.match`, value: value.match }),
+        reason: readRequiredString({ filepath, path: `rules.${index}.reason`, value: value.reason }),
+        run: readStringArray({ filepath, path: `rules.${index}.run`, value: value.run }),
+        scope: readVerificationScope({ filepath, path: `rules.${index}.scope`, value: value.scope }),
+    };
+};
+
+const normalizeVerificationRulesConfig = ({
+    filepath,
+    value,
+}: {
+    filepath: string;
+    value: unknown;
+}): TVerificationRuleConfig[] => {
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) throw new Error(`Invalid rules in ${filepath}. Expected an array.`);
+
+    return value.map((entry, index) => normalizeVerificationRuleConfig({ filepath, index, value: entry }));
+};
+
+const normalizeVerificationDocsOnlyConfig = ({
+    filepath,
+    value,
+}: {
+    filepath: string;
+    value: unknown;
+}): TVerificationDocsOnlyConfig => {
+    if (value === undefined) return true;
+    if (typeof value === 'boolean') return value;
+    if (!isRecord(value)) throw new Error(`Invalid docsOnly in ${filepath}. Expected a boolean or object.`);
+
+    return {
+        reason: readOptionalString({ filepath, path: 'docsOnly.reason', value: value.reason }),
+    };
 };
 
 const readSocialConfig = ({
@@ -160,6 +323,18 @@ export const normalizeApplicationSetupConfig = (
     };
 };
 
+export const normalizeVerificationConfig = (value: unknown, filepath = 'proteum.verify.config.ts'): TVerificationConfig => {
+    if (value === undefined) return { always: [], docsOnly: true, rules: [], suites: {} };
+    if (!isRecord(value)) throw new Error(`Invalid verification config in ${filepath}. Expected an object export.`);
+
+    return {
+        always: value.always === undefined ? [] : readStringArray({ filepath, path: 'always', value: value.always }),
+        docsOnly: normalizeVerificationDocsOnlyConfig({ filepath, value: value.docsOnly }),
+        rules: normalizeVerificationRulesConfig({ filepath, value: value.rules }),
+        suites: normalizeVerificationSuitesConfig({ filepath, value: value.suites }),
+    };
+};
+
 class ApplicationConfigHelpers {
     public static identity<const TIdentity extends TApplicationIdentityConfig>(config: TIdentity) {
         return config;
@@ -169,5 +344,7 @@ class ApplicationConfigHelpers {
         return config;
     }
 }
+
+export const defineVerificationConfig = <const TVerification extends TVerificationConfig>(config: TVerification) => config;
 
 export const Application = ApplicationConfigHelpers;

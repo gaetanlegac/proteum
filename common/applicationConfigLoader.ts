@@ -5,10 +5,13 @@ import * as ts from 'typescript';
 
 import {
     Application as ApplicationConfig,
+    defineVerificationConfig,
     normalizeApplicationIdentityConfig,
     normalizeApplicationSetupConfig,
+    normalizeVerificationConfig,
     type TApplicationIdentityConfig,
     type TApplicationSetupConfig,
+    type TVerificationConfig,
 } from './applicationConfig';
 import { loadOptionalProteumDotenv } from './env/proteumEnv';
 
@@ -51,7 +54,8 @@ const loadTsModule = (filepath: string): unknown => {
 
     const requireFromFile = createRequire(normalizedFilepath);
     const runtimeRequire = (specifier: string) => {
-        if (specifier === 'proteum/config' || specifier === 'proteum/config.ts') return { Application: ApplicationConfig };
+        if (specifier === 'proteum/config' || specifier === 'proteum/config.ts')
+            return { Application: ApplicationConfig, defineVerificationConfig };
 
         if (specifier.startsWith('.') || specifier.startsWith('/')) {
             const resolved = resolveLocalModulePath(specifier, normalizedFilepath);
@@ -81,9 +85,11 @@ const getDefaultExport = <T>(value: unknown): T => {
 
 export const identityConfigFilename = 'identity.config.ts';
 export const setupConfigFilename = 'proteum.config.ts';
+export const verificationConfigFilename = 'proteum.verify.config.ts';
 
 export const resolveIdentityConfigFilepath = (appDir: string) => path.join(appDir, identityConfigFilename);
 export const resolveSetupConfigFilepath = (appDir: string) => path.join(appDir, setupConfigFilename);
+export const resolveVerificationConfigFilepath = (rootDir: string) => path.join(rootDir, verificationConfigFilename);
 
 export const loadApplicationIdentityConfig = (appDir: string): TApplicationIdentityConfig => {
     const filepath = resolveIdentityConfigFilepath(appDir);
@@ -99,4 +105,30 @@ export const loadApplicationSetupConfig = (appDir: string): TApplicationSetupCon
     loadOptionalProteumDotenv(appDir);
 
     return normalizeApplicationSetupConfig(getDefaultExport(loadTsModule(filepath)), filepath);
+};
+
+export const findVerificationConfigFilepath = (startDir: string) => {
+    let currentDir = path.resolve(startDir);
+
+    while (true) {
+        const candidate = resolveVerificationConfigFilepath(currentDir);
+        if (fs.existsSync(candidate)) return candidate;
+
+        const parentDir = path.dirname(currentDir);
+        if (parentDir === currentDir) return undefined;
+        currentDir = parentDir;
+    }
+};
+
+export const loadVerificationConfig = (
+    startDir: string,
+): { config: TVerificationConfig; filepath?: string; root: string } => {
+    const filepath = findVerificationConfigFilepath(startDir);
+    if (!filepath) return { config: normalizeVerificationConfig(undefined), root: path.resolve(startDir) };
+
+    return {
+        config: normalizeVerificationConfig(getDefaultExport(loadTsModule(filepath)), filepath),
+        filepath,
+        root: path.dirname(filepath),
+    };
 };

@@ -846,6 +846,8 @@ class VerifyCommand extends ProteumCommand {
 
     public static usage = buildUsage('verify');
 
+    public base = Option.String('--base', { description: 'Base ref used by `proteum verify changed`.' });
+    public dryRun = Option.Boolean('--dry-run', false, { description: 'Print the changed-file verification plan without running checks.' });
     public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
     public port = Option.String('--port', { description: 'Target an existing dev server on the given port for focused verify actions.' });
     public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL for focused verify actions.' });
@@ -869,6 +871,7 @@ class VerifyCommand extends ProteumCommand {
         description: 'Port used for the Unique Domains Website validation server.',
     });
     public route = Option.String('--route', { description: 'Route loaded in both apps during validation.' });
+    public staged = Option.Boolean('--staged', false, { description: 'Verify staged changes only.' });
     public args = Option.Rest();
 
     public async execute() {
@@ -877,9 +880,11 @@ class VerifyCommand extends ProteumCommand {
 
         this.setCliArgs({
             action,
+            base: this.base ?? '',
             crosspath: this.crosspath ?? '',
             crosspathPort: this.crosspathPort ?? '',
             dataJson: this.dataJson ?? '',
+            dryRun: this.dryRun,
             json: this.json,
             method: this.method ?? '',
             port: this.port ?? '',
@@ -888,6 +893,7 @@ class VerifyCommand extends ProteumCommand {
             route: this.route ?? '',
             sessionEmail: this.sessionEmail ?? '',
             sessionRole: this.sessionRole ?? '',
+            staged: this.staged,
             strictGlobal: this.strictGlobal,
             target,
             url: this.url ?? '',

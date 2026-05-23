@@ -381,7 +381,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum command` | Run a dev-only internal command locally or against a running dev server |
 | `proteum session` | Mint a dev-only auth session token and Playwright-ready cookie payload |
 | `proteum e2e` | Run Playwright with Proteum-managed `E2E_*` values instead of shell-leading env assignments |
-| `proteum verify` | Validate framework-facing workflows across one or more running dev apps; `framework-change` is the built-in cross-reference-app check |
+| `proteum verify` | Validate targeted changed-file checks, focused owner/request/browser workflows, or the full framework reference-app pass |
 | `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
 | `proteum configure agents` | Interactively configure tracked Proteum instruction files for standalone or monorepo apps |
 | `proteum create` | Scaffold a page, controller, command, route, or root service inside an app |
@@ -393,6 +393,7 @@ Recommended daily workflow:
 proteum dev
 proteum refresh
 proteum check
+proteum verify changed --dry-run
 proteum build --prod
 proteum build --prod --analyze
 proteum build --prod --analyze --analyze-serve --analyze-port auto

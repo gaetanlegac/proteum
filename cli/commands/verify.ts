@@ -5,7 +5,6 @@ import path from 'path';
 import { UsageError } from 'clipanion';
 
 import cli from '..';
-import Compiler from '../compiler';
 import Paths from '../paths';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
 import { buildContractsDoctorResponse } from '@common/dev/contractsDoctor';
@@ -14,6 +13,13 @@ import { buildOrientationResponse, type TDiagnoseChainItem, type TDiagnoseRespon
 import type { TProteumManifest, TProteumManifestDiagnostic } from '@common/dev/proteumManifest';
 import type { TDevCommandRunResponse } from '@common/dev/commands';
 import type { TDevSessionErrorResponse, TDevSessionStartResponse } from '@common/dev/session';
+import {
+    renderChangedVerificationPlan,
+    runChangedVerification,
+    type TChangedVerificationCheck,
+    type TChangedVerificationExecution,
+    type TChangedVerificationSkippedCheck,
+} from '../verification/changed';
 
 type TVerifySeverity = 'error' | 'warning';
 type TVerifyStepStatus = 'failed' | 'info' | 'passed';
@@ -23,7 +29,7 @@ type TVerifyFinding = {
     blocking: boolean;
     code: string;
     message: string;
-    source: 'browser' | 'contracts' | 'doctor' | 'framework-change' | 'request' | 'command';
+    source: 'browser' | 'changed' | 'contracts' | 'doctor' | 'framework-change' | 'request' | 'command';
     filepath?: string;
     sourceLocation?: { line?: number; column?: number };
     relatedFilepaths?: string[];
@@ -51,12 +57,20 @@ type TVerifyResult = {
     action: string;
     target?: string;
     orientation?: TOrientResponse;
+    changedFiles?: string[];
+    configFilepath?: string;
+    dryRun?: boolean;
+    executions?: TChangedVerificationExecution[];
     introducedFindings: TVerifyFinding[];
     preExistingFindings: TVerifyFinding[];
+    selectedChecks?: TChangedVerificationCheck[];
+    skippedChecks?: TChangedVerificationSkippedCheck[];
     verificationSteps: TVerifyStep[];
     result: {
         ok: boolean;
         strictGlobal: boolean;
+        failedChecks?: number;
+        selectedChecks?: number;
         introducedBlockingFindings: number;
         preExistingBlockingFindings: number;
         blockingFindings: number;
@@ -267,6 +281,7 @@ const ensureServer = async ({
 };
 
 const resolveLocalManifest = async () => {
+    const { default: Compiler } = await import('../compiler');
     const compiler = new Compiler('dev');
     await compiler.refreshGeneratedTypings();
     return readProteumManifest(cli.paths.appRoot);
@@ -365,9 +380,16 @@ const classifyDiagnostics = ({
 const finalizeResult = ({
     action,
     apps,
+    changedFiles,
+    configFilepath,
+    dryRun,
+    executions,
     introducedFindings,
     orientation,
     preExistingFindings,
+    selectedChecks,
+    skippedChecks,
+    changedResult,
     strictGlobal,
     target,
     verificationSteps,
@@ -375,9 +397,16 @@ const finalizeResult = ({
     action: string;
     target?: string;
     orientation?: TOrientResponse;
+    changedFiles?: string[];
+    configFilepath?: string;
+    dryRun?: boolean;
+    executions?: TChangedVerificationExecution[];
     apps?: TVerifyAppResult[];
     introducedFindings: TVerifyFinding[];
     preExistingFindings: TVerifyFinding[];
+    selectedChecks?: TChangedVerificationCheck[];
+    skippedChecks?: TChangedVerificationSkippedCheck[];
+    changedResult?: { failedChecks: number; selectedChecks: number };
     verificationSteps: TVerifyStep[];
     strictGlobal: boolean;
 }): TVerifyResult => {
@@ -389,13 +418,20 @@ const finalizeResult = ({
         action,
         ...(target ? { target } : {}),
         ...(orientation ? { orientation } : {}),
+        ...(changedFiles ? { changedFiles } : {}),
+        ...(configFilepath ? { configFilepath } : {}),
+        ...(dryRun !== undefined ? { dryRun } : {}),
+        ...(executions ? { executions } : {}),
         ...(apps ? { apps } : {}),
         introducedFindings,
         preExistingFindings,
+        ...(selectedChecks ? { selectedChecks } : {}),
+        ...(skippedChecks ? { skippedChecks } : {}),
         verificationSteps,
         result: {
             ok,
             strictGlobal,
+            ...(changedResult ? { failedChecks: changedResult.failedChecks, selectedChecks: changedResult.selectedChecks } : {}),
             introducedBlockingFindings,
             preExistingBlockingFindings,
             blockingFindings: introducedBlockingFindings + preExistingBlockingFindings,
@@ -437,6 +473,24 @@ const renderFrameworkApps = (apps: TVerifyAppResult[]) =>
         ])
         .join('\n');
 
+const renderChangedChecks = (result: TVerifyResult) => {
+    if (!result.changedFiles || !result.selectedChecks || !result.skippedChecks) return '';
+
+    return [
+        'Changed Verification',
+        `- config=${result.configFilepath || 'none'}`,
+        `- dryRun=${result.dryRun === true}`,
+        `- changedFiles=${result.changedFiles.length}`,
+        `- selectedChecks=${result.selectedChecks.length}`,
+        `- skippedChecks=${result.skippedChecks.length}`,
+        ...result.selectedChecks.map(
+            (check) =>
+                `- [${check.scope}] ${check.id} cwd=${check.cwd} command=${check.command} reason=${check.reasons.join('; ')}`,
+        ),
+        ...result.skippedChecks.map((check) => `- [skipped] ${check.id} reason=${check.reason}`),
+    ].join('\n');
+};
+
 const renderHuman = (result: TVerifyResult) =>
     [
         `Proteum verify ${result.action}${result.target ? ` ${result.target}` : ''}`,
@@ -448,6 +502,7 @@ const renderHuman = (result: TVerifyResult) =>
               ]
             : []),
         ...(result.apps ? [renderFrameworkApps(result.apps)] : []),
+        ...(result.changedFiles ? ['', renderChangedChecks(result)] : []),
         '',
         renderSteps(result.verificationSteps),
         '',
@@ -1075,6 +1130,62 @@ const collectAppResult = async ({
     };
 };
 
+const runChangedVerify = async () => {
+    const base = typeof cli.args.base === 'string' && cli.args.base.trim() ? cli.args.base.trim() : undefined;
+    const changed = await runChangedVerification({
+        base,
+        cwd: String(cli.args.workdir || process.cwd()),
+        dryRun: cli.args.dryRun === true,
+        onPlan: (plan) => {
+            if (cli.args.json !== true) console.log(renderChangedVerificationPlan(plan));
+        },
+        staged: cli.args.staged === true,
+    });
+    const introducedFindings: TVerifyFinding[] = changed.executions
+        .filter((execution) => execution.status === 'failed')
+        .map((execution) => ({
+            severity: 'error',
+            blocking: true,
+            code: 'changed/check-failed',
+            message: `Verification check "${execution.checkId}" failed with exit code ${execution.exitCode ?? 'unknown'}.`,
+            source: 'changed',
+            details: [`command=${execution.command}`, `cwd=${execution.cwd}`, `durationMs=${execution.durationMs}`],
+        }));
+
+    return finalizeResult({
+        action: 'changed',
+        changedFiles: changed.changedFiles,
+        configFilepath: changed.configFilepath,
+        dryRun: changed.dryRun,
+        executions: changed.executions,
+        introducedFindings,
+        preExistingFindings: [],
+        selectedChecks: changed.selectedChecks,
+        skippedChecks: changed.skippedChecks,
+        changedResult: changed.result,
+        strictGlobal: false,
+        verificationSteps: [
+            {
+                label: 'Discover Changed Files',
+                status: 'passed',
+                details: [`files=${changed.changedFiles.length}`, `gitRoot=${changed.gitRoot}`],
+            },
+            {
+                label: 'Plan Targeted Checks',
+                status: 'passed',
+                details: [`selected=${changed.selectedChecks.length}`, `skipped=${changed.skippedChecks.length}`],
+            },
+            {
+                label: changed.dryRun ? 'Skip Execution' : 'Run Targeted Checks',
+                status: changed.result.ok ? 'passed' : 'failed',
+                details: changed.dryRun
+                    ? ['dryRun=true']
+                    : [`executions=${changed.executions.length}`, `failed=${changed.result.failedChecks}`],
+            },
+        ],
+    });
+};
+
 const runFrameworkChangeVerify = async () => {
     const websiteRoute = typeof cli.args.route === 'string' && cli.args.route ? cli.args.route : '/';
     const apps = {
@@ -1208,7 +1319,9 @@ export const run = async () => {
     const target = typeof cli.args.target === 'string' ? cli.args.target.trim() : '';
     let result: TVerifyResult;
 
-    if (action === 'framework-change') {
+    if (action === 'changed') {
+        result = await runChangedVerify();
+    } else if (action === 'framework-change') {
         result = await runFrameworkChangeVerify();
     } else if (action === 'owner') {
         if (!target) throw new UsageError('`proteum verify owner` requires a query.');
@@ -1220,7 +1333,7 @@ export const run = async () => {
         if (!target) throw new UsageError('`proteum verify browser` requires a path or absolute URL.');
         result = await runBrowserVerify(target);
     } else {
-        throw new UsageError(`Unsupported verify action "${action}". Expected framework-change, owner, request, or browser.`);
+        throw new UsageError(`Unsupported verify action "${action}". Expected changed, framework-change, owner, request, or browser.`);
     }
 
     if (cli.args.json === true) {
