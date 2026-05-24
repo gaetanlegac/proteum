@@ -60,6 +60,9 @@ const managedInstructionSectionHeader = '# Proteum Instructions';
 const managedInstructionSectionStart = '<!-- proteum-instructions:start -->';
 const managedInstructionSectionEnd = '<!-- proteum-instructions:end -->';
 const managedInstructionSectionIntro = 'This section is managed by `proteum configure agents`.';
+const agentInstructionFilename = 'AGENTS.md';
+const claudeInstructionFilename = 'CLAUDE.md';
+const claudeInstructionPointerContent = `@${agentInstructionFilename}`;
 
 const sharedRootDocumentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'DOCUMENTATION.md', content: 'source' },
@@ -243,6 +246,45 @@ function getRootAgentInstructionDefinitions() {
     return monorepoRootAgentInstructionDefinitions.map((instructionDefinition) => ({ ...instructionDefinition }));
 }
 
+function createEmptyInstructionResult(): TEnsureInstructionFilesResult {
+    return {
+        blocked: [],
+        created: [],
+        overwritten: [],
+        removed: [],
+        skipped: [],
+        updated: [],
+    };
+}
+
+function mergeEnsureInstructionResults(result: TEnsureInstructionFilesResult, next: TEnsureInstructionFilesResult) {
+    result.created.push(...next.created);
+    result.overwritten.push(...next.overwritten);
+    result.removed.push(...next.removed);
+    result.updated.push(...next.updated);
+    result.skipped.push(...next.skipped);
+    result.blocked.push(...next.blocked);
+}
+
+function getManagedInstructionProjectPaths(instructionDefinitions: TAgentInstructionDefinition[]) {
+    const projectPaths: string[] = [];
+
+    for (const instructionDefinition of instructionDefinitions) {
+        projectPaths.push(instructionDefinition.projectPath);
+
+        const claudeProjectPath = getClaudeCompanionProjectPath(instructionDefinition.projectPath);
+        if (claudeProjectPath) projectPaths.push(claudeProjectPath);
+    }
+
+    return projectPaths;
+}
+
+function getClaudeCompanionProjectPath(projectPath: string) {
+    if (path.basename(projectPath).toLowerCase() !== agentInstructionFilename.toLowerCase()) return undefined;
+
+    return path.join(path.dirname(projectPath), claudeInstructionFilename);
+}
+
 function removeInstructionGitignoreEntries({
     rootDir,
     instructionDefinitions,
@@ -254,7 +296,7 @@ function removeInstructionGitignoreEntries({
     if (!pathEntryExists(gitignoreFilepath)) return false;
 
     const managedEntries = new Set(
-        instructionDefinitions.map((instructionDefinition) => normalizeGitignoreEntry(instructionDefinition.projectPath)),
+        getManagedInstructionProjectPaths(instructionDefinitions).map((projectPath) => normalizeGitignoreEntry(projectPath)),
     );
     const lines = fs.readFileSync(gitignoreFilepath, 'utf8').split(/\r?\n/);
     const filteredLines: string[] = [];
@@ -341,12 +383,28 @@ function ensureInstructionFiles(
                     : upsertManagedInstructionSection(existingState.content, instructionContent);
             if (nextContent === existingState.content) {
                 result.skipped.push(relativeProjectPath);
+                ensureClaudeCompanionIfNeeded({
+                    dryRun,
+                    instructionDefinition,
+                    logPrefix,
+                    overwriteBlockedPaths,
+                    result,
+                    rootDir,
+                });
                 continue;
             }
 
             if (!dryRun) fs.writeFileSync(projectFilepath, nextContent);
             result.updated.push(relativeProjectPath);
             logVerbose(`${logPrefix} Updated ${relativeProjectPath}`);
+            ensureClaudeCompanionIfNeeded({
+                dryRun,
+                instructionDefinition,
+                logPrefix,
+                overwriteBlockedPaths,
+                result,
+                rootDir,
+            });
             continue;
         }
 
@@ -357,6 +415,14 @@ function ensureInstructionFiles(
             }
             result.updated.push(relativeProjectPath);
             logVerbose(`${logPrefix} Updated ${relativeProjectPath}`);
+            ensureClaudeCompanionIfNeeded({
+                dryRun,
+                instructionDefinition,
+                logPrefix,
+                overwriteBlockedPaths,
+                result,
+                rootDir,
+            });
             continue;
         }
 
@@ -373,12 +439,28 @@ function ensureInstructionFiles(
             }
             result.overwritten.push(relativeProjectPath);
             logVerbose(`${logPrefix} Replaced ${relativeProjectPath}`);
+            ensureClaudeCompanionIfNeeded({
+                dryRun,
+                instructionDefinition,
+                logPrefix,
+                overwriteBlockedPaths,
+                result,
+                rootDir,
+            });
             continue;
         }
 
         if (!dryRun) fs.writeFileSync(projectFilepath, instructionContent);
         result.created.push(relativeProjectPath);
         logVerbose(`${logPrefix} Created ${relativeProjectPath}`);
+        ensureClaudeCompanionIfNeeded({
+            dryRun,
+            instructionDefinition,
+            logPrefix,
+            overwriteBlockedPaths,
+            result,
+            rootDir,
+        });
     }
 
     return result;
@@ -422,6 +504,13 @@ function removeManagedInstructionFiles(
             if (!dryRun) fs.removeSync(projectFilepath);
             result.removed.push(relativeProjectPath);
             logVerbose(`${logPrefix} Removed retired app-root ${relativeProjectPath}`);
+            removeClaudeCompanionIfNeeded({
+                dryRun,
+                instructionDefinition,
+                logPrefix,
+                result,
+                rootDir,
+            });
             continue;
         }
 
@@ -437,6 +526,13 @@ function removeManagedInstructionFiles(
                 if (!dryRun) fs.removeSync(projectFilepath);
                 result.removed.push(relativeProjectPath);
                 logVerbose(`${logPrefix} Removed retired app-root ${relativeProjectPath}`);
+                removeClaudeCompanionIfNeeded({
+                    dryRun,
+                    instructionDefinition,
+                    logPrefix,
+                    result,
+                    rootDir,
+                });
                 continue;
             }
 
@@ -450,6 +546,179 @@ function removeManagedInstructionFiles(
     }
 
     return result;
+}
+
+function ensureClaudeCompanionIfNeeded({
+    dryRun,
+    instructionDefinition,
+    logPrefix,
+    overwriteBlockedPaths,
+    result,
+    rootDir,
+}: {
+    dryRun: boolean;
+    instructionDefinition: TAgentInstructionDefinition;
+    logPrefix: string;
+    overwriteBlockedPaths: Set<string>;
+    result: TEnsureInstructionFilesResult;
+    rootDir: string;
+}) {
+    const claudeProjectPath = getClaudeCompanionProjectPath(instructionDefinition.projectPath);
+    if (!claudeProjectPath) return;
+
+    mergeEnsureInstructionResults(
+        result,
+        ensureClaudeInstructionSymlink({
+            claudeProjectPath,
+            dryRun,
+            logPrefix,
+            overwriteBlockedPaths,
+            rootDir,
+        }),
+    );
+}
+
+function ensureClaudeInstructionSymlink({
+    claudeProjectPath,
+    dryRun,
+    logPrefix,
+    overwriteBlockedPaths,
+    rootDir,
+}: {
+    claudeProjectPath: string;
+    dryRun: boolean;
+    logPrefix: string;
+    overwriteBlockedPaths: Set<string>;
+    rootDir: string;
+}): TEnsureInstructionFilesResult {
+    const result = createEmptyInstructionResult();
+    const claudeFilepath = path.join(rootDir, claudeProjectPath);
+    const claudeParentDir = path.dirname(claudeFilepath);
+    const relativeClaudePath = path.relative(rootDir, claudeFilepath) || '.';
+
+    if (!fs.existsSync(claudeParentDir)) {
+        result.skipped.push(relativeClaudePath);
+        return result;
+    }
+
+    const existingState = inspectExistingClaudePath(claudeFilepath);
+
+    if (existingState.kind === 'correct') {
+        result.skipped.push(relativeClaudePath);
+        return result;
+    }
+
+    if (existingState.kind === 'missing') {
+        if (!dryRun) fs.symlinkSync(agentInstructionFilename, claudeFilepath);
+        result.created.push(relativeClaudePath);
+        logVerbose(`${logPrefix} Created ${relativeClaudePath}`);
+        return result;
+    }
+
+    if (existingState.kind === 'managed-different') {
+        if (!dryRun) {
+            fs.removeSync(claudeFilepath);
+            fs.symlinkSync(agentInstructionFilename, claudeFilepath);
+        }
+        result.updated.push(relativeClaudePath);
+        logVerbose(`${logPrefix} Updated ${relativeClaudePath}`);
+        return result;
+    }
+
+    const normalizedClaudeFilepath = normalizeAbsolutePath(claudeFilepath);
+    if (!overwriteBlockedPaths.has(normalizedClaudeFilepath)) {
+        result.blocked.push(relativeClaudePath);
+        return result;
+    }
+
+    if (!dryRun) {
+        fs.removeSync(claudeFilepath);
+        fs.symlinkSync(agentInstructionFilename, claudeFilepath);
+    }
+    result.overwritten.push(relativeClaudePath);
+    logVerbose(`${logPrefix} Replaced ${relativeClaudePath}`);
+
+    return result;
+}
+
+function removeClaudeCompanionIfNeeded({
+    dryRun,
+    instructionDefinition,
+    logPrefix,
+    result,
+    rootDir,
+}: {
+    dryRun: boolean;
+    instructionDefinition: TAgentInstructionDefinition;
+    logPrefix: string;
+    result: TEnsureInstructionFilesResult;
+    rootDir: string;
+}) {
+    const claudeProjectPath = getClaudeCompanionProjectPath(instructionDefinition.projectPath);
+    if (!claudeProjectPath) return;
+
+    mergeEnsureInstructionResults(
+        result,
+        removeClaudeInstructionSymlink({
+            claudeProjectPath,
+            dryRun,
+            logPrefix,
+            rootDir,
+        }),
+    );
+}
+
+function removeClaudeInstructionSymlink({
+    claudeProjectPath,
+    dryRun,
+    logPrefix,
+    rootDir,
+}: {
+    claudeProjectPath: string;
+    dryRun: boolean;
+    logPrefix: string;
+    rootDir: string;
+}): TEnsureInstructionFilesResult {
+    const result = createEmptyInstructionResult();
+    const claudeFilepath = path.join(rootDir, claudeProjectPath);
+    const relativeClaudePath = path.relative(rootDir, claudeFilepath) || '.';
+
+    if (!pathEntryExists(claudeFilepath)) return result;
+
+    const existingState = inspectExistingClaudePath(claudeFilepath);
+    if (existingState.kind === 'correct' || existingState.kind === 'managed-different') {
+        if (!dryRun) fs.removeSync(claudeFilepath);
+        result.removed.push(relativeClaudePath);
+        logVerbose(`${logPrefix} Removed retired app-root ${relativeClaudePath}`);
+        return result;
+    }
+
+    if (existingState.kind === 'blocked') result.skipped.push(relativeClaudePath);
+
+    return result;
+}
+
+function inspectExistingClaudePath(claudeFilepath: string) {
+    if (!pathEntryExists(claudeFilepath)) return { kind: 'missing' as const };
+
+    const stats = fs.lstatSync(claudeFilepath);
+    const claudeParentDir = path.dirname(claudeFilepath);
+    const agentFilepath = path.join(claudeParentDir, agentInstructionFilename);
+
+    if (stats.isSymbolicLink()) {
+        const rawTarget = fs.readlinkSync(claudeFilepath);
+        const resolvedTarget = path.resolve(claudeParentDir, rawTarget);
+        if (normalizeAbsolutePath(resolvedTarget) !== normalizeAbsolutePath(agentFilepath)) return { kind: 'blocked' as const };
+
+        return rawTarget === agentInstructionFilename ? { kind: 'correct' as const } : { kind: 'managed-different' as const };
+    }
+
+    if (!stats.isFile()) return { kind: 'blocked' as const };
+
+    const content = fs.readFileSync(claudeFilepath, 'utf8');
+    if (content.trim() === claudeInstructionPointerContent) return { kind: 'managed-different' as const };
+
+    return { kind: 'blocked' as const };
 }
 
 function inspectExistingPath({

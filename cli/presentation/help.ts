@@ -139,7 +139,7 @@ export const renderCliOverview = async ({
                     indent: '  ',
                     nextIndent: '  ',
                 }),
-                wrapText('Before the dev loop starts, `proteum dev` ensures tracked instruction files contain the current managed `# Proteum Instructions` section.', {
+                wrapText('Before the dev loop starts, `proteum dev` ensures tracked instruction files contain the current managed `# Proteum Instructions` section and `CLAUDE.md` symlinks point to sibling `AGENTS.md` files.', {
                     indent: '  ',
                     nextIndent: '  ',
                 }),

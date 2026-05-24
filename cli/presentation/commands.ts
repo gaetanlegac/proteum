@@ -116,7 +116,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
     configure: {
         name: 'configure',
         category: 'Project scaffolding',
-        summary: 'Interactively configure tracked Proteum instruction files for a standalone app or monorepo app root.',
+        summary: 'Interactively configure tracked Proteum instruction files and Claude aliases for an app.',
         usage: 'proteum configure agents',
         bestFor:
             'Creating or switching the tracked instruction layout intentionally while keeping Proteum-owned instructions embedded in managed sections.',
@@ -128,8 +128,9 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         ],
         notes: [
             'This command is interactive. It asks whether the current Proteum app belongs to a monorepo and, if so, which ancestor path should receive the reusable root instruction files.',
-            'Standalone mode writes tracked instruction files into the current Proteum app root.',
+            'Standalone mode writes tracked instruction files into the current Proteum app root and creates `CLAUDE.md` symlinks beside each `AGENTS.md`.',
             'Monorepo mode writes reusable root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root, then writes only app-root and area instruction files into the current Proteum app root.',
+            'Every generated `CLAUDE.md` is a sibling symlink pointing to `AGENTS.md`.',
             'Every managed instruction file contains a `# Proteum Instructions` section with the full embedded Proteum project instruction corpus.',
             'Existing content outside `# Proteum Instructions` is preserved. Directories and foreign symlinks are replaced only after confirmation.',
         ],

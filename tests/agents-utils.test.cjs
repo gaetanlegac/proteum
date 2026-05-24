@@ -15,6 +15,23 @@ const writeFile = (filepath, content) => {
     fs.writeFileSync(filepath, content);
 };
 
+const assertClaudeSymlink = (root, relativeDir = '') => {
+    const linkPath = path.join(root, relativeDir, 'CLAUDE.md');
+    const stats = fs.lstatSync(linkPath);
+
+    assert.equal(stats.isSymbolicLink(), true, `${linkPath} should be a symlink`);
+    assert.equal(fs.readlinkSync(linkPath), 'AGENTS.md');
+};
+
+const pathEntryExists = (filepath) => {
+    try {
+        fs.lstatSync(filepath);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 const makeTempRoot = () => fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-agents-'));
 
 const createCoreFixture = () => {
@@ -53,6 +70,7 @@ const createAppFixture = () => {
             'node_modules',
             '# Proteum-managed instruction files',
             '/AGENTS.md',
+            '/CLAUDE.md',
             '/CODING_STYLE.md',
             '/DOCUMENTATION.md',
             '# End Proteum-managed instruction files',
@@ -137,9 +155,17 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md')), true);
     assert.match(fs.readFileSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /Journey rule/);
     assert.doesNotMatch(fs.readFileSync(path.join(appRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
+    assertClaudeSymlink(appRoot);
+    assertClaudeSymlink(appRoot, 'client');
+    assertClaudeSymlink(appRoot, 'client/pages');
+    assertClaudeSymlink(appRoot, 'server/routes');
+    assertClaudeSymlink(appRoot, 'server/services');
+    assertClaudeSymlink(appRoot, 'tests');
+    assertClaudeSymlink(appRoot, 'tests/e2e');
     assert.doesNotMatch(agentsContent, /Before reading or applying instructions from this file/);
     assert.doesNotMatch(gitignoreContent, /Proteum-managed instruction files/);
     assert.doesNotMatch(gitignoreContent, /^\/AGENTS\.md$/m);
+    assert.doesNotMatch(gitignoreContent, /^\/CLAUDE\.md$/m);
     assert.doesNotMatch(gitignoreContent, /^\/DOCUMENTATION\.md$/m);
 });
 
@@ -255,13 +281,20 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'AGENTS.md'), 'utf8'), /## Source: tests\/e2e\/AGENTS\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: tests\/e2e\/REAL_WORLD_JOURNEY_TESTS\.md/);
     assert.doesNotMatch(fs.readFileSync(path.join(monorepoRoot, 'tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
+    assertClaudeSymlink(monorepoRoot);
+    assertClaudeSymlink(monorepoRoot, 'tests');
+    assertClaudeSymlink(monorepoRoot, 'tests/e2e');
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'AGENTS.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'tests', 'e2e', 'AGENTS.md')), false);
+    assert.equal(pathEntryExists(path.join(appRoot, 'tests', 'CLAUDE.md')), false);
+    assert.equal(pathEntryExists(path.join(appRoot, 'tests', 'e2e', 'CLAUDE.md')), false);
     const appAgentsContent = fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8');
     assert.match(appAgentsContent, /## Agent Routing Contract/);
     assert.doesNotMatch(appAgentsContent, /## Known Proteum Apps/);
     assert.doesNotMatch(appAgentsContent, /Do not start `npx proteum dev` from this root/);
     assert.match(fs.readFileSync(path.join(appRoot, 'client', 'AGENTS.md'), 'utf8'), /## Source: client\/AGENTS\.md/);
+    assertClaudeSymlink(appRoot);
+    assertClaudeSymlink(appRoot, 'client');
     assert.equal(fs.existsSync(path.join(appRoot, 'CODING_STYLE.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'DOCUMENTATION.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'diagnostics.md')), false);
@@ -331,6 +364,45 @@ test('configure migrates legacy managed symlinks to tracked files', () => {
     assert.equal(result.updated.some((entry) => entry.endsWith('/AGENTS.md')), true);
     assert.equal(stats.isSymbolicLink(), false);
     assert.match(content, /# Proteum Instructions/);
+    assertClaudeSymlink(appRoot);
+});
+
+test('configure migrates one-line Claude pointer files to symlinks', () => {
+    const coreRoot = createCoreFixture();
+    const appRoot = createAppFixture();
+    const linkPath = path.join(appRoot, 'CLAUDE.md');
+
+    writeFile(linkPath, '@AGENTS.md\n');
+
+    const result = configureProjectAgentInstructions({ appRoot, coreRoot });
+
+    assert.equal(result.updated.some((entry) => entry.endsWith('/CLAUDE.md')), true);
+    assertClaudeSymlink(appRoot);
+});
+
+test('configure reports blocked Claude companion paths unless overwrite is allowed', () => {
+    const coreRoot = createCoreFixture();
+    const appRoot = createAppFixture();
+    const blockedPath = path.join(appRoot, 'CLAUDE.md');
+
+    writeFile(blockedPath, '# Local Claude Notes\n\n- Keep this local rule.\n');
+
+    const preview = configureProjectAgentInstructions({ appRoot, coreRoot, dryRun: true });
+    assert.equal(preview.blocked.some((entry) => entry.endsWith('/CLAUDE.md')), true);
+
+    const blockedResult = configureProjectAgentInstructions({ appRoot, coreRoot });
+    assert.equal(blockedResult.blocked.some((entry) => entry.endsWith('/CLAUDE.md')), true);
+    assert.equal(fs.lstatSync(blockedPath).isFile(), true);
+    assert.match(fs.readFileSync(blockedPath, 'utf8'), /Keep this local rule/);
+
+    const result = configureProjectAgentInstructions({
+        appRoot,
+        coreRoot,
+        overwriteBlockedPaths: [blockedPath],
+    });
+
+    assert.equal(result.overwritten.some((entry) => entry.endsWith('/CLAUDE.md')), true);
+    assertClaudeSymlink(appRoot);
 });
 
 test('configure reports blocked paths unless overwrite is allowed', () => {

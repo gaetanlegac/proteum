@@ -74,7 +74,7 @@ const promptBlockedOverwritePaths = async (blockedPaths: string[]) => {
     console.info(await renderWarning('Proteum found existing paths that block managed instruction updates.'));
     console.info(
         [
-            'Choose whether to overwrite each path with a tracked Proteum instruction file:',
+            'Choose whether to overwrite each path with a Proteum-managed instruction path:',
             ...blockedPaths.map((entry) => `- ${entry}`),
         ].join('\n'),
     );
@@ -163,7 +163,7 @@ export const runConfigureAgentsWizard = async ({
             : undefined;
     console.info(
         [
-            await renderTitle('PROTEUM CONFIGURE AGENTS', 'Configure tracked Proteum instruction files.'),
+            await renderTitle('PROTEUM CONFIGURE AGENTS', 'Configure tracked Proteum instruction files and Claude aliases.'),
             renderRows([{ label: 'app', value: appRoot === process.cwd() ? '.' : appRoot }]),
         ].join('\n\n'),
     );
@@ -201,8 +201,8 @@ export const runConfigureAgentsWizard = async ({
         await renderStep(
             '[1/1]',
             isMonorepo
-                ? `Writing monorepo-aware instruction files using ${monorepoRoot}.`
-                : 'Writing standalone instruction files.',
+                ? `Writing monorepo-aware instruction files and Claude aliases using ${monorepoRoot}.`
+                : 'Writing standalone instruction files and Claude aliases.',
         ),
     );
 
@@ -214,7 +214,7 @@ export const runConfigureAgentsWizard = async ({
     });
     const sections = renderConfigureResultSections(result);
 
-    console.info(await renderSuccess('Proteum-managed instruction files are configured.'));
+    console.info(await renderSuccess('Proteum-managed instruction files and Claude aliases are configured.'));
 
     if (sections.length > 0) console.info(`\n${sections.join('\n\n')}`);
 };

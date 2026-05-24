@@ -153,7 +153,7 @@ const promptBlockedAgentInstructionOverwrites = async (blockedPaths: string[]) =
     if (cli.args.json === true || !process.stdin.isTTY || !process.stdout.isTTY) {
         throw new UsageError(
             [
-                'Proteum could not update managed instruction files because existing paths are blocked:',
+                'Proteum could not update managed instruction paths because existing paths are blocked:',
                 ...blockedPaths.map((entry) => `- ${entry}`),
                 'Run `proteum configure agents` in an interactive terminal to choose which paths can be replaced.',
             ].join('\n'),
@@ -163,7 +163,7 @@ const promptBlockedAgentInstructionOverwrites = async (blockedPaths: string[]) =
     console.info(await renderWarning('Proteum found existing paths that block managed instruction updates.'));
     console.info(
         [
-            'Choose whether to overwrite each blocked path with a tracked Proteum instruction file:',
+            'Choose whether to overwrite each blocked path with a Proteum-managed instruction path:',
             ...blockedPaths.map((entry) => `- ${entry}`),
         ].join('\n'),
     );
@@ -212,7 +212,7 @@ const ensureProjectAgentInstructions = async () => {
 
     throw new UsageError(
         [
-            'Proteum could not update all managed instruction files because these paths were left blocked:',
+            'Proteum could not update all managed instruction paths because these paths were left blocked:',
             ...result.blocked.map((entry) => `- ${entry}`),
         ].join('\n'),
     );

@@ -403,7 +403,7 @@ Proteum ships with a compact CLI focused on the real app lifecycle:
 | `proteum e2e` | Run Playwright with Proteum-managed `E2E_*` values instead of shell-leading env assignments |
 | `proteum verify` | Validate targeted changed-file checks, focused owner/request/browser workflows, or the full framework reference-app pass |
 | `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
-| `proteum configure agents` | Interactively configure tracked Proteum instruction files for standalone or monorepo apps |
+| `proteum configure agents` | Interactively configure tracked Proteum instruction files and Claude aliases |
 | `proteum create` | Scaffold a page, controller, command, route, or root service inside an app |
 | `proteum worktree` | Create or initialize Codex worktrees with a machine-readable bootstrap marker |
 
@@ -419,7 +419,7 @@ proteum build --prod --analyze
 proteum build --prod --analyze --analyze-serve --analyze-port auto
 ```
 
-Only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. `proteum dev` is the only command that clears the interactive terminal before rendering its live session UI, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys, and prints connected app names plus successful connected `/ping` checks in the server-ready banner. Every `proteum dev` start ensures tracked Proteum instruction files contain the current managed `# Proteum Instructions` section before the dev loop begins.
+Only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. `proteum dev` is the only command that clears the interactive terminal before rendering its live session UI, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys, and prints connected app names plus successful connected `/ping` checks in the server-ready banner. Every `proteum dev` start ensures tracked Proteum instruction files contain the current managed `# Proteum Instructions` section and `CLAUDE.md` symlinks point to sibling `AGENTS.md` files before the dev loop begins.
 
 Useful inspection commands:
 
@@ -467,7 +467,7 @@ proteum create controller Founder/projects --method list
 proteum create service Conversion/Plans
 ```
 
-`proteum configure agents` writes a compact managed `# Proteum Instructions` router plus the task-specific instruction files that router points to. Standalone mode writes root documents into the app root; monorepo mode writes shared root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root and keeps only app-local instruction files in the Proteum app root. It preserves content outside managed sections and asks before replacing directories or foreign symlinks. If you decline, that path is left untouched.
+`proteum configure agents` writes a compact managed `# Proteum Instructions` router plus the task-specific instruction files that router points to. Standalone mode writes root documents into the app root; monorepo mode writes shared root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root and keeps only app-local instruction files in the Proteum app root. For each generated `AGENTS.md`, it creates a sibling `CLAUDE.md` symlink pointing to `AGENTS.md`. It preserves content outside managed sections and asks before replacing directories, foreign symlinks, or unrelated files. If you decline, that path is left untouched.
 
 Every `proteum dev` start runs the same idempotent instruction check. It updates missing or stale managed sections automatically and prompts only when a blocked path would need to be replaced.
 
