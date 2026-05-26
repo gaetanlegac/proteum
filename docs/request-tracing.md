@@ -33,7 +33,7 @@ proteum perf memory --since 1h --group-by controller
 
 Default trace output is compact `proteum-agent-v1` JSON with counts, failed calls, error events, hot calls, and hot SQL. Use `--events` or `--full` only when raw event details, payload summaries, or SQL text are needed.
 
-When an MCP client is available, call `workflow_start` with `cwd` or a known `projectId`, then use the returned live `projectId` with MCP `trace_latest`, `trace_show`, `perf_top`, and `perf_request` for repeated reads against the same running app. If `workflow_start` returns offline app candidates or unreachable runtime health, start or repair exactly one `proteum dev` server from the intended app root before trace or perf reads. Keep the CLI commands for reproducible terminal evidence and final verification logs.
+When an MCP client is available, call `workflow_start` with `cwd` or a known `projectId`, then use the returned live `projectId` with MCP `trace_latest`, `trace_show`, `perf_top`, and `perf_request` for repeated reads against the same running app. If `workflow_start` returns offline app candidates, `data.readiness.state="blocked"`, or unreachable runtime health, resolve the readiness setup actions and start or repair exactly one `proteum dev` server from the intended app root before trace or perf reads. Keep the CLI commands for reproducible terminal evidence and final verification logs.
 
 Before reproducing a bug or starting a new test pass:
 

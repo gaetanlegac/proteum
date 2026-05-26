@@ -14,7 +14,12 @@ import { z } from 'zod/v4';
 import { buildContractsDoctorResponse } from '../../common/dev/contractsDoctor';
 import { buildDoctorResponse } from '../../common/dev/diagnostics';
 import { explainOwner } from '../../common/dev/inspection';
-import { compactWorkflowStartResponse, createMcpPayload, stringifyMcpPayload } from '../../common/dev/mcpPayloads';
+import {
+    compactWorkflowStartResponse,
+    createMcpPayload,
+    stringifyMcpPayload,
+    type TProteumMcpNextAction,
+} from '../../common/dev/mcpPayloads';
 import { readProteumManifest } from '../compiler/common/proteumManifest';
 import {
     createMachineMcpDaemonRecord,
@@ -42,6 +47,7 @@ import {
     createWorktreeBootstrapMcpBlockResponse,
     getWorktreeBootstrapStatus,
 } from '../runtime/worktreeBootstrap';
+import { buildFreshCopyPreflight } from '../runtime/freshCopyPreflight';
 
 type TDevMcpClient = {
     callTool: (input: { arguments?: Record<string, unknown>; name: string }) => Promise<CallToolResult>;
@@ -101,6 +107,25 @@ const errorToolResult = (summary: string, data: Record<string, unknown> = {}) =>
         },
         true,
     );
+
+const dedupeNextActions = (actions: TProteumMcpNextAction[]) => {
+    const seen = new Set<string>();
+    const output: TProteumMcpNextAction[] = [];
+
+    for (const action of actions) {
+        const key = JSON.stringify({
+            command: action.command,
+            label: action.label,
+            tool: action.tool,
+            toolArgs: action.toolArgs,
+        });
+        if (seen.has(key)) continue;
+        seen.add(key);
+        output.push(action);
+    }
+
+    return output;
+};
 
 const compactProject = (record: TMachineDevSessionRecord) => ({
     projectId: record.projectId,
@@ -440,7 +465,7 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
         }
     };
 
-    const createOfflineWorkflowStartResult = (offline: TOfflineProject, input: Record<string, unknown>) => {
+    const createOfflineWorkflowStartResult = async (offline: TOfflineProject, input: Record<string, unknown>) => {
         const bootstrapStatus = getWorktreeBootstrapStatus({ appRoot: offline.appRoot, proteumVersion: version });
         if (bootstrapStatus.blocking) return jsonToolResult(createWorktreeBootstrapMcpBlockResponse(bootstrapStatus, offline), true);
 
@@ -448,25 +473,30 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
         try {
             manifest = readProteumManifest(offline.appRoot);
         } catch (error) {
+            const preflight = await buildFreshCopyPreflight({
+                appRoot: offline.appRoot,
+                baseRoot: offline.appRoot,
+            });
+
             return jsonToolResult(
                 createMcpPayload({
                     summary: `Matched offline Proteum app ${offline.appRoot}, but no readable manifest is available.`,
                     data: {
                         project: offline,
+                        readiness: preflight.readiness,
+                        worktreeBootstrap: compactWorktreeBootstrapStatus(bootstrapStatus),
                         error: error instanceof Error ? error.message : String(error),
                     },
-                    nextActions: [
-                        offline.nextAction,
-                        {
-                            label: 'Refresh Manifest',
-                            command: 'npx proteum refresh',
-                            reason: 'Generate the compact manifest before owner, route, or instruction routing reads.',
-                        },
-                    ],
+                    nextActions: dedupeNextActions([...preflight.nextActions, offline.nextAction]),
                 }),
             );
         }
 
+        const preflight = await buildFreshCopyPreflight({
+            appRoot: offline.appRoot,
+            baseRoot: offline.appRoot,
+            manifest,
+        });
         const doctor = buildDoctorResponse(manifest);
         const contracts = buildContractsDoctorResponse(manifest);
         const route = typeof input.route === 'string' ? input.route : undefined;
@@ -495,15 +525,17 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
             ...payload,
             data: {
                 project: offline,
+                readiness: preflight.readiness,
                 worktreeBootstrap: compactWorktreeBootstrapStatus(bootstrapStatus),
                 ...payload.data,
             },
-            nextActions: [
+            nextActions: dedupeNextActions([
+                ...preflight.nextActions,
                 offline.nextAction,
                 ...(Array.isArray(payload.nextActions)
                     ? payload.nextActions.filter((action: { label?: unknown }) => action.label !== 'Start Dev')
                     : []),
-            ],
+            ]),
         });
     };
 
@@ -528,7 +560,7 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
         const selectedMatch = matches[0];
         const record = selectedMatch.record;
 
-        if (!record && selectedMatch.offline) return createOfflineWorkflowStartResult(selectedMatch.offline, input);
+        if (!record && selectedMatch.offline) return await createOfflineWorkflowStartResult(selectedMatch.offline, input);
         if (!record) {
             return errorToolResult('Could not resolve a live Proteum project for workflow_start. Call projects_list or project_resolve.', {
                 matches: matches.map((match) => match.project),
@@ -550,7 +582,20 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
             if (result.content[0]?.type !== 'text') return result;
 
             const payload = JSON.parse(result.content[0].text);
-            const routedNextActions = Array.isArray(payload.nextActions)
+            let preflight;
+            try {
+                preflight = await buildFreshCopyPreflight({
+                    appRoot: record.appRoot,
+                    baseRoot: record.appRoot,
+                    manifest: readProteumManifest(record.appRoot),
+                });
+            } catch (_error) {
+                preflight = await buildFreshCopyPreflight({
+                    appRoot: record.appRoot,
+                    baseRoot: record.appRoot,
+                });
+            }
+            const routedNextActions: TProteumMcpNextAction[] | undefined = Array.isArray(payload.nextActions)
                 ? payload.nextActions.map((action: Record<string, unknown>) =>
                       action.tool && typeof action.tool === 'string'
                           ? {
@@ -568,10 +613,11 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
                 ...payload,
                 data: {
                     project: compactProject(record),
+                    readiness: preflight.readiness,
                     worktreeBootstrap: compactWorktreeBootstrapStatus(bootstrapStatus),
                     ...payload.data,
                 },
-                ...(routedNextActions && routedNextActions.length > 0 ? { nextActions: routedNextActions } : {}),
+                nextActions: dedupeNextActions([...preflight.nextActions, ...(routedNextActions || [])]),
             });
         } catch (error) {
             await closeClient(record);

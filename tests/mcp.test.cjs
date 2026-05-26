@@ -99,8 +99,53 @@ const createManifest = (appRoot, overrides = {}) => ({
 
 const writeProteumAppFixture = (appRoot, manifestOverrides = {}) => {
     writeFile(path.join(appRoot, 'package.json'), '{"name":"fixture"}\n');
+    writeFile(path.join(appRoot, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    writeFile(
+        path.join(appRoot, '.env'),
+        [
+            'ENV_NAME=local',
+            'ENV_PROFILE=dev',
+            `PORT=${manifestOverrides.routerPort || 3104}`,
+            `URL=http://localhost:${manifestOverrides.routerPort || 3104}`,
+            `URL_INTERNAL=http://localhost:${manifestOverrides.routerPort || 3104}`,
+            '',
+        ].join('\n'),
+    );
+    fs.mkdirSync(path.join(appRoot, 'node_modules'), { recursive: true });
     writeFile(path.join(appRoot, 'identity.config.ts'), 'export default {};\n');
     writeFile(path.join(appRoot, 'proteum.config.ts'), 'export default {};\n');
+    writeFile(path.join(appRoot, 'client', 'AGENTS.md'), '# Client\n');
+    writeFile(path.join(appRoot, 'client', 'pages', 'AGENTS.md'), '# Pages\n');
+    writeFile(path.join(appRoot, 'server', 'AGENTS.md'), '# Server\n');
+    writeFile(path.join(appRoot, 'server', 'routes', 'AGENTS.md'), '# Routes\n');
+    writeFile(path.join(appRoot, 'AGENTS.md'), '# App\n');
+    writeFile(path.join(appRoot, 'diagnostics.md'), '# Diagnostics\n');
+    writeFile(path.join(appRoot, '.proteum', 'manifest.json'), JSON.stringify(createManifest(appRoot, manifestOverrides), null, 2));
+};
+
+const writeFreshCopyFixture = (appRoot, manifestOverrides = {}) => {
+    writeFile(path.join(appRoot, 'package.json'), '{"name":"fresh-copy"}\n');
+    writeFile(path.join(appRoot, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    writeFile(
+        path.join(appRoot, '.env.example'),
+        [
+            'ENV_NAME=local',
+            'ENV_PROFILE=dev',
+            'PORT=3020',
+            'URL=http://localhost:3020',
+            'URL_INTERNAL=http://localhost:3020',
+            'DATABASE_URL=mysql://user:pass@localhost:3306/app',
+            '',
+        ].join('\n'),
+    );
+    writeFile(path.join(appRoot, 'identity.config.ts'), 'export default {};\n');
+    writeFile(path.join(appRoot, 'proteum.config.ts'), 'export default {};\n');
+    writeFile(
+        path.join(appRoot, 'prisma', 'schema.prisma'),
+        ['generator client {', '  provider = "prisma-client-js"', '  output = "../var/prisma"', '}', '', 'datasource db {', '  provider = "mysql"', '}'].join(
+            '\n',
+        ),
+    );
     writeFile(path.join(appRoot, 'client', 'AGENTS.md'), '# Client\n');
     writeFile(path.join(appRoot, 'client', 'pages', 'AGENTS.md'), '# Pages\n');
     writeFile(path.join(appRoot, 'server', 'AGENTS.md'), '# Server\n');
@@ -700,7 +745,10 @@ test('machine MCP router resolves projects by cwd and bootstraps workflow withou
     assert.equal(forwardedCall.name, 'workflow_start');
     assert.deepEqual(forwardedCall.arguments, { route: '/domains', task: 'read-only runtime health pass' });
     assert.equal(workflowPayload.data.project.projectId, productMachineRecord.projectId);
-    assert.equal(workflowPayload.nextActions[0].toolArgs.projectId, productMachineRecord.projectId);
+    assert.equal(
+        workflowPayload.nextActions.find((action) => action.tool === 'diagnose').toolArgs.projectId,
+        productMachineRecord.projectId,
+    );
 
     await client.close();
     await server.close();
@@ -780,6 +828,55 @@ test('machine MCP router resolves offline monorepo app candidates before dev is 
     assert.equal(workflowPayload.data.owner.top.label, '/domains');
     assert.equal(workflowPayload.nextActions[0].label, 'Start Dev');
     assert.equal(workflowPayload.nextActions.some((action) => action.tool === 'diagnose'), false);
+
+    await client.close();
+    await server.close();
+});
+
+test('machine MCP workflow_start reports fresh-copy setup blockers before dev start', async (t) => {
+    const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-fresh-copy-registry-'));
+    process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = registryDir;
+    t.onTestFinished(() => {
+        if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+        else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
+    });
+
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-fresh-copy-'));
+    const appRoot = path.join(repoRoot, 'apps', 'product');
+    writeFreshCopyFixture(appRoot, {
+        identifier: 'FreshCopyApp',
+        name: 'Fresh Copy',
+        routerPort: 3022,
+    });
+
+    const server = createProteumMachineMcpServer({ version: 'test' });
+    const client = new Client({ name: 'machine-mcp-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const workflow = await client.callTool({
+        name: 'workflow_start',
+        arguments: { cwd: appRoot, task: 'prepare fresh copy' },
+    });
+    const payload = JSON.parse(workflow.content[0].text);
+    const actionLabels = payload.nextActions.map((action) => action.label);
+
+    assert.equal(payload.ok, true);
+    assert.equal(payload.data.readiness.state, 'blocked');
+    assert.equal(payload.data.readiness.env.app.present, false);
+    assert.equal(payload.data.readiness.dependencies.nodeModulesPresent, false);
+    assert.equal(payload.data.readiness.database.detected, true);
+    assert.equal(payload.data.readiness.database.generatedClientPresent, false);
+    assert.equal(actionLabels.includes('Copy App Env Example'), true);
+    assert.equal(actionLabels.includes('Install Dependencies'), true);
+    assert.equal(actionLabels.includes('Generate Prisma Client'), true);
+    assert.equal(actionLabels.includes('Start Dev'), true);
+    assert.match(payload.nextActions.find((action) => action.label === 'Install Dependencies').command, /npm install/);
+    assert.match(payload.nextActions.find((action) => action.label === 'Generate Prisma Client').command, /prisma generate/);
+    assert.doesNotMatch(workflow.content[0].text, /mysql:\/\/user:pass/);
 
     await client.close();
     await server.close();

@@ -28,7 +28,7 @@ The router is read-only. It does not start or stop dev servers, mutate files, re
 Use this flow:
 
 1. Call MCP `workflow_start` with `cwd` or a known `projectId`.
-2. If the result is ambiguous or returns offline app candidates, call `project_resolve { cwd }`, pick the intended app root, start exactly one `proteum dev` server from that app root when needed, then retry `workflow_start`.
+2. If the result is ambiguous or returns offline app candidates, call `project_resolve { cwd }`, pick the intended app root, resolve any returned `data.readiness.state="blocked"` setup actions, start exactly one `proteum dev` server from that app root when needed, then retry `workflow_start`.
 3. Pass the returned live `projectId` to every follow-up app-bound MCP call.
 4. After an MCP read succeeds, do not run the equivalent CLI command or broad source search for the same state; keep CLI for fallback, validation, and final terminal evidence.
 
@@ -47,7 +47,7 @@ Example tool calls:
 {"tool":"db_query","arguments":{"projectId":"prj_0123abcd4567","sql":"SELECT id, email FROM User LIMIT 5","limit":5}}
 ```
 
-`workflow_start` is the only app-bound bootstrap tool that may resolve from `cwd` when `projectId` is not known. It may return offline app candidates when no matching dev server is running yet. Other app-bound tools require a live `projectId`; if they omit it, the router returns a compact error that tells the agent to call `projects_list` or `project_resolve`. There is no single-project fallback, because wrong-project reads are worse than an explicit routing retry.
+`workflow_start` is the only app-bound bootstrap tool that may resolve from `cwd` when `projectId` is not known. It may return offline app candidates when no matching dev server is running yet. Its machine-router response includes `data.readiness`, a read-only fresh-copy preflight covering app/root `.env` files, dependency install root and package manager, generated Proteum manifest state, local connected producer apps, Prisma schema/client readiness, redacted database URL shape, and local TCP database reachability when the host is local. The preflight adds exact setup commands where safe, such as copying `.env.example`, installing dependencies, running `npx proteum refresh`, generating Prisma Client, checking Prisma migration status, preflighting connected producer apps, and starting `proteum dev` on a checked port. Other app-bound tools require a live `projectId`; if they omit it, the router returns a compact error that tells the agent to call `projects_list` or `project_resolve`. There is no single-project fallback, because wrong-project reads are worse than an explicit routing retry.
 
 When the selected app root is inside `/.codex/worktrees/`, `workflow_start` first checks `.proteum/worktree-bootstrap.json`. If the marker is missing or stale, it returns `ok: false` with a single next action such as `npx proteum worktree init --source <source-app-root>` or the same command with `--refresh`. The router does not forward to the app MCP endpoint until bootstrap is complete, unless `PROTEUM_ALLOW_UNBOOTSTRAPPED_WORKTREE=1` is set; bypasses remain visible in MCP, `runtime status`, and `doctor`.
 
@@ -79,9 +79,10 @@ If machine MCP routing fails:
 1. Run `proteum mcp status`.
 2. Run `proteum runtime status` from the intended app root. If you are in a monorepo wrapper, use the returned app candidates and exact next action instead of starting dev from the wrapper.
 3. If the app root is inside `/.codex/worktrees/` and runtime status or workflow start reports missing/stale bootstrap, run `proteum worktree init --source <source-app-root>` or the returned `--refresh` command first.
-4. If no live app session exists, use the exact Start Dev next action returned by runtime status. It checks the configured router/HMR ports and suggests an alternate free port when the manifest default is occupied.
-5. If a live session exists but runtime/MCP is unreachable, stop the listed session file with `proteum dev stop --session-file <path>`, then start dev again.
-6. Retry MCP `workflow_start` and use the returned `projectId`.
+4. If `workflow_start` returns `data.readiness.state="blocked"`, run or resolve the readiness setup actions before starting dev.
+5. If no live app session exists, use the exact Start Dev next action returned by runtime status or `workflow_start`. It checks the configured router/HMR ports and suggests an alternate free port when the manifest default is occupied.
+6. If a live session exists but runtime/MCP is unreachable, stop the listed session file with `proteum dev stop --session-file <path>`, then start dev again.
+7. Retry MCP `workflow_start` and use the returned `projectId`.
 
 Offline `project_resolve` and `workflow_start` candidates also inspect configured router/HMR ports before returning `nextAction`. If the configured port already serves the same app but no live machine project is registered, the next action is runtime tracking repair, not starting a second dev server.
 
@@ -122,7 +123,7 @@ App-bound tools require `projectId` when called through `proteum mcp`:
 
 | Tool | Purpose |
 | --- | --- |
-| `workflow_start` | One-call bootstrap with resolved project, runtime, selected instruction previews, owner summary, doctor summaries, duplicate-avoidance rules, and next actions |
+| `workflow_start` | One-call bootstrap with resolved project, fresh-copy readiness, runtime, selected instruction previews, owner summary, doctor summaries, duplicate-avoidance rules, and next actions |
 | `runtime_status` | Manifest summary, selected runtime, tracked sessions, health, and MCP URL |
 | `orient` | Owner, instruction routing, connected boundaries, and next actions |
 | `instructions_resolve` | Selected instruction files for a query, with short previews and full-read policy |
