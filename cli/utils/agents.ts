@@ -12,12 +12,28 @@ import { createStartDevCommand, findProteumAppRootsUnder, readProteumAppRootSumm
 - TYPES
 ----------------------------------*/
 
-type TProjectInstructionArgs = { appRoot?: string; coreRoot: string; includeMonorepoRegistry?: boolean; monorepoRoot?: string };
+type TProjectInstructionArgs = {
+    appRoot?: string;
+    coreRoot: string;
+    includeMonorepoRegistry?: boolean;
+    monorepoRegistryCurrentAppRoot?: string;
+    monorepoRoot?: string;
+};
 type TConfigureProjectAgentInstructionsArgs = {
     appRoot: string;
     coreRoot: string;
     dryRun?: boolean;
+    includeAppInstructions?: boolean;
+    includeRootInstructions?: boolean;
+    markCurrentAppInMonorepoRegistry?: boolean;
     monorepoRoot?: string;
+    overwriteBlockedPaths?: string[];
+};
+type TConfigureMonorepoProjectAgentInstructionsArgs = {
+    appRoots: string[];
+    coreRoot: string;
+    dryRun?: boolean;
+    monorepoRoot: string;
     overwriteBlockedPaths?: string[];
 };
 
@@ -47,6 +63,12 @@ export type TConfigureProjectAgentInstructionsResult = {
     skipped: string[];
     updated: string[];
     updatedGitignores: string[];
+};
+
+export type TConfigureMonorepoProjectAgentInstructionsResult = Omit<TConfigureProjectAgentInstructionsResult, 'appRoot'> & {
+    appRoots: string[];
+    monorepoRoot: string;
+    mode: 'monorepo';
 };
 
 /*----------------------------------
@@ -115,6 +137,9 @@ export function configureProjectAgentInstructions({
     appRoot,
     coreRoot,
     dryRun = false,
+    includeAppInstructions = true,
+    includeRootInstructions = true,
+    markCurrentAppInMonorepoRegistry = true,
     monorepoRoot,
     overwriteBlockedPaths = [],
 }: TConfigureProjectAgentInstructionsArgs): TConfigureProjectAgentInstructionsResult {
@@ -147,11 +172,12 @@ export function configureProjectAgentInstructions({
                   appRoot: normalizedAppRoot,
                   coreRoot,
                   includeMonorepoRegistry: true,
+                  monorepoRegistryCurrentAppRoot: markCurrentAppInMonorepoRegistry ? normalizedAppRoot : undefined,
                   monorepoRoot: normalizedMonorepoRoot,
               })
             : appEmbeddedInstructions;
 
-    if (mode === 'monorepo' && normalizedMonorepoRoot) {
+    if (includeRootInstructions && mode === 'monorepo' && normalizedMonorepoRoot) {
         result.monorepoRoot = normalizedMonorepoRoot;
 
         const rootInstructions = getRootAgentInstructionDefinitions();
@@ -172,51 +198,126 @@ export function configureProjectAgentInstructions({
             result.updatedGitignores.push(path.join(normalizedMonorepoRoot, '.gitignore'));
     }
 
-    const appInstructions = getAppAgentInstructionDefinitions({ mode });
-    const appFiles = ensureInstructionFiles(
-        normalizedAppRoot,
-        appInstructions,
-        '[agents]',
-        path.join(coreRoot, 'agents', 'project'),
-        appEmbeddedInstructions,
-        {
-            dryRun,
-            overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
-        },
-    );
-    mergeInstructionResults(result, appFiles, normalizedAppRoot);
-
-    if (mode === 'monorepo') {
-        const retiredAppRootFiles = removeManagedInstructionFiles(
+    if (includeAppInstructions) {
+        const appInstructions = getAppAgentInstructionDefinitions({ mode });
+        const appFiles = ensureInstructionFiles(
             normalizedAppRoot,
-            [...sharedRootDocumentInstructionDefinitions, ...sharedTestAgentInstructionDefinitions],
+            appInstructions,
             '[agents]',
             path.join(coreRoot, 'agents', 'project'),
+            appEmbeddedInstructions,
             {
                 dryRun,
+                overwriteBlockedPaths: normalizedOverwriteBlockedPaths,
             },
         );
-        mergeInstructionResults(result, retiredAppRootFiles, normalizedAppRoot);
+        mergeInstructionResults(result, appFiles, normalizedAppRoot);
+
+        if (mode === 'monorepo') {
+            const retiredAppRootFiles = removeManagedInstructionFiles(
+                normalizedAppRoot,
+                [...sharedRootDocumentInstructionDefinitions, ...sharedTestAgentInstructionDefinitions],
+                '[agents]',
+                path.join(coreRoot, 'agents', 'project'),
+                {
+                    dryRun,
+                },
+            );
+            mergeInstructionResults(result, retiredAppRootFiles, normalizedAppRoot);
+        }
+
+        const appGitignoreCleanupInstructions =
+            mode === 'monorepo'
+                ? [...appInstructions, ...sharedRootDocumentInstructionDefinitions, ...sharedTestAgentInstructionDefinitions]
+                : appInstructions;
+
+        if (
+            !dryRun &&
+            removeInstructionGitignoreEntries({
+                rootDir: normalizedAppRoot,
+                instructionDefinitions: appGitignoreCleanupInstructions,
+            })
+        )
+            result.updatedGitignores.push(path.join(normalizedAppRoot, '.gitignore'));
     }
-
-    const appGitignoreCleanupInstructions =
-        mode === 'monorepo'
-            ? [...appInstructions, ...sharedRootDocumentInstructionDefinitions, ...sharedTestAgentInstructionDefinitions]
-            : appInstructions;
-
-    if (
-        !dryRun &&
-        removeInstructionGitignoreEntries({
-            rootDir: normalizedAppRoot,
-            instructionDefinitions: appGitignoreCleanupInstructions,
-        })
-    )
-        result.updatedGitignores.push(path.join(normalizedAppRoot, '.gitignore'));
 
     return result;
 }
 
 export const configureProjectAgentSymlinks = configureProjectAgentInstructions;
+
+export function configureMonorepoProjectAgentInstructions({
+    appRoots,
+    coreRoot,
+    dryRun = false,
+    monorepoRoot,
+    overwriteBlockedPaths = [],
+}: TConfigureMonorepoProjectAgentInstructionsArgs): TConfigureMonorepoProjectAgentInstructionsResult {
+    const normalizedMonorepoRoot = path.resolve(monorepoRoot);
+    const normalizedAppRoots = [...new Set(appRoots.map((appRoot) => path.resolve(appRoot)))].sort((left, right) =>
+        left.localeCompare(right),
+    );
+    const [firstAppRoot] = normalizedAppRoots;
+
+    if (!firstAppRoot) throw new Error('No Proteum app roots were found under the monorepo root.');
+
+    const result: TConfigureMonorepoProjectAgentInstructionsResult = {
+        appRoots: normalizedAppRoots,
+        blocked: [],
+        created: [],
+        mode: 'monorepo',
+        monorepoRoot: normalizedMonorepoRoot,
+        overwritten: [],
+        removed: [],
+        skipped: [],
+        updated: [],
+        updatedGitignores: [],
+    };
+    const mergeProjectResult = (next: TConfigureProjectAgentInstructionsResult) => {
+        result.blocked = [...new Set([...result.blocked, ...next.blocked])];
+        result.created = [...new Set([...result.created, ...next.created])];
+        result.overwritten = [...new Set([...result.overwritten, ...next.overwritten])];
+        result.removed = [...new Set([...result.removed, ...next.removed])];
+        result.skipped = [...new Set([...result.skipped, ...next.skipped])];
+        result.updated = [...new Set([...result.updated, ...next.updated])];
+        result.updatedGitignores = [...new Set([...result.updatedGitignores, ...next.updatedGitignores])];
+    };
+
+    mergeProjectResult(
+        configureProjectAgentInstructions({
+            appRoot: firstAppRoot,
+            coreRoot,
+            dryRun,
+            includeAppInstructions: false,
+            markCurrentAppInMonorepoRegistry: false,
+            monorepoRoot: normalizedMonorepoRoot,
+            overwriteBlockedPaths,
+        }),
+    );
+
+    for (const appRoot of normalizedAppRoots) {
+        mergeProjectResult(
+            configureProjectAgentInstructions({
+                appRoot,
+                coreRoot,
+                dryRun,
+                includeRootInstructions: false,
+                monorepoRoot: normalizedMonorepoRoot,
+                overwriteBlockedPaths,
+            }),
+        );
+    }
+
+    result.blocked = [...new Set(result.blocked)];
+    result.created = [...new Set(result.created)];
+    result.overwritten = [...new Set(result.overwritten)];
+    result.removed = [...new Set(result.removed)];
+    result.skipped = [...new Set(result.skipped)];
+    result.updated = [...new Set(result.updated)];
+    result.updatedGitignores = [...new Set(result.updatedGitignores)];
+
+    return result;
+}
 
 export function resolveProjectAgentMonorepoRoot(appRoot: string) {
     const normalizedAppRoot = resolveCanonicalPath(appRoot);
@@ -831,9 +932,11 @@ function renderSingleProjectInstruction({
 
 function renderMonorepoAppRegistry({
     appRoot,
+    currentAppRoot,
     monorepoRoot,
 }: {
     appRoot?: string;
+    currentAppRoot?: string;
     monorepoRoot?: string;
 }) {
     if (!monorepoRoot || !appRoot || path.resolve(monorepoRoot) === path.resolve(appRoot)) return [];
@@ -846,10 +949,13 @@ function renderMonorepoAppRegistry({
     return [
         '## Known Proteum Apps',
         '',
-        'This is a monorepo root wrapper. Do not start `npx proteum dev` from this root; start it from one app root below.',
+        'This is a monorepo root wrapper. Eligible Proteum commands run across the apps below from this root; use an app root when you need to target exactly one app.',
         '',
         ...summaries.map((summary) => {
-            const marker = path.resolve(summary.appRoot) === path.resolve(appRoot) ? ' (current configured app)' : '';
+            const marker =
+                currentAppRoot && path.resolve(summary.appRoot) === path.resolve(currentAppRoot)
+                    ? ' (current configured app)'
+                    : '';
             const port = summary.manifest?.routerPort ? `, default port ${summary.manifest.routerPort}` : '';
             const command = createStartDevCommand({
                 appRoot: summary.appRoot,
@@ -863,7 +969,13 @@ function renderMonorepoAppRegistry({
     ];
 }
 
-function renderEmbeddedProjectInstructions({ appRoot, coreRoot, includeMonorepoRegistry = false, monorepoRoot }: TProjectInstructionArgs) {
+function renderEmbeddedProjectInstructions({
+    appRoot,
+    coreRoot,
+    includeMonorepoRegistry = false,
+    monorepoRegistryCurrentAppRoot,
+    monorepoRoot,
+}: TProjectInstructionArgs) {
     const agentSourceRoot = path.join(coreRoot, 'agents', 'project');
     if (!fs.existsSync(agentSourceRoot)) throw new Error(`Missing project instruction source root: ${agentSourceRoot}`);
 
@@ -895,7 +1007,13 @@ function renderEmbeddedProjectInstructions({ appRoot, coreRoot, includeMonorepoR
         '',
         'CLI remains the reproducible surface for `dev`, `build`, `check`, `verify`, migrations, and final command evidence. MCP remains read-only and returns compact `proteum-mcp-v1` JSON.',
         '',
-        ...(includeMonorepoRegistry ? renderMonorepoAppRegistry({ appRoot, monorepoRoot }) : []),
+        ...(includeMonorepoRegistry
+            ? renderMonorepoAppRegistry({
+                  appRoot,
+                  currentAppRoot: monorepoRegistryCurrentAppRoot,
+                  monorepoRoot,
+              })
+            : []),
         '## Always-On Safety',
         '',
         '- Never edit generated files under `.proteum`.',

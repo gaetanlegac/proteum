@@ -9,6 +9,7 @@ import { renderCliOverview, renderCommandHelp, resolveCustomHelpRequest } from '
 import { renderCliWelcomeBanner } from './presentation/welcome';
 import { normalizeHelpArgv, normalizeLegacyArgv } from './runtime/argv';
 import { createCli, registeredCommands } from './runtime/commands';
+import { isMonorepoFanoutChild, maybeRunMonorepoCommand } from './runtime/monorepoCommands';
 
 const formatInvocation = (argv: string[]) => ['proteum', ...argv].join(' ').trim();
 
@@ -21,6 +22,7 @@ const shouldRenderSharedWelcomeBanner = ({
     argv: string[];
     helpRequestKind: 'none' | 'overview' | 'command';
 }) => {
+    if (isMonorepoFanoutChild()) return false;
     if (helpRequestKind !== 'none') return false;
     if (argv.length !== 1) return false;
 
@@ -32,27 +34,9 @@ const shouldRenderSharedWelcomeBanner = ({
 export const runCli = async (argv: string[] = process.argv.slice(2)) => {
     const normalizedArgv = normalizeHelpArgv(normalizeLegacyArgv(argv), proteumCommandNames);
     const version = String(cli.packageJson.version || '');
-    const proteumInstall = resolveFrameworkInstallInfo({
-        appRoot: cli.paths.appRoot,
-        framework: cli.paths.framework,
-    });
     const clipanion = createCli(version);
     const initAvailable = true;
     const helpRequest = resolveCustomHelpRequest(normalizedArgv);
-    const shouldRenderWelcomeBanner = shouldRenderSharedWelcomeBanner({
-        argv: normalizedArgv,
-        helpRequestKind: helpRequest.kind,
-    });
-
-    if (shouldRenderWelcomeBanner) {
-        process.stderr.write(
-            `${await renderCliWelcomeBanner({
-                command: formatInvocation(normalizedArgv),
-                installSummary: proteumInstall.summary,
-                version,
-            })}\n\n`,
-        );
-    }
 
     if (helpRequest.kind === 'overview') {
         process.stdout.write(
@@ -75,6 +59,28 @@ export const runCli = async (argv: string[] = process.argv.slice(2)) => {
             }),
         );
         return;
+    }
+
+    if (await maybeRunMonorepoCommand(normalizedArgv)) return;
+
+    const shouldRenderWelcomeBanner = shouldRenderSharedWelcomeBanner({
+        argv: normalizedArgv,
+        helpRequestKind: helpRequest.kind,
+    });
+
+    if (shouldRenderWelcomeBanner) {
+        const proteumInstall = resolveFrameworkInstallInfo({
+            appRoot: cli.paths.appRoot,
+            framework: cli.paths.framework,
+        });
+
+        process.stderr.write(
+            `${await renderCliWelcomeBanner({
+                command: formatInvocation(normalizedArgv),
+                installSummary: proteumInstall.summary,
+                version,
+            })}\n\n`,
+        );
     }
 
     await clipanion.runExit(normalizedArgv, Cli.defaultContext);

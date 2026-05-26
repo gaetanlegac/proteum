@@ -14,10 +14,12 @@ import { renderRows } from '../presentation/layout';
 import { isLikelyProteumAppRoot } from '../presentation/commands';
 import { renderStep, renderSuccess, renderTitle, renderWarning } from '../presentation/ink';
 import {
+    configureMonorepoProjectAgentInstructions,
     configureProjectAgentInstructions,
     findLikelyRepoRoot,
     isInsideDirectory,
     resolveCanonicalPath,
+    type TConfigureMonorepoProjectAgentInstructionsResult,
     type TConfigureProjectAgentInstructionsResult,
 } from '../utils/agents';
 
@@ -68,20 +70,22 @@ const promptMonorepoRoot = async ({
     return resolveCanonicalPath(String(response.value || defaultRoot || ''));
 };
 
-const promptBlockedOverwritePaths = async (blockedPaths: string[]) => {
-    if (blockedPaths.length === 0) return [];
+export const promptBlockedOverwritePaths = async (blockedPaths: string[]) => {
+    const uniqueBlockedPaths = [...new Set(blockedPaths)];
+
+    if (uniqueBlockedPaths.length === 0) return [];
 
     console.info(await renderWarning('Proteum found existing paths that block managed instruction updates.'));
     console.info(
         [
             'Choose whether to overwrite each path with a Proteum-managed instruction path:',
-            ...blockedPaths.map((entry) => `- ${entry}`),
+            ...uniqueBlockedPaths.map((entry) => `- ${entry}`),
         ].join('\n'),
     );
 
     const overwriteBlockedPaths: string[] = [];
 
-    for (const blockedPath of blockedPaths) {
+    for (const blockedPath of uniqueBlockedPaths) {
         const response = await prompts(
             {
                 type: 'confirm',
@@ -132,6 +136,12 @@ const renderConfigureResultSections = (result: TConfigureProjectAgentInstruction
 
     return sections;
 };
+
+const renderConfigureMonorepoResultSections = (result: TConfigureMonorepoProjectAgentInstructionsResult) =>
+    renderConfigureResultSections({
+        ...result,
+        appRoot: result.monorepoRoot,
+    });
 
 /*----------------------------------
 - COMMAND
@@ -215,6 +225,55 @@ export const runConfigureAgentsWizard = async ({
     const sections = renderConfigureResultSections(result);
 
     console.info(await renderSuccess('Proteum-managed instruction files and Claude aliases are configured.'));
+
+    if (sections.length > 0) console.info(`\n${sections.join('\n\n')}`);
+};
+
+export const runConfigureAgentsMonorepoWizard = async ({
+    appRoots,
+    coreRoot = cli.paths.core.root,
+    monorepoRoot,
+}: {
+    appRoots: string[];
+    coreRoot?: string;
+    monorepoRoot: string;
+}) => {
+    if (appRoots.length === 0) throw new UsageError(`No Proteum app roots were found under ${monorepoRoot}.`);
+    for (const appRoot of appRoots) assertProteumAppRoot(appRoot);
+
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new UsageError('`proteum configure agents` is interactive and requires a TTY.');
+    }
+
+    console.info(
+        [
+            await renderTitle('PROTEUM CONFIGURE AGENTS', 'Configure monorepo Proteum instruction files and Claude aliases.'),
+            renderRows([
+                { label: 'monorepo root', value: monorepoRoot === process.cwd() ? '.' : monorepoRoot },
+                { label: 'apps', value: String(appRoots.length) },
+            ]),
+        ].join('\n\n'),
+    );
+
+    const preview = configureMonorepoProjectAgentInstructions({
+        appRoots,
+        coreRoot,
+        dryRun: true,
+        monorepoRoot,
+    });
+    const overwriteBlockedPaths = await promptBlockedOverwritePaths(preview.blocked);
+
+    console.info(await renderStep('[1/1]', 'Writing monorepo root and app instruction files and Claude aliases.'));
+
+    const result = configureMonorepoProjectAgentInstructions({
+        appRoots,
+        coreRoot,
+        monorepoRoot,
+        overwriteBlockedPaths,
+    });
+    const sections = renderConfigureMonorepoResultSections(result);
+
+    console.info(await renderSuccess('Proteum-managed monorepo instruction files and Claude aliases are configured.'));
 
     if (sections.length > 0) console.info(`\n${sections.join('\n\n')}`);
 };

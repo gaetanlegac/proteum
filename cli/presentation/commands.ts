@@ -130,6 +130,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'This command is interactive. It asks whether the current Proteum app belongs to a monorepo and, if so, which ancestor path should receive the reusable root instruction files.',
             'Standalone mode writes tracked instruction files into the current Proteum app root and creates `CLAUDE.md` symlinks beside each `AGENTS.md`.',
             'Monorepo mode writes reusable root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root, then writes only app-root and area instruction files into the current Proteum app root.',
+            'When run from a monorepo wrapper root that contains Proteum apps, configure writes the shared root documents once and app-root instruction files for every discovered app.',
             'Every generated `CLAUDE.md` is a sibling symlink pointing to `AGENTS.md`.',
             'Every managed instruction file contains a `# Proteum Instructions` section with the full embedded Proteum project instruction corpus.',
             'Existing content outside `# Proteum Instructions` is preserved. Directories and foreign symlinks are replaced only after confirmation.',
@@ -167,6 +168,8 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'Bootstrap writes `.proteum/worktree-bootstrap.json` with hashes, step timestamps, dependency status, runtime status, and Proteum version.',
             'When `.env` is missing, `--source` is required and must point to an app root with a readable `.env`.',
             'For monorepos with root tooling, bootstrap also ensures the workspace-root `.env` exists from the source root or source app env.',
+            'When `worktree init` runs from a monorepo wrapper root, Proteum bootstraps every discovered app, matches source apps by relative path, and deduplicates dependency install by shared package-lock root.',
+            'When `worktree create` runs from a source monorepo wrapper root, Proteum creates the Git worktree once and then bootstraps every matching target app.',
             'Guarded commands block inside `/.codex/worktrees/` until bootstrap is complete or explicitly bypassed with `PROTEUM_ALLOW_UNBOOTSTRAPPED_WORKTREE=1`.',
             '`worktree create` preserves the source app root path relative to the source repository root, so monorepo app roots are bootstrapped in the matching target location.',
         ],
@@ -207,13 +210,14 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             },
         ],
         notes: [
-            'Use `--cwd` when the target Proteum app lives in another worktree or checkout and you do not want to `cd` first.',
+            'From a monorepo wrapper root, eligible app-scoped commands run for every discovered Proteum app. Use an app root or `--cwd` when supported to target exactly one app.',
+            'From a monorepo wrapper root, bare `proteum dev` supervises all discovered apps with app-local session files and unique router/HMR port pairs; `dev list` and `dev stop` aggregate every app.',
             'Proteum writes a machine-readable dev session file under `var/run/proteum/dev/<port>.json` by default; override it with `--session-file` when an agent needs a stable path.',
             'Before registering a new session, Proteum removes stale same-worktree session files and fails fast if another live tracked session remains.',
             'Before the dev loop starts, Proteum ensures tracked instruction files contain the current managed `# Proteum Instructions` section.',
             'Use `--replace-existing` only when retrying the exact requested session file.',
-            '`proteum dev list` inspects tracked sessions for the current app root. Add `--stale` to show only orphaned or dead sessions.',
-            '`proteum dev stop` targets the current session file by default. Add `--all` to stop every tracked session for the current app root.',
+            '`proteum dev list` inspects tracked sessions for the current app root, or every discovered app from a monorepo wrapper root. Add `--stale` to show only orphaned or dead sessions.',
+            '`proteum dev stop` targets the current session file by default. Add `--all` to stop every tracked session for the current app root, or run from a monorepo wrapper root to apply the stop command to every app.',
             '`proteum dev` clears the interactive terminal once at startup, then shows `CTRL+R` reload and `CTRL+C` shutdown hotkeys in the session banner.',
             'Legacy single-dash long options remain supported, for example `proteum dev -port 3001`.',
         ],
@@ -229,7 +233,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         examples: [
             { description: 'Refresh generated contracts after source edits', command: 'proteum refresh' },
         ],
-        notes: ['Use this when you need deterministic regeneration without starting the full dev loop.'],
+        notes: ['Use this when you need deterministic regeneration without starting the full dev loop.', 'From a monorepo wrapper root, refresh runs once per discovered Proteum app.'],
         status: 'stable',
     },
     build: {
@@ -257,6 +261,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             '`--analyze-serve` switches the analyzer to HTTP server mode and keeps the process open until you stop it.',
             '`--analyze-host` and `--analyze-port` require `--analyze-serve`; use `auto` to let the OS assign a free port.',
             'Use `--strict` when the build must refresh generated typings and fail on any TypeScript error before compilation starts.',
+            'From a monorepo wrapper root, build runs once per discovered Proteum app. `--analyze-serve` must be run from one app root because the analyzer server stays open.',
             'The production output is emitted under `bin/`.',
         ],
         status: 'stable',
@@ -270,7 +275,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         examples: [
             { description: 'Typecheck every discovered client and server app tsconfig', command: 'proteum typecheck' },
         ],
-        notes: ['Proteum refreshes generated typings before running TypeScript.'],
+        notes: ['Proteum refreshes generated typings before running TypeScript.', 'From a monorepo wrapper root, typecheck runs once per discovered Proteum app.'],
         status: 'stable',
     },
     lint: {
@@ -283,7 +288,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             { description: 'Run ESLint in check mode', command: 'proteum lint' },
             { description: 'Apply fixable lint changes', command: 'proteum lint --fix' },
         ],
-        notes: ['Legacy positional usage such as `proteum lint fix` remains supported.'],
+        notes: ['Legacy positional usage such as `proteum lint fix` remains supported.', 'From a monorepo wrapper root, lint runs once per discovered Proteum app.'],
         status: 'stable',
     },
     check: {
@@ -293,7 +298,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         usage: 'proteum check',
         bestFor: 'One command before commits, pushes, or CI when you want the standard local validation path.',
         examples: [{ description: 'Run the full default validation pipeline', command: 'proteum check' }],
-        notes: ['This command executes refresh, typecheck, then lint in that order.'],
+        notes: ['This command executes refresh, typecheck, then lint in that order.', 'From a monorepo wrapper root, check runs once per discovered Proteum app.'],
         status: 'stable',
     },
     e2e: {

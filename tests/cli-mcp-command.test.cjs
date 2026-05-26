@@ -16,8 +16,32 @@ const writeFile = (filepath, content) => {
 
 const createProteumApp = (appRoot, { routerPort = 3020 } = {}) => {
     writeFile(path.join(appRoot, 'package.json'), '{"name":"fixture"}\n');
-    writeFile(path.join(appRoot, 'identity.config.ts'), 'export default {};\n');
+    writeFile(
+        path.join(appRoot, 'identity.config.ts'),
+        `export default {
+    name: 'Product',
+    identifier: 'ProductApp',
+    description: 'Fixture app',
+    author: { name: 'Test', url: 'https://example.com', email: 'test@example.com' },
+    language: 'en',
+    maincolor: '#000000',
+    web: {
+        title: 'Product',
+        titleSuffix: 'Product',
+        fullTitle: 'Product',
+        description: 'Fixture app',
+        version: '1.0.0',
+        metas: {},
+        jsonld: {},
+    },
+};
+`,
+    );
     writeFile(path.join(appRoot, 'proteum.config.ts'), 'export default {};\n');
+    writeFile(
+        path.join(appRoot, '.env'),
+        `ENV_NAME=local\nENV_PROFILE=dev\nPORT=${routerPort}\nURL=http://localhost:${routerPort}\nURL_INTERNAL=http://localhost:${routerPort}\n`,
+    );
     fs.mkdirSync(path.join(appRoot, 'client'), { recursive: true });
     fs.mkdirSync(path.join(appRoot, 'server'), { recursive: true });
     writeFile(
@@ -293,7 +317,7 @@ test('explain help describes compact section summaries', () => {
     assert.match(output, /Explicit section flags summarize those sections by default/);
 });
 
-test('runtime status from a monorepo wrapper returns app candidates instead of treating wrapper as app', () => {
+test('runtime status from a monorepo wrapper aggregates app runtime status', () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-cli-wrapper-'));
     createProteumApp(path.join(repoRoot, 'apps', 'product'));
 
@@ -303,18 +327,38 @@ test('runtime status from a monorepo wrapper returns app candidates instead of t
     });
     const payload = JSON.parse(result.stdout);
 
-    assert.equal(result.status, 1);
-    assert.equal(payload.ok, false);
-    assert.equal(payload.data.appCandidates.length, 1);
-    assert.match(payload.nextActions[0].command, /cd "apps\/product"/);
-    assert.match(payload.nextActions[0].command, /npx proteum runtime status/);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(payload.ok, true);
+    assert.equal(payload.data.apps.length, 1);
+    assert.equal(payload.data.apps[0].relativeAppRoot, 'apps/product');
+    assert.equal(payload.data.apps[0].ok, true);
+    assert.equal(payload.data.apps[0].json.data.appRoot, fs.realpathSync(path.join(repoRoot, 'apps', 'product')));
 });
 
-test('dev from a monorepo wrapper returns exact app-root start command', () => {
+test('dev list from a monorepo wrapper aggregates app session lists', () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-cli-dev-wrapper-'));
     createProteumApp(path.join(repoRoot, 'apps', 'product'));
 
-    const result = spawnSync(process.execPath, [cliBin, 'dev', 'list'], {
+    const result = spawnSync(process.execPath, [cliBin, 'dev', 'list', '--json'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+    });
+    const payload = JSON.parse(result.stdout);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(payload.ok, true);
+    assert.equal(payload.data.apps.length, 1);
+    assert.equal(payload.data.apps[0].relativeAppRoot, 'apps/product');
+    assert.equal(payload.data.apps[0].json.sessions.length, 0);
+});
+
+test('monorepo command fan-out continues after app command failures', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-cli-dev-wrapper-failure-'));
+    createProteumApp(path.join(repoRoot, 'apps', 'product'));
+    createProteumApp(path.join(repoRoot, 'apps', 'website'));
+    writeFile(path.join(repoRoot, 'apps', 'website', 'identity.config.ts'), 'export default {};\n');
+
+    const result = spawnSync(process.execPath, [cliBin, 'dev', 'list', '--json'], {
         cwd: repoRoot,
         encoding: 'utf8',
     });
@@ -322,8 +366,13 @@ test('dev from a monorepo wrapper returns exact app-root start command', () => {
 
     assert.equal(result.status, 1);
     assert.equal(payload.ok, false);
-    assert.match(payload.nextActions[0].command, /cd "apps\/product"/);
-    assert.match(payload.nextActions[0].command, /npx proteum dev --session-file/);
+    assert.deepEqual(
+        payload.data.apps.map((app) => app.relativeAppRoot),
+        ['apps/product', 'apps/website'],
+    );
+    assert.equal(payload.data.apps[0].ok, true);
+    assert.equal(payload.data.apps[1].ok, false);
+    assert.match(payload.data.apps[1].stdout, /Invalid author/);
 });
 
 test('runtime status manifest guard points to explain manifest', () => {

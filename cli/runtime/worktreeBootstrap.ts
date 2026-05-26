@@ -2,6 +2,7 @@ import cp from 'child_process';
 import crypto from 'crypto';
 import fs from 'fs-extra';
 import path from 'path';
+import { findProteumAppRootsUnder } from '../utils/appRoots';
 
 /*----------------------------------
 - TYPES
@@ -124,6 +125,30 @@ export type TRunWorktreeBootstrapCreateOptions = TRunWorktreeBootstrapInitOption
     targetRepoRoot: string;
 };
 
+export type TMonorepoWorktreeBootstrapAppResult = {
+    appRoot: string;
+    error?: string;
+    markerFilepath?: string;
+    ok: boolean;
+    refresh?: string;
+    relativeAppRoot: string;
+    runtimeStatus?: string;
+    sourceAppRoot?: string;
+    status?: TWorktreeBootstrapStatus;
+};
+
+export type TRunMonorepoWorktreeBootstrapInitOptions = Omit<TRunWorktreeBootstrapInitOptions, 'appRoot' | 'source'> & {
+    appRoots?: string[];
+    monorepoRoot: string;
+    source?: string;
+};
+
+export type TRunMonorepoWorktreeBootstrapCreateOptions = TRunMonorepoWorktreeBootstrapInitOptions & {
+    base?: string;
+    branch: string;
+    targetRepoRoot: string;
+};
+
 /*----------------------------------
 - CONSTANTS
 ----------------------------------*/
@@ -138,6 +163,16 @@ const codexWorktreeSegment = `${path.sep}.codex${path.sep}worktrees${path.sep}`;
 ----------------------------------*/
 
 const normalizePath = (value: string) => path.normalize(path.resolve(value));
+
+const normalizeExistingPath = (value: string) => {
+    const normalized = normalizePath(value);
+
+    try {
+        return path.normalize(fs.realpathSync(normalized));
+    } catch {
+        return normalized;
+    }
+};
 
 const isTruthyEnv = (value: string | undefined) => value === '1' || value === 'true' || value === 'yes';
 
@@ -695,6 +730,134 @@ export const runWorktreeBootstrapCreate = async ({
         sourceAppRoot: normalizedSourceAppRoot,
         sourceRepoRoot,
         targetAppRoot,
+        targetRepoRoot: normalizedTargetRepoRoot,
+        worktreeBootstrap: initResult,
+    };
+};
+
+const findBootstrapInstallRoot = (appRoot: string) => {
+    const packageLockFilepath = findNearestExistingPath(appRoot, 'package-lock.json');
+    return packageLockFilepath ? path.dirname(packageLockFilepath) : normalizePath(appRoot);
+};
+
+const createSharedDependencyRunner = (runDependencies: (appRoot: string) => Promise<void> = runNpmInstall) => {
+    const completedInstallRoots = new Set<string>();
+
+    return async (appRoot: string) => {
+        const installRoot = findBootstrapInstallRoot(appRoot);
+        if (completedInstallRoots.has(installRoot)) return;
+
+        completedInstallRoots.add(installRoot);
+        await runDependencies(installRoot);
+    };
+};
+
+const resolveSourceAppRoot = ({
+    relativeAppRoot,
+    sourceRoot,
+}: {
+    relativeAppRoot: string;
+    sourceRoot?: string;
+}) => {
+    if (!sourceRoot) return undefined;
+
+    const normalizedSourceRoot = normalizeExistingPath(sourceRoot);
+    const sourceAppRoot = path.join(normalizedSourceRoot, relativeAppRoot);
+
+    if (fs.existsSync(sourceAppRoot)) return sourceAppRoot;
+
+    return undefined;
+};
+
+export const runMonorepoWorktreeBootstrapInit = async ({
+    appRoots,
+    monorepoRoot,
+    runDependencies,
+    source,
+    ...initOptions
+}: TRunMonorepoWorktreeBootstrapInitOptions) => {
+    const normalizedMonorepoRoot = normalizeExistingPath(monorepoRoot);
+    const targetAppRoots = (appRoots || findProteumAppRootsUnder(normalizedMonorepoRoot))
+        .map((appRoot) => normalizeExistingPath(appRoot))
+        .sort((left, right) => left.localeCompare(right));
+    const sharedDependencyRunner = createSharedDependencyRunner(runDependencies);
+    const apps: TMonorepoWorktreeBootstrapAppResult[] = [];
+
+    if (targetAppRoots.length === 0) throw new Error(`No Proteum app roots were found under ${normalizedMonorepoRoot}.`);
+
+    for (const appRoot of targetAppRoots) {
+        const relativeAppRoot = path.relative(normalizedMonorepoRoot, appRoot) || '.';
+        const sourceAppRoot = resolveSourceAppRoot({
+            relativeAppRoot,
+            sourceRoot: source,
+        });
+
+        try {
+            const result = await runWorktreeBootstrapInit({
+                ...initOptions,
+                appRoot,
+                runDependencies: sharedDependencyRunner,
+                source: sourceAppRoot,
+            });
+
+            apps.push({
+                appRoot,
+                markerFilepath: result.markerFilepath,
+                ok: true,
+                refresh: result.refresh,
+                relativeAppRoot,
+                runtimeStatus: result.runtimeStatus,
+                sourceAppRoot,
+                status: result.status,
+            });
+        } catch (error) {
+            apps.push({
+                appRoot,
+                error: error instanceof Error ? error.message : String(error),
+                ok: false,
+                relativeAppRoot,
+                sourceAppRoot,
+            });
+        }
+    }
+
+    return {
+        appRoots: targetAppRoots,
+        apps,
+        failed: apps.filter((entry) => !entry.ok).length,
+        monorepoRoot: normalizedMonorepoRoot,
+        ok: apps.every((entry) => entry.ok),
+        sourceRoot: source ? normalizeExistingPath(source) : undefined,
+    };
+};
+
+export const runMonorepoWorktreeBootstrapCreate = async ({
+    base = 'HEAD',
+    branch,
+    source,
+    targetRepoRoot,
+    ...initOptions
+}: TRunMonorepoWorktreeBootstrapCreateOptions) => {
+    if (!branch.trim()) throw new Error('worktree create requires --branch <branch>.');
+    if (!targetRepoRoot.trim()) throw new Error('worktree create requires <target-repo-root>.');
+
+    const normalizedSourceRoot = normalizeExistingPath(source || initOptions.monorepoRoot);
+    const normalizedTargetRepoRoot = path.resolve(targetRepoRoot);
+    const sourceRepoRoot = await findGitRepoRoot(normalizedSourceRoot);
+
+    await runCapture('git', ['worktree', 'add', '-b', branch, normalizedTargetRepoRoot, base], { cwd: sourceRepoRoot });
+
+    const initResult = await runMonorepoWorktreeBootstrapInit({
+        ...initOptions,
+        monorepoRoot: normalizedTargetRepoRoot,
+        refresh: true,
+        source: normalizedSourceRoot,
+    });
+
+    return {
+        branch,
+        sourceMonorepoRoot: normalizedSourceRoot,
+        sourceRepoRoot,
         targetRepoRoot: normalizedTargetRepoRoot,
         worktreeBootstrap: initResult,
     };

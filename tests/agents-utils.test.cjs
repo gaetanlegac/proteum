@@ -8,7 +8,11 @@ process.env.TS_NODE_PROJECT = path.join(coreRoot, 'cli', 'tsconfig.json');
 process.env.TS_NODE_TRANSPILE_ONLY = '1';
 require('ts-node/register/transpile-only');
 
-const { configureProjectAgentInstructions, resolveProjectAgentMonorepoRoot } = require('../cli/utils/agents.ts');
+const {
+    configureMonorepoProjectAgentInstructions,
+    configureProjectAgentInstructions,
+    resolveProjectAgentMonorepoRoot,
+} = require('../cli/utils/agents.ts');
 
 const writeFile = (filepath, content) => {
     fs.mkdirSync(path.dirname(filepath), { recursive: true });
@@ -271,7 +275,7 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /## Agent Routing Contract/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /## Known Proteum Apps/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /apps\/product/);
-    assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /Do not start `npx proteum dev` from this root/);
+    assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /Eligible Proteum commands run across the apps below/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), /Worktree Preflight/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'CODING_STYLE.md'), 'utf8'), /## Source: CODING_STYLE\.md/);
     assert.match(fs.readFileSync(path.join(monorepoRoot, 'DOCUMENTATION.md'), 'utf8'), /## Source: DOCUMENTATION\.md/);
@@ -291,7 +295,7 @@ test('monorepo configure writes root and app instruction files', () => {
     const appAgentsContent = fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8');
     assert.match(appAgentsContent, /## Agent Routing Contract/);
     assert.doesNotMatch(appAgentsContent, /## Known Proteum Apps/);
-    assert.doesNotMatch(appAgentsContent, /Do not start `npx proteum dev` from this root/);
+    assert.doesNotMatch(appAgentsContent, /Eligible Proteum commands run across the apps below/);
     assert.match(fs.readFileSync(path.join(appRoot, 'client', 'AGENTS.md'), 'utf8'), /## Source: client\/AGENTS\.md/);
     assertClaudeSymlink(appRoot);
     assertClaudeSymlink(appRoot, 'client');
@@ -300,6 +304,62 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.equal(fs.existsSync(path.join(appRoot, 'diagnostics.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'optimizations.md')), false);
     assert.equal(result.removed.some((entry) => entry.endsWith('/apps/product/CODING_STYLE.md')), true);
+});
+
+test('monorepo-wide configure writes shared root once and all app instruction files', () => {
+    const coreRoot = createCoreFixture();
+    const monorepoRoot = makeTempRoot();
+    const productRoot = path.join(monorepoRoot, 'apps', 'product');
+    const websiteRoot = path.join(monorepoRoot, 'apps', 'website');
+
+    for (const appRoot of [productRoot, websiteRoot]) {
+        fs.mkdirSync(path.join(appRoot, 'client'), { recursive: true });
+        fs.mkdirSync(path.join(appRoot, 'server'), { recursive: true });
+        writeFile(path.join(appRoot, 'package.json'), '{"name":"fixture"}\n');
+        writeFile(path.join(appRoot, 'identity.config.ts'), 'export default {};\n');
+        writeFile(path.join(appRoot, 'proteum.config.ts'), 'export default {};\n');
+    }
+
+    const result = configureMonorepoProjectAgentInstructions({
+        appRoots: [websiteRoot, productRoot],
+        coreRoot,
+        monorepoRoot,
+    });
+    const rootAgentsContent = fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8');
+
+    assert.equal(result.mode, 'monorepo');
+    assert.deepEqual(result.appRoots, [productRoot, websiteRoot]);
+    assert.match(rootAgentsContent, /apps\/product/);
+    assert.match(rootAgentsContent, /apps\/website/);
+    assert.doesNotMatch(rootAgentsContent, /current configured app/);
+    assert.match(fs.readFileSync(path.join(productRoot, 'AGENTS.md'), 'utf8'), /## Agent Routing Contract/);
+    assert.match(fs.readFileSync(path.join(websiteRoot, 'AGENTS.md'), 'utf8'), /## Agent Routing Contract/);
+    assert.equal(fs.existsSync(path.join(productRoot, 'CODING_STYLE.md')), false);
+    assert.equal(fs.existsSync(path.join(websiteRoot, 'CODING_STYLE.md')), false);
+});
+
+test('monorepo-wide configure dedupes app roots and blocked paths', () => {
+    const coreRoot = createCoreFixture();
+    const monorepoRoot = makeTempRoot();
+    const productRoot = path.join(monorepoRoot, 'apps', 'product');
+    const blockedClaudePath = path.join(productRoot, 'CLAUDE.md');
+
+    fs.mkdirSync(path.join(productRoot, 'client'), { recursive: true });
+    fs.mkdirSync(path.join(productRoot, 'server'), { recursive: true });
+    writeFile(path.join(productRoot, 'package.json'), '{"name":"fixture"}\n');
+    writeFile(path.join(productRoot, 'identity.config.ts'), 'export default {};\n');
+    writeFile(path.join(productRoot, 'proteum.config.ts'), 'export default {};\n');
+    writeFile(blockedClaudePath, '# Local Claude Notes\n');
+
+    const result = configureMonorepoProjectAgentInstructions({
+        appRoots: [productRoot, productRoot],
+        coreRoot,
+        dryRun: true,
+        monorepoRoot,
+    });
+
+    assert.deepEqual(result.appRoots, [productRoot]);
+    assert.equal(result.blocked.filter((entry) => entry === blockedClaudePath).length, 1);
 });
 
 test('monorepo configure preserves local app-root documents', () => {
