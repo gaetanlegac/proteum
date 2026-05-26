@@ -8,7 +8,7 @@ This file is the source of truth for codex coding style instructions in Proteum-
 - Write clean, consistent, readable code with a tab size of 4.
 - Keep functions and methods short.
 - Every time possible, create reusable functions and components instead of repeating.
-- Before finishing a feature or change, review touched files against this document and run targeted lint/typecheck/tests for the changed surface. When the repository defines `proteum.verify.config.ts`, use `npx proteum verify changed` as the first post-change verification pass. Do not run coverage by default after ordinary changes. Run the repository's non-coverage commit gate before committing, and run the full `npm run check` gate before pushing or when the user explicitly asks for it; coding-style regressions are defects, not optional cleanup.
+- Before finishing a feature or change, review touched files against this document and run targeted lint/typecheck/tests for the changed surface. When the repository defines `proteum.verify.config.ts`, use `npx proteum verify changed` as the first post-change verification pass. Do not run coverage by default after ordinary changes. Do not run check, lint, typecheck, test, coverage, or commit-gate commands as part of a commit-only workflow; run the full `npm run check` gate before pushing or when the user explicitly asks for it. Coding-style regressions are defects, not optional cleanup.
 
 ## Type safety
 
