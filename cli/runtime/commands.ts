@@ -175,7 +175,7 @@ class WorktreeCommand extends ProteumCommand {
 
     public static usage = buildUsage('worktree');
 
-    public source = Option.String('--source', { description: 'Source Proteum app root used for .env copy and worktree creation.' });
+    public source = Option.String('--source', { description: 'Source Proteum app root used for app/root .env copy and worktree creation.' });
     public branch = Option.String('--branch', { description: 'Branch name created by `worktree create`.' });
     public base = Option.String('--base', { description: 'Base ref used by `worktree create`.' });
     public refresh = Option.Boolean('--refresh', false, { description: 'Refresh an existing stale bootstrap marker.' });

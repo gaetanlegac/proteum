@@ -153,6 +153,81 @@ test('worktree bootstrap requires a source env only when .env is missing', async
     assert.equal(result.status.blocking, false);
 });
 
+test('worktree bootstrap copies workspace root env for monorepo root tooling', async () => {
+    const targetRepoRoot = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-worktree-monorepo-')), '.codex', 'worktrees', 'fixture-repo');
+    const appRoot = path.join(targetRepoRoot, 'apps', 'product');
+    const sourceRepoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-worktree-source-repo-'));
+    const sourceAppRoot = path.join(sourceRepoRoot, 'apps', 'product');
+
+    writeFile(path.join(targetRepoRoot, 'package.json'), '{"workspaces":["apps/*"]}\n');
+    writeFile(path.join(targetRepoRoot, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    writeFile(path.join(targetRepoRoot, 'prisma.config.ts'), 'export default {};\n');
+    fs.mkdirSync(path.join(targetRepoRoot, 'node_modules'), { recursive: true });
+    writeFile(path.join(appRoot, 'package.json'), '{"name":"fixture-product"}\n');
+    writeFile(path.join(appRoot, 'proteum.config.ts'), 'export default {};\n');
+    writeFile(path.join(appRoot, 'AGENTS.md'), '# Agents\n');
+    writeFile(path.join(appRoot, '.proteum', 'manifest.json'), '{"version":10}\n');
+
+    writeFile(path.join(sourceRepoRoot, 'package.json'), '{"workspaces":["apps/*"]}\n');
+    writeFile(path.join(sourceRepoRoot, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    writeFile(path.join(sourceRepoRoot, 'prisma.config.ts'), 'export default {};\n');
+    writeFile(path.join(sourceRepoRoot, '.env'), 'DATABASE_URL=postgres://root\n');
+    writeFile(path.join(sourceAppRoot, '.env'), 'PORT=3021\n');
+
+    const result = await runWorktreeBootstrapInit({
+        appRoot,
+        coreRoot,
+        proteumVersion: 'test',
+        runDependencies: noOpDeps,
+        runRefresh: noOpRefresh,
+        runRuntimeStatus: noOpRuntime,
+        source: sourceAppRoot,
+    });
+
+    assert.equal(fs.readFileSync(path.join(appRoot, '.env'), 'utf8'), 'PORT=3021\n');
+    assert.equal(fs.readFileSync(path.join(targetRepoRoot, '.env'), 'utf8'), 'DATABASE_URL=postgres://root\n');
+    assert.equal(result.marker.env.root.present, true);
+    assert.equal(result.marker.env.root.copied, true);
+    assert.equal(result.status.blocking, false);
+});
+
+test('worktree bootstrap falls back to source app env for missing workspace root env', async () => {
+    const targetRepoRoot = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-worktree-root-env-fallback-')), '.codex', 'worktrees', 'fixture-repo');
+    const appRoot = path.join(targetRepoRoot, 'apps', 'api');
+    const sourceRepoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-worktree-source-repo-fallback-'));
+    const sourceAppRoot = path.join(sourceRepoRoot, 'apps', 'api');
+
+    writeFile(path.join(targetRepoRoot, 'package.json'), '{"workspaces":["apps/*"]}\n');
+    writeFile(path.join(targetRepoRoot, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    writeFile(path.join(targetRepoRoot, 'prisma.config.ts'), 'export default {};\n');
+    fs.mkdirSync(path.join(targetRepoRoot, 'node_modules'), { recursive: true });
+    writeFile(path.join(appRoot, 'package.json'), '{"name":"fixture-api"}\n');
+    writeFile(path.join(appRoot, 'proteum.config.ts'), 'export default {};\n');
+    writeFile(path.join(appRoot, 'AGENTS.md'), '# Agents\n');
+    writeFile(path.join(appRoot, '.proteum', 'manifest.json'), '{"version":10}\n');
+
+    writeFile(path.join(sourceRepoRoot, 'package.json'), '{"workspaces":["apps/*"]}\n');
+    writeFile(path.join(sourceRepoRoot, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    writeFile(path.join(sourceRepoRoot, 'prisma.config.ts'), 'export default {};\n');
+    writeFile(path.join(sourceAppRoot, '.env'), 'DATABASE_URL=postgres://app\nPORT=3022\n');
+
+    const result = await runWorktreeBootstrapInit({
+        appRoot,
+        coreRoot,
+        proteumVersion: 'test',
+        runDependencies: noOpDeps,
+        runRefresh: noOpRefresh,
+        runRuntimeStatus: noOpRuntime,
+        source: sourceAppRoot,
+    });
+
+    assert.equal(fs.readFileSync(path.join(appRoot, '.env'), 'utf8'), 'DATABASE_URL=postgres://app\nPORT=3022\n');
+    assert.equal(fs.readFileSync(path.join(targetRepoRoot, '.env'), 'utf8'), 'DATABASE_URL=postgres://app\nPORT=3022\n');
+    assert.equal(result.marker.env.root.present, true);
+    assert.equal(result.marker.env.root.source, path.join(sourceAppRoot, '.env'));
+    assert.equal(result.status.blocking, false);
+});
+
 test('worktree bootstrap detects missing env manifest node_modules and version changes', async () => {
     const appRoot = createCodexAppRoot();
     writeBootstrapFixture(appRoot);

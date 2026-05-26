@@ -166,6 +166,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         notes: [
             'Bootstrap writes `.proteum/worktree-bootstrap.json` with hashes, step timestamps, dependency status, runtime status, and Proteum version.',
             'When `.env` is missing, `--source` is required and must point to an app root with a readable `.env`.',
+            'For monorepos with root tooling, bootstrap also ensures the workspace-root `.env` exists from the source root or source app env.',
             'Guarded commands block inside `/.codex/worktrees/` until bootstrap is complete or explicitly bypassed with `PROTEUM_ALLOW_UNBOOTSTRAPPED_WORKTREE=1`.',
             '`worktree create` preserves the source app root path relative to the source repository root, so monorepo app roots are bootstrapped in the matching target location.',
         ],

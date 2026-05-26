@@ -23,6 +23,13 @@ export type TWorktreeBootstrapMarker = {
         copied: boolean;
         copiedAt?: string;
         present: boolean;
+        root?: {
+            copied: boolean;
+            copiedAt?: string;
+            filepath: string;
+            present: boolean;
+            source?: string;
+        };
         source?: string;
     };
     packageLockHash?: string;
@@ -84,6 +91,11 @@ type TWorktreeBootstrapInputs = {
     packageLockHash?: string;
     proteumConfigHash?: string;
     proteumVersion: string;
+    rootEnv?: {
+        filepath: string;
+        present: boolean;
+        required: boolean;
+    };
 };
 
 type TRunCaptureResult = {
@@ -159,6 +171,32 @@ const findVisibleDirectory = (startPath: string, directoryName: string) => {
     }
 };
 
+const readJsonFile = (filepath: string) => {
+    try {
+        return fs.readJSONSync(filepath) as Record<string, unknown>;
+    } catch {
+        return {};
+    }
+};
+
+const hasWorkspaceRootTooling = (workspaceRoot: string) => {
+    if (fs.existsSync(path.join(workspaceRoot, 'prisma.config.ts'))) return true;
+
+    const packageJson = readJsonFile(path.join(workspaceRoot, 'package.json'));
+    return Array.isArray(packageJson.workspaces);
+};
+
+const resolveWorkspaceRootEnv = (appRoot: string) => {
+    const packageLockFilepath = findNearestExistingPath(appRoot, 'package-lock.json');
+    if (!packageLockFilepath) return undefined;
+
+    const workspaceRoot = path.dirname(packageLockFilepath);
+    if (workspaceRoot === normalizePath(appRoot)) return undefined;
+    if (!hasWorkspaceRootTooling(workspaceRoot)) return undefined;
+
+    return path.join(workspaceRoot, '.env');
+};
+
 const hashFile = (filepath: string | undefined) => {
     if (!filepath || !fs.existsSync(filepath)) return undefined;
 
@@ -177,6 +215,7 @@ const readMarker = (markerFilepath: string) => {
 
 const readInputs = (appRoot: string, proteumVersion: string): TWorktreeBootstrapInputs => {
     const packageLockFilepath = findNearestExistingPath(appRoot, 'package-lock.json');
+    const rootEnvFilepath = resolveWorkspaceRootEnv(appRoot);
 
     return {
         agentsHash: hashFile(path.join(appRoot, 'AGENTS.md')),
@@ -186,6 +225,13 @@ const readInputs = (appRoot: string, proteumVersion: string): TWorktreeBootstrap
         packageLockHash: hashFile(packageLockFilepath),
         proteumConfigHash: hashFile(path.join(appRoot, 'proteum.config.ts')),
         proteumVersion,
+        rootEnv: rootEnvFilepath
+            ? {
+                  filepath: rootEnvFilepath,
+                  present: fs.existsSync(rootEnvFilepath),
+                  required: true,
+              }
+            : undefined,
     };
 };
 
@@ -217,6 +263,8 @@ const collectStaleReasons = ({
     if (marker.agentsHash !== inputs.agentsHash)
         reasons.push({ code: 'worktree-bootstrap/agents-changed', message: 'AGENTS.md changed since bootstrap.' });
     if (!inputs.envPresent) reasons.push({ code: 'worktree-bootstrap/env-missing', message: '.env is missing.' });
+    if (inputs.rootEnv?.required && !inputs.rootEnv.present)
+        reasons.push({ code: 'worktree-bootstrap/root-env-missing', message: 'Workspace root .env is missing.' });
     if (!inputs.manifestPresent)
         reasons.push({ code: 'worktree-bootstrap/manifest-missing', message: '.proteum/manifest.json is missing.' });
     if (!inputs.nodeModulesPresent && !dependenciesWereIntentionallySkipped(marker, inputs))
@@ -309,18 +357,63 @@ const resolveDependencyAction = ({
     return 'up-to-date';
 };
 
-const requireSourceEnvWhenNeeded = ({ appRoot, source }: { appRoot: string; source?: string }) => {
-    const envFilepath = path.join(appRoot, '.env');
-    if (fs.existsSync(envFilepath)) return { copied: false, present: true, source: undefined };
-
-    if (!source) throw new Error('This worktree is missing .env. Pass --source <app-root> with a readable source .env.');
+const resolveSourceRootEnv = (source: string) => {
+    const sourceWorkspaceRootEnv = resolveWorkspaceRootEnv(source);
+    if (sourceWorkspaceRootEnv && fs.existsSync(sourceWorkspaceRootEnv)) return sourceWorkspaceRootEnv;
 
     const sourceEnvFilepath = path.join(path.resolve(source), '.env');
-    if (!fs.existsSync(sourceEnvFilepath)) throw new Error(`Source .env does not exist: ${sourceEnvFilepath}`);
+    return fs.existsSync(sourceEnvFilepath) ? sourceEnvFilepath : undefined;
+};
 
-    fs.copyFileSync(sourceEnvFilepath, envFilepath);
+const requireSourceEnvWhenNeeded = ({ appRoot, source }: { appRoot: string; source?: string }) => {
+    const envFilepath = path.join(appRoot, '.env');
+    const rootEnvFilepath = resolveWorkspaceRootEnv(appRoot);
+    let copied = false;
+    let copiedAt: string | undefined;
+    let sourceForEnv: string | undefined;
 
-    return { copied: true, copiedAt: nowIso(), present: true, source: path.resolve(source) };
+    if (!fs.existsSync(envFilepath)) {
+        if (!source) throw new Error('This worktree is missing .env. Pass --source <app-root> with a readable source .env.');
+
+        const sourceEnvFilepath = path.join(path.resolve(source), '.env');
+        if (!fs.existsSync(sourceEnvFilepath)) throw new Error(`Source .env does not exist: ${sourceEnvFilepath}`);
+
+        fs.copyFileSync(sourceEnvFilepath, envFilepath);
+        copied = true;
+        copiedAt = nowIso();
+        sourceForEnv = path.resolve(source);
+    }
+
+    const root: TWorktreeBootstrapMarker['env']['root'] | undefined = rootEnvFilepath
+        ? {
+              copied: false,
+              filepath: rootEnvFilepath,
+              present: fs.existsSync(rootEnvFilepath),
+          }
+        : undefined;
+
+    if (root && !root.present) {
+        if (!source) throw new Error('This worktree is missing workspace root .env. Pass --source <app-root> with a readable source .env.');
+
+        const sourceRootEnvFilepath = resolveSourceRootEnv(source);
+        if (!sourceRootEnvFilepath) {
+            throw new Error(`Source workspace root .env does not exist and source app .env is missing: ${path.resolve(source)}`);
+        }
+
+        fs.copyFileSync(sourceRootEnvFilepath, root.filepath);
+        root.copied = true;
+        root.copiedAt = nowIso();
+        root.present = true;
+        root.source = sourceRootEnvFilepath;
+    }
+
+    return {
+        copied,
+        ...(copiedAt ? { copiedAt } : {}),
+        present: fs.existsSync(envFilepath),
+        ...(root ? { root } : {}),
+        ...(sourceForEnv ? { source: sourceForEnv } : {}),
+    };
 };
 
 const writeMarker = (appRoot: string, marker: TWorktreeBootstrapMarker) => {
