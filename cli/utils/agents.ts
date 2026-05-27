@@ -16,6 +16,7 @@ type TProjectInstructionArgs = {
     appRoot?: string;
     coreRoot: string;
     includeMonorepoRegistry?: boolean;
+    instructionRoot: string;
     monorepoRegistryCurrentAppRoot?: string;
     monorepoRoot?: string;
 };
@@ -106,6 +107,14 @@ const sharedTestAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: path.join('tests', 'e2e', 'REAL_WORLD_JOURNEY_TESTS.md'), ensureParentDir: true, content: 'source' },
 ];
 
+const projectInstructionSourceMapEntries = [
+    { label: 'Root contract fallback', projectPath: 'AGENTS.md' },
+    { label: 'Documentation fallback', projectPath: 'DOCUMENTATION.md' },
+    { label: 'Diagnostics fallback', projectPath: 'diagnostics.md' },
+    { label: 'Optimization fallback', projectPath: 'optimizations.md' },
+    { label: 'Coding style fallback', projectPath: 'CODING_STYLE.md' },
+];
+
 const standaloneAppAgentInstructionDefinitions: TAgentInstructionDefinition[] = [
     { projectPath: 'AGENTS.md', content: 'router' },
     ...sharedRootDocumentInstructionDefinitions,
@@ -164,6 +173,7 @@ export function configureProjectAgentInstructions({
     const appEmbeddedInstructions = renderEmbeddedProjectInstructions({
         appRoot: normalizedAppRoot,
         coreRoot,
+        instructionRoot: normalizedAppRoot,
         monorepoRoot: normalizedMonorepoRoot,
     });
     const rootEmbeddedInstructions =
@@ -172,6 +182,7 @@ export function configureProjectAgentInstructions({
                   appRoot: normalizedAppRoot,
                   coreRoot,
                   includeMonorepoRegistry: true,
+                  instructionRoot: normalizedMonorepoRoot,
                   monorepoRegistryCurrentAppRoot: markCurrentAppInMonorepoRegistry ? normalizedAppRoot : undefined,
                   monorepoRoot: normalizedMonorepoRoot,
               })
@@ -973,6 +984,7 @@ function renderEmbeddedProjectInstructions({
     appRoot,
     coreRoot,
     includeMonorepoRegistry = false,
+    instructionRoot,
     monorepoRegistryCurrentAppRoot,
     monorepoRoot,
 }: TProjectInstructionArgs) {
@@ -1063,11 +1075,14 @@ function renderEmbeddedProjectInstructions({
         '',
         '## Canonical Source Map',
         '',
-        `- Root contract fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'AGENTS.md'))}`,
-        `- Documentation fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'DOCUMENTATION.md'))}`,
-        `- Diagnostics fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'diagnostics.md'))}`,
-        `- Optimization fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'optimizations.md'))}`,
-        `- Coding style fallback: ${normalizeProjectPathForGitignore(path.join(coreRoot, 'agents', 'project', 'CODING_STYLE.md'))}`,
+        ...projectInstructionSourceMapEntries.map(
+            ({ label, projectPath }) =>
+                `- ${label}: ${formatProjectInstructionSourceMapPath({
+                    coreRoot,
+                    instructionRoot,
+                    projectPath,
+                })}`,
+        ),
         '',
     ];
 
@@ -1207,6 +1222,41 @@ function trimBlankLines(lines: string[]) {
 
 function formatResultPath(rootDir: string, relativePath: string) {
     return normalizeProjectPathForGitignore(path.join(rootDir, relativePath));
+}
+
+function formatProjectInstructionSourceMapPath({
+    coreRoot,
+    instructionRoot,
+    projectPath,
+}: {
+    coreRoot: string;
+    instructionRoot: string;
+    projectPath: string;
+}) {
+    const sourceRoot = resolveProjectInstructionSourceMapRoot({ coreRoot, instructionRoot });
+    const sourcePath = path.resolve(sourceRoot, 'agents', 'project', projectPath);
+    const relativePath = path.relative(path.resolve(instructionRoot), sourcePath);
+
+    return normalizeProjectPathForGitignore(relativePath);
+}
+
+function resolveProjectInstructionSourceMapRoot({ coreRoot, instructionRoot }: { coreRoot: string; instructionRoot: string }) {
+    const visibleInstallRoot = findVisibleProteumInstructionRoot(instructionRoot);
+
+    return visibleInstallRoot || coreRoot;
+}
+
+function findVisibleProteumInstructionRoot(startRoot: string) {
+    let currentPath = path.resolve(startRoot);
+
+    while (true) {
+        const candidate = path.join(currentPath, 'node_modules', 'proteum');
+        if (fs.existsSync(path.join(candidate, 'agents', 'project'))) return candidate;
+
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) return undefined;
+        currentPath = parentPath;
+    }
 }
 
 export function resolveCanonicalPath(inputPath: string) {

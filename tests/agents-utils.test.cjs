@@ -38,8 +38,9 @@ const pathEntryExists = (filepath) => {
 
 const makeTempRoot = () => fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-agents-'));
 
-const createCoreFixture = () => {
-    const root = makeTempRoot();
+const normalizePath = (value) => value.replace(/\\/g, '/');
+
+const createCoreFixture = (root = makeTempRoot()) => {
     const agentsRoot = path.join(root, 'agents', 'project');
 
     writeFile(path.join(agentsRoot, 'AGENTS.md'), '# Root Contract\n\n- Root rule\n');
@@ -59,6 +60,20 @@ const createCoreFixture = () => {
     );
 
     return root;
+};
+
+const expectedSourceMapPath = ({ coreRoot, instructionRoot, projectPath }) =>
+    normalizePath(path.relative(instructionRoot, path.join(coreRoot, 'agents', 'project', projectPath)));
+
+const assertSourceMapPath = ({ content, coreRoot, instructionRoot, label, projectPath }) => {
+    assert.equal(
+        content.includes(`- ${label}: ${expectedSourceMapPath({ coreRoot, instructionRoot, projectPath })}`),
+        true,
+    );
+};
+
+const assertNoAbsoluteCoreSourceMapPath = ({ content, coreRoot }) => {
+    assert.equal(content.includes(normalizePath(path.join(coreRoot, 'agents', 'project'))), false);
 };
 
 const createAppFixture = () => {
@@ -171,6 +186,53 @@ test('standalone configure creates tracked instruction files with routing contra
     assert.doesNotMatch(gitignoreContent, /^\/AGENTS\.md$/m);
     assert.doesNotMatch(gitignoreContent, /^\/CLAUDE\.md$/m);
     assert.doesNotMatch(gitignoreContent, /^\/DOCUMENTATION\.md$/m);
+});
+
+test('standalone configure writes install-relative source map fallbacks', () => {
+    const appRoot = createAppFixture();
+    const coreRoot = createCoreFixture(path.join(appRoot, 'node_modules', 'proteum'));
+    const result = configureProjectAgentInstructions({ appRoot, coreRoot });
+    const agentsContent = fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8');
+
+    assert.equal(result.blocked.length, 0);
+    assertSourceMapPath({
+        content: agentsContent,
+        coreRoot,
+        instructionRoot: appRoot,
+        label: 'Root contract fallback',
+        projectPath: 'AGENTS.md',
+    });
+    assertSourceMapPath({
+        content: agentsContent,
+        coreRoot,
+        instructionRoot: appRoot,
+        label: 'Documentation fallback',
+        projectPath: 'DOCUMENTATION.md',
+    });
+    assertNoAbsoluteCoreSourceMapPath({ content: agentsContent, coreRoot });
+    assert.match(agentsContent, /Root contract fallback: node_modules\/proteum\/agents\/project\/AGENTS\.md/);
+});
+
+test('standalone configure source map prefers project install over active external core', () => {
+    const activeCoreRoot = createCoreFixture();
+    const appRoot = createAppFixture();
+    createCoreFixture(path.join(appRoot, 'node_modules', 'proteum'));
+
+    configureProjectAgentInstructions({ appRoot, coreRoot: activeCoreRoot });
+
+    const agentsContent = fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8');
+    assert.match(agentsContent, /Root contract fallback: node_modules\/proteum\/agents\/project\/AGENTS\.md/);
+    assert.equal(
+        agentsContent.includes(
+            `Root contract fallback: ${expectedSourceMapPath({
+                coreRoot: activeCoreRoot,
+                instructionRoot: appRoot,
+                projectPath: 'AGENTS.md',
+            })}`,
+        ),
+        false,
+    );
+    assertNoAbsoluteCoreSourceMapPath({ content: agentsContent, coreRoot: activeCoreRoot });
 });
 
 test('configure preserves project content outside the managed section', () => {
@@ -296,6 +358,22 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.match(appAgentsContent, /## Agent Routing Contract/);
     assert.doesNotMatch(appAgentsContent, /## Known Proteum Apps/);
     assert.doesNotMatch(appAgentsContent, /Eligible Proteum commands run across the apps below/);
+    assertSourceMapPath({
+        content: fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'),
+        coreRoot,
+        instructionRoot: monorepoRoot,
+        label: 'Root contract fallback',
+        projectPath: 'AGENTS.md',
+    });
+    assertSourceMapPath({
+        content: appAgentsContent,
+        coreRoot,
+        instructionRoot: appRoot,
+        label: 'Root contract fallback',
+        projectPath: 'AGENTS.md',
+    });
+    assertNoAbsoluteCoreSourceMapPath({ content: fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8'), coreRoot });
+    assertNoAbsoluteCoreSourceMapPath({ content: appAgentsContent, coreRoot });
     assert.match(fs.readFileSync(path.join(appRoot, 'client', 'AGENTS.md'), 'utf8'), /## Source: client\/AGENTS\.md/);
     assertClaudeSymlink(appRoot);
     assertClaudeSymlink(appRoot, 'client');
@@ -304,6 +382,28 @@ test('monorepo configure writes root and app instruction files', () => {
     assert.equal(fs.existsSync(path.join(appRoot, 'diagnostics.md')), false);
     assert.equal(fs.existsSync(path.join(appRoot, 'optimizations.md')), false);
     assert.equal(result.removed.some((entry) => entry.endsWith('/apps/product/CODING_STYLE.md')), true);
+});
+
+test('monorepo configure source map uses workspace install from root and nested apps', () => {
+    const activeCoreRoot = createCoreFixture();
+    const monorepoRoot = makeTempRoot();
+    const appRoot = path.join(monorepoRoot, 'apps', 'product');
+
+    createCoreFixture(path.join(monorepoRoot, 'node_modules', 'proteum'));
+    fs.mkdirSync(path.join(monorepoRoot, '.git'));
+    fs.mkdirSync(path.join(appRoot, 'client'), { recursive: true });
+    writeFile(path.join(appRoot, 'package.json'), '{"name":"product"}\n');
+    writeFile(path.join(appRoot, 'identity.config.ts'), 'export default {};\n');
+    writeFile(path.join(appRoot, 'proteum.config.ts'), 'export default {};\n');
+
+    configureProjectAgentInstructions({ appRoot, coreRoot: activeCoreRoot, monorepoRoot });
+
+    const rootAgentsContent = fs.readFileSync(path.join(monorepoRoot, 'AGENTS.md'), 'utf8');
+    const appAgentsContent = fs.readFileSync(path.join(appRoot, 'AGENTS.md'), 'utf8');
+    assert.match(rootAgentsContent, /Root contract fallback: node_modules\/proteum\/agents\/project\/AGENTS\.md/);
+    assert.match(appAgentsContent, /Root contract fallback: \.\.\/\.\.\/node_modules\/proteum\/agents\/project\/AGENTS\.md/);
+    assertNoAbsoluteCoreSourceMapPath({ content: rootAgentsContent, coreRoot: activeCoreRoot });
+    assertNoAbsoluteCoreSourceMapPath({ content: appAgentsContent, coreRoot: activeCoreRoot });
 });
 
 test('monorepo-wide configure writes shared root once and all app instruction files', () => {
