@@ -44,10 +44,12 @@ export default function createCommonConfig(
     outputTarget: TCompileOutputTarget = mode === 'dev' ? 'dev' : 'bin',
 ): Configuration {
     const dev = mode === 'dev';
-    const enableFilesystemCache = dev ? cli.args.cache !== false : cli.args.cache === true;
     const transpileModuleDirectories = app.transpileModuleDirectories;
+    const hasTranspileModuleDirectories = transpileModuleDirectories.length > 0;
+    // Persistent cache can restore stale modules from mutable workspace packages even after manual invalidation.
+    const enableFilesystemCache = dev ? cli.args.cache !== false && !hasTranspileModuleDirectories : cli.args.cache === true;
     const transpileModuleSnapshot =
-        dev && transpileModuleDirectories.length > 0
+        dev && hasTranspileModuleDirectories
             ? {
                   // Transpiled local packages can resolve through node_modules symlinks,
                   // but they still need live invalidation like mutable app sources in dev.

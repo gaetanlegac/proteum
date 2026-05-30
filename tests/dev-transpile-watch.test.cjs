@@ -103,6 +103,21 @@ const waitForAssetContaining = async (appRoot, extension, marker, timeoutMs = 60
     throw new Error(`Timed out waiting for ${extension} asset containing ${marker}.`);
 };
 
+const waitForBodyContaining = async (port, urlPath, marker, timeoutMs = 60000) => {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+        try {
+            const { body } = await request(port, urlPath, { Accept: 'text/html' });
+            if (body.includes(marker)) return body;
+        } catch {}
+
+        await sleep(250);
+    }
+
+    throw new Error(`Timed out waiting for ${urlPath} body containing ${marker}.`);
+};
+
 const waitForSessionReady = async (sessionFile, child, getOutput, timeoutMs = 90000) => {
     const deadline = Date.now() + timeoutMs;
 
@@ -199,8 +214,13 @@ const createSharedStyleSource = (marker) => `.shared-style-marker {
 `;
 
 const createFixture = (root, port, options = {}) => {
-    const appRoot = path.join(root, 'app');
-    const sharedRoot = path.join(root, 'shared');
+    const monorepoRootInstall = options.monorepoRootInstall === true;
+    const appRoot = monorepoRootInstall ? path.join(root, 'apps', 'app') : path.join(root, 'app');
+    const sharedRoot = monorepoRootInstall ? path.join(root, 'packages', 'shared') : path.join(root, 'shared');
+    const sharedDependency = monorepoRootInstall ? 'file:../../packages/shared' : 'file:../shared';
+    const sharedInstallRoot = monorepoRootInstall
+        ? path.join(root, 'node_modules', '@test', 'shared')
+        : path.join(appRoot, 'node_modules', '@test', 'shared');
     const cacheConfigSource = options.routerCache ? `        cache: ${options.routerCache},\n` : '';
 
     fs.mkdirSync(path.join(appRoot, 'public'), { recursive: true });
@@ -217,7 +237,7 @@ const createFixture = (root, port, options = {}) => {
                 private: true,
                 version: '0.0.0',
                 dependencies: {
-                    '@test/shared': 'file:../shared',
+                    '@test/shared': sharedDependency,
                     proteum: `file:${coreRoot}`,
                 },
             },
@@ -474,7 +494,7 @@ export default definePageRoute({
     writeFile(path.join(sharedRoot, 'styles.css'), createSharedStyleSource('STYLE_MARKER_INITIAL'));
 
     createSymlink(coreRoot, path.join(appRoot, 'node_modules', 'proteum'));
-    createSymlink(sharedRoot, path.join(appRoot, 'node_modules', '@test', 'shared'));
+    createSymlink(sharedRoot, sharedInstallRoot);
 
     return {
         appRoot,
@@ -500,11 +520,14 @@ const stopDevServer = async (child) => {
     });
 };
 
-const startDevServer = (appRoot, port, sessionFile) => {
+const startDevServer = (appRoot, port, sessionFile, options = {}) => {
     let output = '';
+    const args = [cliBin, 'dev', '--cwd', appRoot, '--port', String(port), '--session-file', sessionFile];
+    if (options.noCache !== false) args.push('--no-cache');
+    args.push('--verbose');
     const child = spawn(
         process.execPath,
-        [cliBin, 'dev', '--cwd', appRoot, '--port', String(port), '--session-file', sessionFile, '--no-cache', '--verbose'],
+        args,
         {
             cwd: appRoot,
             env: {
@@ -576,6 +599,41 @@ test('proteum dev invalidates client assets and reloads for transpiled package s
         fs.rmSync(root, { recursive: true, force: true });
     }
 });
+
+test(
+    'proteum dev invalidates SSR and client assets for monorepo-root transpiled package installs',
+    { timeout: 180000 },
+    async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-monorepo-transpile-watch-'));
+        const port = await resolvePortPair();
+        const { appRoot, sharedRoot } = createFixture(root, port, { monorepoRootInstall: true });
+        const sessionFile = path.join(appRoot, 'var', 'run', 'proteum', 'dev', 'monorepo-transpile-watch-test.json');
+        const { child, getOutput } = startDevServer(appRoot, port, sessionFile, { noCache: false });
+
+        try {
+            await waitForSessionReady(sessionFile, child, getOutput);
+            await waitForBodyContaining(port, '/', 'SCRIPT_MARKER_INITIAL').catch((error) => {
+                throw new Error(`${error.message}\n${getOutput()}`);
+            });
+            await waitForAssetContaining(appRoot, '.js', 'SCRIPT_MARKER_INITIAL').catch((error) => {
+                throw new Error(`${error.message}\n${getOutput()}`);
+            });
+
+            const reloadStream = await connectToReloadStream(port + 1);
+            writeFile(path.join(sharedRoot, 'index.tsx'), createSharedIndexSource('SCRIPT_MARKER_MONOREPO_UPDATED'));
+
+            await waitForAssetContaining(appRoot, '.js', 'SCRIPT_MARKER_MONOREPO_UPDATED');
+            await waitForBodyContaining(port, '/', 'SCRIPT_MARKER_MONOREPO_UPDATED');
+            const reloadEvent = await reloadStream.waitForReload();
+            reloadStream.close();
+
+            assert.equal(reloadEvent.type, 'reload');
+        } finally {
+            await stopDevServer(child);
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    },
+);
 
 test('proteum dev applies router HTTP cache config to HTML and public assets', { timeout: 180000 }, async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-router-cache-'));

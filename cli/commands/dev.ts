@@ -6,7 +6,7 @@
 import path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import fs from 'fs-extra';
-import type { FSWatcher } from 'fs';
+import { realpathSync, watch, type FSWatcher } from 'fs';
 import prompts from 'prompts';
 import { UsageError } from 'clipanion';
 
@@ -677,6 +677,16 @@ function normalizeWatchPath(watchPath: string) {
     return path.resolve(watchPath).replace(/\\/g, '/').replace(/\/$/, '');
 }
 
+const resolveWatchPathAliases = (watchPath: string) => {
+    const aliases = new Set([normalizeWatchPath(watchPath)]);
+
+    try {
+        aliases.add(normalizeWatchPath(realpathSync(watchPath)));
+    } catch {}
+
+    return [...aliases];
+};
+
 type TIndexedSourceWatchEvent = 'change' | 'rename';
 type TIndexedSourceWatchCompilerName = 'server' | 'client';
 type TIndexedSourceWatchInvalidateTarget = 'all' | TIndexedSourceWatchCompilerName;
@@ -692,14 +702,7 @@ type TMultiWatchingLike = TDevWatching & { watchings?: TNamedWatching[] };
 
 const resolveIndexedSourceWatchRules = (): TIndexedSourceWatchRule[] => {
     const transpileWatchRoots = app.transpileModuleDirectories
-        .map((rootPath) => {
-            try {
-                return fs.realpathSync(rootPath);
-            } catch {
-                return rootPath;
-            }
-        })
-        .map(normalizeWatchPath)
+        .flatMap((rootPath) => resolveWatchPathAliases(rootPath))
         .filter((rootPath, index, list) => list.indexOf(rootPath) === index);
 
     return [
@@ -723,7 +726,7 @@ const resolveIndexedSourceWatchRules = (): TIndexedSourceWatchRule[] => {
                 rootPath,
                 relativePathPattern: transpileSourceWatchPattern,
                 eventTypes: ['change', 'rename'],
-                invalidateTargets: ['client', 'server'],
+                invalidateTargets: ['all'],
             }),
         ),
     ];
@@ -848,7 +851,7 @@ const createIndexedSourceWatching = ({
         if (!fs.existsSync(rootPath)) continue;
 
         watchers.push(
-            fs.watch(rootPath, { recursive: true }, (eventType, filename) => {
+            watch(rootPath, { recursive: true }, (eventType, filename) => {
                 const relativePath = typeof filename === 'string' ? filename.replace(/\\/g, '/').replace(/^\.\//, '') : '';
                 const normalizedEventType: TIndexedSourceWatchEvent = eventType === 'change' ? 'change' : 'rename';
 
