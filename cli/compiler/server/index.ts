@@ -10,6 +10,7 @@ import { type Configuration } from '@rspack/core';
 import cli from '@cli';
 import createCommonConfig, { TCompileMode, TCompileOutputTarget, regex } from '../common';
 import { toRspackAliases } from '../common/rspackAliases';
+import { resolveServerExternalRequest } from './externals';
 
 // Type
 import type { App } from '../../app';
@@ -158,7 +159,7 @@ export default function createCompiler(
             './client-manifest.json',
 
             // node_modules
-            function ({ request }, callback) {
+            function ({ context, request }, callback) {
                 const shouldCompile =
                     request !== undefined &&
                     // Local files
@@ -177,8 +178,16 @@ export default function createCompiler(
                 //console.log('isNodeModule', request, isNodeModule);
 
                 if (!shouldCompile) {
-                    // Externalize to a commonjs module using the request path
-                    return callback(undefined, 'commonjs ' + request);
+                    // Resolve server externals from their source owner. Bare runtime requires from
+                    // the dev output can otherwise hit the framework node_modules symlink first.
+                    const resolvedRequest = resolveServerExternalRequest({
+                        context,
+                        frameworkRoots,
+                        request,
+                        resolveRequest: (externalRequest, options) => cli.paths.resolveRequest(externalRequest, options),
+                    });
+
+                    return callback(undefined, 'commonjs ' + resolvedRequest);
                 }
 
                 // Continue without externalizing the import
