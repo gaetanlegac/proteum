@@ -1,286 +1,122 @@
-# Proteum
+<!-- Logo: drop a square mark at docs/assets/logo.png and uncomment the line below. -->
+<!-- <p align="center"><img src="docs/assets/logo.png" width="120" alt="Proteum" /></p> -->
 
-Proteum is an LLM-first SSR / SEO / TypeScript framework for full-stack web applications.
+<h1 align="center">Proteum</h1>
 
-It is built for teams that want explicit server contracts, server-first rendering, deterministic generated artifacts, and a codebase that an AI agent can inspect without reverse-engineering hidden runtime magic.
+<p align="center">
+  <strong>The explicit, agent-native full-stack TypeScript framework.</strong><br />
+  Server-first SSR &amp; SEO, zero runtime magic, and a codebase your AI agents can read without reverse-engineering.
+</p>
 
-## Sponsor
+<p align="center">
+  <a href="https://www.npmjs.com/package/proteum"><img src="https://img.shields.io/npm/v/proteum.svg?color=2563eb&label=npm" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/proteum"><img src="https://img.shields.io/npm/dm/proteum.svg?color=2563eb" alt="npm downloads" /></a>
+  <a href="#-requirements"><img src="https://img.shields.io/node/v/proteum.svg?color=2563eb" alt="node version" /></a>
+  <a href="./package.json"><img src="https://img.shields.io/badge/TypeScript-5.9-2563eb.svg?logo=typescript&logoColor=white" alt="TypeScript" /></a>
+  <a href="#-built-for-ai-agents"><img src="https://img.shields.io/badge/MCP-ready-7c3aed.svg" alt="MCP ready" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/proteum.svg?color=2563eb" alt="MIT license" /></a>
+</p>
 
-Proteum is sponsored by [Unique Domains](https://unique.domains/?utm_source=github&utm_medium=referral&utm_campaign=repo_proteum&utm_content=top_sponsor).
+<p align="center">
+  <a href="#-quick-start">Quick Start</a> ·
+  <a href="#-core-concepts">Concepts</a> ·
+  <a href="#-built-for-ai-agents">AI Agents</a> ·
+  <a href="#-the-cli">CLI</a> ·
+  <a href="#-documentation">Docs</a> ·
+  <a href="#-philosophy">Philosophy</a>
+</p>
 
-[![Unique Domains](docs/assets/unique-domains-chip.png)](https://unique.domains/?utm_source=github&utm_medium=referral&utm_campaign=repo_proteum&utm_content=top_sponsor)
+---
 
-## Why Proteum
+## What is Proteum?
 
-Most full-stack frameworks optimize first for human convenience.
+Most full-stack frameworks optimize first for human convenience and lean on ambient runtime magic to get there. **Proteum optimizes for explicitness** — typed, machine-readable contracts that stay legible to humans *and* to the AI agents that increasingly maintain real codebases.
 
-Proteum optimizes first for:
+Every route, controller, service, and layout is an exported **definition object**. The compiler reads them and emits deterministic contracts into `.proteum/`, so the framework can *tell you* what it discovered instead of asking you to guess. That same manifest powers the CLI, the dev profiler, and a built-in **Model Context Protocol** server — so an agent can answer "which controller handles this request, and why is it slow?" in a single low-token call.
 
-- explicit, typed, machine-readable contracts
-- SSR and SEO as framework primitives
-- server-first architecture with minimal client runtime
-- deterministic generation instead of ambient magic
-- codebases that stay explainable to humans and LLMs at the same time
-
-Proteum combines:
-
-- page-first SSR workflows similar to modern React meta-frameworks
-- explicit controller and service layers inspired by backend frameworks
-- generated manifests and contracts that make routes, services, layouts, and diagnostics easy to inspect
-
-## Core Principles
-
-- **Server-first by default.** Put data loading in the page data function and keep client code focused on UI.
-- **Explicit request entrypoints.** Routes and controllers are exported definition objects.
-- **Local validation.** Declare controller input on `defineAction({ input, handler })`; handlers receive parsed `input`.
-- **Deterministic generation.** Proteum owns `.proteum/` and regenerates it from source.
-- **Explainability matters.** `proteum explain`, `proteum doctor`, `proteum diagnose`, `proteum perf`, and `proteum trace` expose the framework view of your app and its live requests, and the profiler renders the same diagnostics and perf surfaces for humans in dev.
-- **SEO is not an afterthought.** Identity, routes, layouts, and SSR data are part of the app contract.
-
-## What a Proteum App Looks Like
-
-```text
-my-app/
-  identity.config.ts
-  proteum.config.ts
-  .env               # optional file for required local env vars
-  package.json
-  commands/
-  client/
-    pages/
-      _layout/
-    components/
-    islands/
-    services/
-  server/
-    config/
-    index.ts
-    controllers/
-    services/
-  common/
-    models/
-    router/
-    errors/
-  .proteum/
-    manifest.json
-    client/
-    common/
-    server/
+```bash
+npx proteum init my-app --name "My App"
 ```
 
-Important files:
+## ✨ Highlights
 
-- `identity.config.ts`: typed app identity, naming, locale, and SEO-facing metadata defaults via `Application.identity({ ... })`
-- `proteum.config.ts`: typed Proteum compiler and connection settings such as `transpile` and `connect` via `Application.setup({ ... })`
-- `process.env` / optional `.env`: `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, any app-chosen variables referenced by `proteum.config.ts`, and `TRACE_*` environment variables loaded by the app
-- `server/config/*.ts`: plain typed config exports consumed by the explicit app bootstrap
-- `server/index.ts`: default-exported `defineApplication({ services, router, models, commands })` application graph
-- `client/pages/**`: SSR page entrypoints that default-export `definePageRoute({ path, options, data, render })`
-- `server/controllers/**`: generated API definitions that default-export `defineController({ path, actions })`
-- `commands/**`: dev-only internal commands that extend `Commands`
-- `server/services/**`: business logic that extends `Service`
-- `.proteum/**`: framework-owned generated contracts and manifests
+- **🧩 Explicit by design** — routes, controllers, services, and the app graph are typed definition objects, not decorators or filename conventions hiding behind a compiler.
+- **⚡ Server-first SSR** — fast Preact / React 19 server rendering with a minimal client runtime and an islands model for interactivity exactly where you need it.
+- **🔎 SEO as a primitive** — typed app identity, metadata, JSON-LD, and canonical URLs are part of the application contract, not a plugin you bolt on later.
+- **🧠 Built for AI agents** — a machine-scope MCP router, compact JSON diagnostics, and generated manifests give LLMs a reliable map of your app. [Jump to details ↓](#-built-for-ai-agents)
+- **📈 Live observability** — built-in request tracing, performance roll-ups, and an interactive dev profiler with charts over the same contracts the CLI reads.
+- **🛡️ Validation at the edge** — declare action input once with `defineAction({ input, handler })`; handlers receive parsed, typed input.
+- **🗄️ Prisma-first data layer** — typed Prisma 7 models (MySQL / MariaDB / Postgres) on `this.models`, with tagged-template SQL as an escape hatch when you need it.
+- **🔗 Monorepo & connected apps** — compose multiple apps with typed cross-app controller contracts.
+- **🚀 Production builds** — an `rspack` + Tailwind 4 pipeline with bundle analysis baked in.
 
-Required Proteum env vars:
+## 📋 Requirements
 
-- `ENV_NAME`: `local` or `server`
-- `ENV_PROFILE`: `dev`, `testing`, or `prod`
-- `PORT`: default router port
-- `URL`: canonical absolute base URL for `Router.url(..., true)`
-- `URL_INTERNAL`: internal absolute base URL used by SSR and connected-project server calls
+| Runtime | Version      |
+| ------- | ------------ |
+| Node.js | `>= 20.19.0` |
+| npm     | `>= 3.10.10` |
 
-If `proteum.config.ts` declares `connect`, Proteum also requires:
+## 🚀 Quick Start
 
-- one explicit `connect.<Namespace>.source` value in `proteum.config.ts`
-- one explicit `connect.<Namespace>.urlInternal` value in `proteum.config.ts`
+```bash
+# Scaffold a new app from deterministic built-in templates
+npx proteum init my-app --name "My App"
+cd my-app
 
-Proteum does not provide defaults for required env vars. They must be defined explicitly in `process.env` or `.env`.
+# Install and wire up agent instructions (AGENTS.md / CLAUDE.md)
+npm install
+npx proteum configure agents
 
-Use `proteum explain env` to see the required env vars, their allowed values, and whether each one is currently provided.
-
-Optional trace env vars:
-
-- `TRACE_ENABLE`
-- `TRACE_REQUESTS_LIMIT`
-- `TRACE_EVENTS_LIMIT`
-- `TRACE_CAPTURE`
-- `TRACE_PERSIST_ON_ERROR`
-- `ENABLE_PROFILER`
-
-Optional `proteum.config.ts` fields:
-
-- `transpile`: array of package names that Proteum should compile from `node_modules/` instead of treating as prebuilt vendor code
-- `connect`: connected project namespaces that should be merged into generated controller helpers
-
-Example:
-
-```ts
-import { Application } from 'proteum/config';
-
-const PRODUCT_CONNECTED_SOURCE = process.env.PRODUCT_CONNECTED_SOURCE;
-const PRODUCT_URL_INTERNAL = process.env.PRODUCT_URL_INTERNAL;
-
-export default Application.setup({
-  transpile: ['@acme/components'],
-  connect: {
-    Product: {
-      source: PRODUCT_CONNECTED_SOURCE,
-      urlInternal: PRODUCT_URL_INTERNAL,
-    },
-  },
-});
+# Start the compiler, SSR server, and hot-reload loop
+npx proteum dev
 ```
 
-Connected contract sources are provided explicitly through `proteum.config.ts` instead of being inferred from the namespace:
+Then the everyday loop:
 
-- local typed source value: `file:../product`
-- remote runtime-only source value: `github:owner/repo?ref=<sha-or-branch>&path=proteum.connected.json`
-
-Use this for linked or workspace-local TypeScript packages that ship source files and must flow through Proteum's alias and SSR compilation pipeline.
-
-## Example: Server Bootstrap
-
-Proteum app services and router plugins are declared explicitly through typed config exports plus a default-exported `defineApplication(...)` definition object.
-
-```ts
-// server/config/user.ts
-import { Services, type ServiceConfig } from '@server/app';
-import AppContainer from '@server/app/container';
-import Router from '@server/services/router';
-import Users from '@/server/services/Users';
-
-type RouterBaseConfig = Omit<ServiceConfig<typeof Router>, 'plugins'>;
-
-export const usersConfig = Services.config(Users, {});
-
-export const routerBaseConfig = {
-  currentDomain: AppContainer.Environment.router.currentDomain,
-  http: {
-    domain: 'example.com',
-    port: AppContainer.Environment.router.port,
-    ssl: true,
-    upload: { maxSize: '10mb' },
-  },
-  context: () => ({}),
-} satisfies RouterBaseConfig;
+```bash
+npx proteum check          # refresh contracts, typecheck, and lint in one pass
+npx proteum build --prod   # production server + client bundles into bin/
+node ./bin/server.js       # run it
 ```
 
-```ts
-// server/index.ts
-import { defineApplication, type Application } from '@server/app';
-import Router from '@server/services/router';
-import SchemaRouter from '@server/services/schema/router';
-import Users from '@/server/services/Users';
-import * as userConfig from '@/server/config/user';
+A typical app `package.json`:
 
-type MyAppServices = {
-  Users: Users;
-};
-
-type MyRouterPlugins = {
-  schema: SchemaRouter;
-};
-
-export type MyRouter = Router<MyApp, MyRouterPlugins>;
-export interface MyApp extends Application, MyAppServices {
-  Router: MyRouter;
+```json
+{
+  "scripts": {
+    "dev": "proteum dev",
+    "check": "proteum check",
+    "build": "proteum build --prod",
+    "start": "node ./bin/server.js"
+  }
 }
-
-const createRouter = (app: MyApp): MyRouter =>
-  new Router<MyApp, MyRouterPlugins>(
-    app,
-    {
-      ...userConfig.routerBaseConfig,
-      plugins: {
-        schema: new SchemaRouter({}, app),
-      },
-    },
-    app
-  );
-
-const createServices = (app: MyApp): MyAppServices => ({
-  Users: new Users(app, userConfig.usersConfig, app),
-});
-
-const MyApplication = defineApplication({
-  services: createServices,
-  router: createRouter,
-});
-
-export default MyApplication;
 ```
 
-Proteum reads `server/index.ts` as the source of truth for installed root services and router plugins, and reads `server/config/*.ts` `Services.config(...)` exports for typed config such as service priority overrides.
+## 🧱 Core Concepts
 
-## Router Cache Policy
+Everything you author is an explicit, typed definition object. Here is the whole surface in four snippets.
 
-Browser cache headers are configurable per app through the optional `routerBaseConfig.http.cache` object. Omit it to keep Proteum's defaults.
-
-```ts
-export const routerBaseConfig = {
-  currentDomain: AppContainer.Environment.router.currentDomain,
-  http: {
-    domain: 'example.com',
-    port: AppContainer.Environment.router.port,
-    ssl: true,
-    upload: { maxSize: '10mb' },
-    cache: {
-      html: {
-        dynamic: {
-          cacheControl: 'no-store, no-cache, must-revalidate, proxy-revalidate',
-          surrogateControl: 'no-store',
-        },
-        static: {
-          cacheControl: 'public, max-age=0, must-revalidate',
-          surrogateControl: false,
-        },
-      },
-      publicAssets: {
-        dev: 'no-store',
-        versioned: 'public, max-age=31536000, immutable',
-        unversioned: 'public, max-age=0, must-revalidate',
-      },
-    },
-  },
-  context: () => ({}),
-} satisfies RouterBaseConfig;
-```
-
-Default public asset validators depend on the environment: dev disables `ETag` and `Last-Modified`, while non-dev enables them. Use `etag: false` and `lastModified: false` when an app needs to fully disable browser cache for `/public` assets.
-
-## Example: Page
-
-Proteum pages are explicit SSR entrypoints.
+### Pages — server-first SSR
 
 ```tsx
 import { definePageRoute } from '@common/router/definitions';
 
 export default definePageRoute({
   path: '/',
-  options: {
-    auth: false,
-    layout: false,
-  },
+  options: { auth: false, layout: false },
+  // Runs on the server. Every returned key becomes page data.
   data: ({ Plans, Stats }) => ({
     plans: Plans.getPlans(),
     stats: Stats.general(),
   }),
-  render: ({ plans, stats }) => {
-    return <LandingPage plans={plans} stats={stats} />;
-  },
+  render: ({ plans, stats }) => <LandingPage plans={plans} stats={stats} />,
 });
 ```
 
-What happens here:
+`path` and `options` (`auth`, `layout`, `static`, `redirectLogged`, …) are static and compiler-readable. Runtime references are allowed only inside `data` and `render`.
 
-- `path`, `options`, and error `code` metadata are static and compiler-readable
-- route behavior such as `auth`, `layout`, `static`, or `redirectLogged` lives in the options object
-- every key returned from `data` becomes page data
-- runtime app/client references are allowed only inside `data` and `render`
-
-## Example: Controller
-
-Proteum controllers are explicit request entrypoints.
+### Controllers — typed request entrypoints
 
 ```ts
 import { defineAction, defineController, schema } from '@generated/server/controller';
@@ -293,53 +129,16 @@ export default defineController({
         email: schema.string().email(),
         password: schema.string().min(8),
       }),
-      handler: ({ input, services, request }) => {
-        return services.Auth.loginWithPassword(input, request);
-      },
+      handler: ({ input, services, request }) =>
+        services.Auth.loginWithPassword(input, request),
     }),
   },
 });
 ```
 
-Controller rules:
+Validation lives next to the handler. Business logic is reached through `services`, `models`, or `app` — never ambient globals.
 
-- read request-scoped values from action context
-- declare validation once with `defineAction({ input, handler })`
-- call business logic through `services`, `models`, or `app`
-- return explicit values instead of relying on ambient globals
-
-## Example: Command
-
-Proteum commands are explicit dev-only internal entrypoints.
-
-```ts
-import { Commands } from '@server/app/commands';
-
-export default class DiagnosticsCommands extends Commands {
-  public async ping() {
-    const { Stats } = this.services;
-
-    return {
-      app: this.app.identity.identifier,
-      domains: await Stats.general(),
-    };
-  }
-}
-```
-
-Command rules:
-
-- files live under `commands/**/*.ts`
-- each file default-exports a class extending `Commands` from `@server/app/commands`
-- methods with bodies become generated dev commands
-- command path comes from the file path plus the method name
-- `export const commandPath = 'Custom/path'` can override the base path when needed
-- `commands/tsconfig.json` and `.proteum/server/commands.d.ts` give `/commands` its own dev-only alias and app typing surface
-- commands run only in dev contexts: `proteum command ...`, the dev profiler, or dev-only `__proteum/commands` endpoints
-
-## Example: Service
-
-Proteum services keep business logic out of request handlers.
+### Services — business logic, request-free
 
 ```ts
 import Service from '@server/app/service';
@@ -347,361 +146,176 @@ import Service from '@server/app/service';
 export default class StatsService extends Service<Config, {}, MyApp, MyApp> {
   public async general() {
     return {
-      totalDomains: await this.models.SQL`SELECT COUNT(*) FROM domains`.value(),
+      // Prisma first: typed model access on this.models
+      totalDomains: await this.models.domain.count(),
       tlds: Object.keys(this.app.Domains.tlds).length,
+      // Need raw SQL? It's right there as an escape hatch:
+      // await this.models.SQL`SELECT COUNT(*) FROM domains`.value()
     };
   }
 }
 ```
 
-Service rules:
+### Application — the explicit composition root
 
-- services extend `Service`
-- request context should be resolved in controllers, then passed into services as explicit values
-- services can use `this.services`, `this.models`, and `this.app`
+```ts
+// server/index.ts — the canonical type root for services, router, models, and commands
+import { defineApplication } from '@server/app';
 
-## Framework-Owned Generated Contracts
+export default defineApplication({
+  services: createServices, // (app) => ({ Users: new Users(...) })
+  router: createRouter,      // (app) => new Router(...)
+});
+```
 
-Proteum generates a machine-readable app description in `.proteum/`.
+Proteum reads `server/index.ts` as the single source of truth for installed root services and router plugins — there is no hidden registry.
 
-Typical generated artifacts:
+## 🧠 Built for AI Agents
 
-- `.proteum/manifest.json`
-- `.proteum/client/routes.ts`
-- `.proteum/client/controllers.ts`
-- `.proteum/client/layouts.ts`
-- `.proteum/common/controllers.ts`
-- `.proteum/server/commands.ts`
-- `.proteum/server/routes.ts`
-- `.proteum/server/controllers.ts`
+This is where Proteum is different. The compiler emits a machine-readable description of your app into `.proteum/`, and **every tool reads the same snapshot** — the CLI, the dev-only HTTP endpoints, the profiler, and a Model Context Protocol server.
 
-These files are not hand-written application code. They are deterministic outputs derived from your app source and used by the runtime, the compiler, and tooling.
+```mermaid
+flowchart LR
+  subgraph src["Your source"]
+    P["pages/**"]
+    C["controllers/**"]
+    S["services/**"]
+    A["server/index.ts"]
+  end
+  src --> CMP["Proteum compiler"]
+  CMP --> GEN[".proteum/<br/>manifest + contracts"]
+  GEN --> RT["SSR runtime"]
+  GEN --> CLI["CLI<br/>explain · doctor · diagnose"]
+  GEN --> PROF["Dev profiler"]
+  GEN --> MCP["MCP server<br/>/__proteum/mcp"]
+  MCP -.->|projectId-routed reads| AGENT(("AI agent"))
+  CLI -.->|compact JSON| AGENT
+```
 
-This is one of Proteum's most important properties: the framework can explain what it discovered instead of asking you to guess.
+An agent — or you — can ask the framework directly:
 
-## CLI
+| Question | Command |
+| --- | --- |
+| Which controller owns this request? | `proteum explain owner /api/Auth/CurrentUser` |
+| What did the framework detect? | `proteum doctor --json` |
+| Why is this route failing? | `proteum diagnose /dashboard` |
+| Where is the time going? | `proteum perf request /dashboard` |
+| What happened in the last request? | `proteum trace latest` |
 
-Proteum ships with a compact CLI focused on the real app lifecycle:
+**Why agents work well here:**
+
+- **One MCP entry point.** `proteum mcp` runs a machine-scope router; `proteum dev` exposes each app at `/__proteum/mcp`. An agent calls `workflow_start`, gets a stable `projectId`, and routes every follow-up read to the right app.
+- **Token-efficient output.** Diagnostics default to compact `proteum-agent-v1` JSON — decision-ready summaries first, raw detail only behind `--full`, `--manifest`, or `--events`.
+- **Generated instruction files.** `proteum configure agents` writes managed `AGENTS.md` / `CLAUDE.md` instruction routers, kept in sync on every `proteum dev` start.
+- **Auth without UI automation.** `proteum session <email> --role ADMIN` mints a dev session (token + Playwright-ready cookie) so agents and E2E suites skip the login flow.
+
+> Full agent contract: [docs/mcp.md](docs/mcp.md), [docs/diagnostics.md](docs/diagnostics.md), and [docs/agent-routing.md](docs/agent-routing.md).
+
+## 📊 Diagnostics & Observability
+
+Proteum ships one request-instrumentation system with two shapes: a retained **dev trace** buffer and a reduced request-local **profiling** snapshot.
+
+- **`proteum trace`** — live, in-memory traces for auth, routing, controller, context, SSR, API, Prisma SQL, and render, with sensitive fields redacted and payloads summarized.
+- **`proteum perf`** — aggregates those same traces into hot paths, one-request waterfalls, regression comparisons, and memory-drift views.
+- **Dev profiler** — the panel during `proteum dev` renders `Summary`, `Auth`, `Routing`, `Controller`, `SSR`, `API`, `SQL`, `Errors`, `Perf`, and more as visual charts over the same live contracts.
+
+```bash
+proteum trace arm --capture deep        # force the next request into deep capture
+proteum perf top --since today          # rank the hottest traced paths
+proteum perf compare --baseline yesterday --target today --group-by route
+```
+
+> Full guide: [docs/request-tracing.md](docs/request-tracing.md).
+
+## 🛠️ The CLI
+
+A compact CLI focused on the real app lifecycle.
 
 | Command | Purpose |
 | --- | --- |
-| `proteum dev` | Start the compiler, SSR server, and hot reload loop |
+| `proteum dev` | Compiler + SSR server + hot-reload loop, with a live profiler |
+| `proteum build --prod` | Production server & client bundles into `bin/` (`--analyze` for bundle reports) |
 | `proteum refresh` | Regenerate `.proteum` contracts and typings |
-| `proteum typecheck` | Refresh generated typings, then run TypeScript |
-| `proteum lint` | Run ESLint for the current app |
 | `proteum check` | Refresh, typecheck, and lint in one command |
-| `proteum build --prod` | Produce the production server and client bundles into `bin/`, with optional static or served bundle analysis |
-| `proteum connect` | Inspect connected-project sources, env, cached contracts, and imported controllers |
+| `proteum create` | Scaffold a page, controller, command, route, or service |
+| `proteum init` | Scaffold a new app from deterministic templates |
+| `proteum explain` | Inspect routes, controllers, services, layouts, env, and connected projects |
 | `proteum doctor` | Inspect manifest diagnostics |
-| `proteum explain` | Explain routes, controllers, services, layouts, conventions, env, and connected projects |
-| `proteum diagnose` | Combine owner lookup, diagnostics, trace data, and server logs for one concrete route or request target |
-| `proteum perf` | Aggregate request-trace performance into hot paths, one-request waterfalls, regressions, and memory drift views |
-| `proteum trace` | Inspect live dev-only request traces from the running SSR server |
-| `proteum mcp` | Start, inspect, or attach to the machine-scope MCP router that routes live app reads by `projectId` |
-| `proteum command` | Run a dev-only internal command locally or against a running dev server |
-| `proteum session` | Mint a dev-only auth session token and Playwright-ready cookie payload |
-| `proteum e2e` | Run Playwright with Proteum-managed `E2E_*` values instead of shell-leading env assignments |
-| `proteum verify` | Validate targeted changed-file checks, focused owner/request/browser workflows, or the full framework reference-app pass |
-| `proteum init` | Scaffold a new Proteum app with built-in deterministic templates |
-| `proteum configure agents` | Interactively configure tracked Proteum instruction files and Claude aliases |
-| `proteum create` | Scaffold a page, controller, command, route, or root service inside an app |
-| `proteum worktree` | Create or initialize Codex worktrees with a machine-readable bootstrap marker |
+| `proteum diagnose` | Owner + diagnostics + traces + logs for one route or request |
+| `proteum perf` / `proteum trace` | Performance roll-ups and live request traces |
+| `proteum mcp` | Machine-scope MCP router for live app reads |
+| `proteum connect` | Inspect connected-project sources, env, and imported controllers |
+| `proteum session` / `proteum e2e` | Dev auth bootstrap and Playwright runs without shell env juggling |
+| `proteum verify` | Targeted change checks or the full reference-app pass |
 
-Recommended daily workflow:
+Run `proteum --help` or `proteum help <command>` for the full reference.
 
-```bash
-proteum dev
-proteum refresh
-proteum check
-proteum verify changed --dry-run
-proteum build --prod
-proteum build --prod --analyze
-proteum build --prod --analyze --analyze-serve --analyze-port auto
+## 🏗️ Project Structure
+
+```text
+my-app/
+├─ identity.config.ts      # typed app identity, locale, and SEO defaults
+├─ proteum.config.ts       # compiler + connected-project settings
+├─ client/
+│  ├─ pages/               # SSR page entrypoints (definePageRoute)
+│  ├─ islands/             # interactive client islands
+│  ├─ components/
+│  └─ services/
+├─ server/
+│  ├─ index.ts             # defineApplication — the app graph
+│  ├─ controllers/         # defineController + defineAction
+│  ├─ services/            # business logic (extends Service)
+│  └─ config/
+├─ common/                 # shared router contracts, models, errors
+├─ commands/               # dev-only internal commands
+└─ .proteum/               # framework-owned generated contracts (do not edit)
 ```
 
-Only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the banner. `proteum dev` is the only command that clears the interactive terminal before rendering its live session UI, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys, and prints connected app names plus successful connected `/ping` checks in the server-ready banner. Every `proteum dev` start ensures tracked Proteum instruction files contain the current managed `# Proteum Instructions` section and `CLAUDE.md` symlinks point to sibling `AGENTS.md` files before the dev loop begins.
+## 📚 Documentation
 
-Useful inspection commands:
+| Topic | Guide |
+| --- | --- |
+| Diagnostics & explainability | [docs/diagnostics.md](docs/diagnostics.md) |
+| Model Context Protocol (MCP) | [docs/mcp.md](docs/mcp.md) |
+| Request tracing & perf | [docs/request-tracing.md](docs/request-tracing.md) |
+| Agent routing & token efficiency | [docs/agent-routing.md](docs/agent-routing.md) |
+| Dev commands | [docs/dev-commands.md](docs/dev-commands.md) |
+| Dev sessions | [docs/dev-sessions.md](docs/dev-sessions.md) |
+| Migrating to 2.5 | [docs/migration-2.5.md](docs/migration-2.5.md) |
 
-```bash
-proteum doctor
-proteum doctor --contracts
-proteum doctor --json
-proteum connect
-proteum connect --controllers
-proteum connect --strict
-proteum explain
-proteum explain owner /api/Auth/CurrentUser
-proteum explain --routes --controllers --commands
-proteum explain --routes --controllers --commands --full
-proteum explain --connected --controllers
-proteum explain --all --full
-proteum diagnose /
-proteum diagnose /dashboard --port 3101
-proteum perf top --since today
-proteum perf request /dashboard --port 3101
-proteum perf compare --baseline yesterday --target today --group-by route
-proteum perf memory --since 1h --group-by controller
-proteum mcp
-proteum mcp status
-proteum command proteum/diagnostics/ping
-proteum command proteum/diagnostics/ping --port 3101
-proteum session admin@example.com --role ADMIN --port 3101
-proteum session god@example.com --role GOD --json
-proteum e2e --port 3101 --session-email admin@example.com --session-role ADMIN tests/e2e/features/admin.spec.ts
-proteum trace requests
-proteum trace arm --capture deep
-proteum trace latest
-```
+## 🧭 Philosophy
 
-Useful scaffolding commands:
+Proteum is opinionated on purpose. It intentionally **avoids** the patterns that make frameworks hard to inspect and hard to trust:
 
-```bash
-proteum init my-app --name "My App"
-proteum init my-app --name "My App" --dry-run --json
-proteum configure agents
-proteum worktree init --source /path/to/main-app
-proteum worktree create /path/to/.codex/worktrees/feature --source /path/to/main-app --branch feature/name
-proteum create page marketing/faq --route /faq
-proteum create controller Founder/projects --method list
-proteum create service Conversion/Plans
-```
+- ❌ hidden runtime globals
+- ❌ implicit service registration behind bootstrap helpers
+- ❌ request state smuggled into business services
+- ❌ validation defined far from its handler
+- ❌ routing you cannot explain without reading the compiler
+- ❌ generated code that hides where it came from
 
-`proteum configure agents` writes a compact managed `# Proteum Instructions` router plus the task-specific instruction files that router points to. Standalone mode writes root documents into the app root; monorepo mode writes shared root documents such as `AGENTS.md`, `DOCUMENTATION.md`, `CODING_STYLE.md`, `diagnostics.md`, and `optimizations.md` into the chosen monorepo root and keeps only app-local instruction files in the Proteum app root. For each generated `AGENTS.md`, it creates a sibling `CLAUDE.md` symlink pointing to `AGENTS.md`. It preserves content outside managed sections and asks before replacing directories, foreign symlinks, or unrelated files. If you decline, that path is left untouched.
+In their place: explicit definition objects, a single canonical app graph, validation at the edge, and deterministic generation you can read, diff, and trace back to source.
 
-Every `proteum dev` start runs the same idempotent instruction check. It updates missing or stale managed sections automatically and prompts only when a blocked path would need to be replaced.
+## 🧰 Built With
 
-`proteum worktree init` writes `.proteum/worktree-bootstrap.json` for app roots under `/.codex/worktrees/`. The marker records `.env` copy status, refresh and dependency results, runtime status, key file hashes, and the active Proteum version. In monorepos with root tooling such as `prisma.config.ts` or npm workspaces, bootstrap also ensures the workspace-root `.env` exists, copying the source root `.env` when available or falling back to the source app `.env`. `proteum dev`, `proteum refresh`, `proteum runtime status`, `proteum verify`, and MCP `workflow_start` block inside Codex worktrees until the marker is fresh. Run `npx proteum worktree init --source <source-app-root>` for a new worktree, or add `--refresh` when stale state is reported. `PROTEUM_ALLOW_UNBOOTSTRAPPED_WORKTREE=1` bypasses the block but remains visible in runtime status, doctor, and MCP output.
+[TypeScript](https://www.typescriptlang.org/) · [Preact](https://preactjs.com/) / [React 19](https://react.dev/) · [Express](https://expressjs.com/) · [Prisma 7](https://www.prisma.io/) · [rspack](https://rspack.dev/) · [Tailwind CSS 4](https://tailwindcss.com/) · [Zod](https://zod.dev/) · [Ink](https://github.com/vadimdemedes/ink) · [Model Context Protocol](https://modelcontextprotocol.io/)
 
-`proteum connect`, `proteum explain`, `proteum doctor`, and `proteum diagnose` share the same generated manifest and contract state. `proteum perf` uses the same dev request-trace store as the profiler `Perf` tab. `proteum runtime status` also inspects the configured router/HMR ports and returns an exact Start Dev action, so agents do not need to `curl` page routes to identify port owners. `proteum dev` exposes the app-root MCP contract at `/__proteum/mcp` and ensures one managed machine MCP daemon is running; `proteum mcp` is the machine-scope router agents register once. Agents should start with MCP `workflow_start`, use offline candidates and `data.readiness` to choose and prepare the correct app root when no dev server is live, then route repeated reads by the returned live `projectId`. For the full diagnostics and tracing model, see [docs/diagnostics.md](docs/diagnostics.md), [docs/mcp.md](docs/mcp.md), and [docs/request-tracing.md](docs/request-tracing.md).
+## 🤝 Contributing
 
-## Dev Commands
+Issues and pull requests are welcome. Proteum is actively hardening its explicit model, and the direction is deliberate: fewer ways to do the same thing, more contracts the framework can explain on its own.
 
-Proteum includes a dev-only command surface for internal testing, debugging, and one-off execution that should not become a normal controller or route.
+When proposing a change, start from a concrete mismatch or risk visible in a real app, show the target API with realistic client/server usage, and keep generated code deterministic and auditable.
 
-- commands live under `./commands/**/*.ts`
-- each file default-exports a class extending `Commands` from `@server/app/commands`
-- each method is addressed by `file/path/methodName`
-- Proteum creates `commands/tsconfig.json` when the folder exists so command files inherit the server alias/type project
-- `proteum command foo/bar` refreshes generated artifacts, builds the dev output, starts a temporary local dev server, runs the command, prints the result, and exits
-- `proteum command foo/bar --port 3101` runs the same command against an existing `proteum dev` instance
-- the dev profiler exposes the same command list and run action through the `Commands` tab
-- the same profiler also exposes `Explain`, `Doctor`, and `Diagnose` tabs backed by the same diagnostics contract as the CLI
+## 💜 Sponsors
 
-Proteum itself also ships a small built-in diagnostic command at `proteum/diagnostics/ping`, so the command surface is never empty in dev.
+Proteum is proudly sponsored by **[Unique Domains](https://unique.domains/?utm_source=github&utm_medium=referral&utm_campaign=repo_proteum&utm_content=top_sponsor)**.
 
-## Dev Sessions
+<p>
+  <a href="https://unique.domains/?utm_source=github&utm_medium=referral&utm_campaign=repo_proteum&utm_content=top_sponsor">
+    <img src="docs/assets/unique-domains-chip.png" alt="Unique Domains" />
+  </a>
+</p>
 
-Proteum includes a dev-only auth bootstrap command for browser automation, API probes, and protected-route debugging without driving the login UI.
+## 📄 License
 
-- `proteum session <email>` mints a session for a known user
-- `--role <role>` asserts that the resolved user has the expected role before returning the session
-- `--port <port>` or `--url <baseUrl>` targets an existing `proteum dev` server
-- without `--port` or `--url`, Proteum starts a temporary local dev server, creates the session, prints the payload, and exits
-- output includes the raw token, a `Cookie:` header, and a Playwright-ready `cookies` payload
-- prefer this command when an LLM or test runner needs an authenticated dev context
-- do not use it when the login flow itself is what you are testing
-
-Typical usage:
-
-```bash
-proteum session admin@example.com --role ADMIN --port 3101
-proteum session god@example.com --role GOD --json
-```
-
-The CLI talks to the running app over the dev-only `__proteum/session/start` endpoint and uses the auth service registered on the current app router. For the full guide, see [docs/dev-sessions.md](docs/dev-sessions.md).
-
-## Request Tracing
-
-Proteum includes a dev-only in-memory request trace buffer for auth, routing, controller, context, SSR, API, Prisma SQL, and render debugging.
-
-This is separate from `proteum explain` and `proteum doctor`: tracing is live request-time data, while explain/doctor are manifest-backed structure and diagnostics. `proteum perf` aggregates the same trace buffer into hot-path, waterfall, compare, and memory views. When you already know the failing path and want the fastest suspect list, start with `proteum diagnose`; when the issue is performance, start with `proteum perf`; then drop into raw trace output only if needed. When an agent needs repeated trace, perf, diagnose, status, owner, or instruction-routing reads from the same running app, use machine MCP `workflow_start`, then pass the returned `projectId` to follow-up app-bound MCP tools.
-
-When diagnosing or testing against an app, first read the default port from `PORT` or `./.proteum/manifest.json` and check whether a server is already running there. If it is, inspect the existing traces before reproducing the issue so you can collect past errors and their context.
-
-- `proteum trace requests`: list the most recent request summaries
-- `proteum trace latest`: show the latest captured request
-- `proteum trace show <requestId>`: inspect one trace in detail
-- `proteum trace arm --capture deep`: force the next request into deep capture mode
-- `proteum trace export <requestId>`: write one trace to disk
-- `proteum trace latest --url http://127.0.0.1:3010`: target a non-standard dev base URL directly
-- `proteum diagnose /dashboard --port 3101`: combine owner lookup, diagnostics, trace summary, and buffered logs for one concrete path
-- `proteum perf top --since today`: rank the hottest traced paths in the selected window
-- `proteum perf request /dashboard --port 3101`: inspect one traced request with stage timings, CPU, SQL, render, and memory deltas
-- `proteum perf compare --baseline yesterday --target today --group-by route`: compare regression deltas between two windows
-- `proteum perf memory --since 1h --group-by controller`: rank recent heap and RSS drift
-
-Trace summaries include `sql=<count>`. Detailed trace output includes `Calls` and `SQL` sections so API/fetcher activity and Prisma queries can be inspected together.
-
-Default behavior:
-
-- tracing is enabled only in `profile: dev`
-- traces live in memory and are bounded by `TRACE_REQUESTS_LIMIT` and `TRACE_EVENTS_LIMIT`
-- payloads are summarized, long strings are truncated, and sensitive fields such as cookies, passwords, and tokens are redacted
-- `TRACE_PERSIST_ON_ERROR` can export crashing requests under `var/traces/`
-- `proteum dev` removes auto-persisted crash traces from `var/traces/` when the dev session stops
-- `ENABLE_PROFILER=true` reuses the same instrumentation path to populate `request.profiling` and the router `request.finished` hook with a reduced request/API/SQL snapshot in any environment, without retaining finished requests in the global trace buffer unless dev trace is also enabled
-
-Trace env example:
-
-```bash
-export TRACE_ENABLE=true
-export TRACE_REQUESTS_LIMIT=200
-export TRACE_EVENTS_LIMIT=800
-export TRACE_CAPTURE=resolve
-export TRACE_PERSIST_ON_ERROR=true
-export ENABLE_PROFILER=true
-```
-
-Capture modes:
-
-- `summary`: request lifecycle plus high-signal events
-- `resolve`: adds auth, route resolution, and controller/context steps
-- `deep`: adds route skip reasons and deeper payload summaries for one request investigation
-
-In the dev profiler, the request-trace tabs are now visual as well as textual: `Summary`, `Auth`, `Routing`, `Controller`, `SSR`, `API`, `SQL`, `Errors`, `Diagnose`, `Explain`, `Doctor`, `Commands`, and `Cron` all add focused charts over the same live contracts, while `Perf` remains the aggregated hot-path, breakdown, regression, and memory surface exposed by `proteum perf`.
-
-The trace and perf CLIs talk to the running dev server over the dev-only `__proteum/trace` and `__proteum/perf` HTTP endpoints. Use `--port` for a different local port or `--url` when the host itself is non-standard. For the full guide, see [docs/request-tracing.md](docs/request-tracing.md).
-
-## LLM-Friendly By Design
-
-Proteum is built so an agent can answer these questions quickly and reliably:
-
-- What is this app called, and what are its SEO defaults?
-- Which routes exist?
-- Which controller handles a request?
-- Which services are installed?
-- Which layouts exist?
-- Which diagnostics did the framework detect?
-
-Proteum answers those questions with explicit artifacts:
-
-- `identity.config.ts` for app identity
-- `proteum.config.ts` for compiler and connected-project setup
-- `PORT`, `ENV_*`, `URL`, `URL_INTERNAL`, app-chosen connected-project config values, `TRACE_*`, and `ENABLE_PROFILER` env vars for the environment surface
-- `server/index.ts` for the explicit root service graph
-- `.proteum/manifest.json` for machine-readable app structure
-- `proteum explain` for compact framework introspection, and `proteum explain --manifest` when the full manifest is required
-- `proteum doctor --json` for structured diagnostics
-- `proteum doctor --contracts --json` for generated-artifact and manifest-owned file checks
-- `proteum explain owner <query>` for fast ownership lookup over routes, controllers, files, and generated artifacts
-- `proteum diagnose <path>` for a one-shot request diagnosis surface
-- `proteum perf top|request|compare|memory` for request-trace performance rollups
-- `proteum mcp` for one managed machine-scope MCP router that starts with `workflow_start` and routes repeated low-token agent reads by `projectId`
-- `/__proteum/mcp` from a running `proteum dev` server as the app-root runtime endpoint behind that router
-- the profiler `Explain`, `Doctor`, `Diagnose`, and `Perf` tabs for a human-readable view over the same diagnostics and trace-derived perf contracts
-- `proteum command ...` plus the profiler `Commands` tab for dev-only internal execution
-- `proteum session ...` for explicit authenticated dev browser or API bootstrapping without login UI automation
-- `proteum e2e ...` for Playwright runs that need `E2E_BASE_URL`, `E2E_PORT`, or `E2E_AUTH_TOKEN` without shell-leading env assignments
-
-If you are an LLM or automation agent, start here:
-
-1. Use `proteum mcp` as the one registered MCP server; `proteum dev` ensures the managed machine daemon is running.
-2. Call MCP `workflow_start` with `cwd` or a known `projectId`; if it is ambiguous or returns offline app candidates, use `project_resolve { cwd }`, choose the intended app root, follow its fresh-copy readiness and port-inspected next actions when needed, then retry `workflow_start`.
-3. If `workflow_start` returns `data.readiness.state="blocked"`, resolve the returned setup actions first. The read-only readiness preflight covers app/root `.env`, dependency install root, generated manifest state, local connected producer apps, Prisma/client readiness, redacted database URL shape, local database TCP reachability, and exact safe setup commands.
-4. If the app root is inside `/.codex/worktrees/` and `workflow_start` or a guarded CLI command reports missing/stale bootstrap, run the returned `npx proteum worktree init --source <source-app-root>` command before runtime reads.
-5. Use the returned live `projectId` with MCP `runtime_status`, `orient`, `instructions_resolve`, `route_candidates`, `explain_summary`, `diagnose`, `trace_show`, `perf_request`, and `logs_tail` before CLI equivalents for repeated read-only app state.
-6. Treat returned instruction previews as the allowed scope for read-only discovery and diagnostics. Read full file contents only before edits or git writes, when `fullRead`/`fullReadPolicy` requires it, or when compact previews are insufficient.
-7. Use compact CLI commands for fallback, `dev`, `build`, `check`, `verify`, migrations, E2E, and final reproducible terminal evidence.
-8. Use `proteum diagnose`, `proteum perf`, and compact `proteum trace` for reproducible command evidence when MCP is unavailable or the terminal output itself is needed.
-9. If machine MCP routing fails, run `proteum mcp status` and `proteum runtime status` from the intended app root; if no live session exists, use the exact MCP offline or runtime-status next action. If the same app already responds on the configured port without live tracking, use or repair that runtime instead of starting another server. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again and retry `workflow_start`. Do not run diagnose, trace, or perf reads while runtime health is unreachable, and do not `curl` normal page routes to identify port ownership.
-10. Inspect `server/index.ts`, controllers, services, or pages only after the routing/diagnostic surfaces identify the relevant owner. Do not run broad owner searches after MCP already returned the route/page/controller owner.
-11. If the task touches a protected route or controller in dev and login UX is not the feature under test, use `proteum e2e --session-email <email> --session-role <role>` for Playwright suites or `proteum session <email> --role <role>` before direct HTTP calls.
-
-For implementation rules in a real Proteum app, treat the routed local `AGENTS.md` files plus `proteum orient`, compact CLI diagnostics, and MCP repeated-read surfaces as the task contract. This README is the framework overview, not the project-local instruction layer.
-
-## What Proteum Avoids
-
-Proteum intentionally avoids several patterns that make frameworks harder to inspect and harder to trust:
-
-- hidden runtime globals
-- implicit service registration hidden behind bootstrap helpers
-- implicit request state inside business services
-- controller validation defined far away from the handler
-- route systems that cannot be explained without reading the compiler
-- generated code that hides where it came from
-
-## Real-World Shape
-
-Proteum is already used on large application surfaces with:
-
-- many controllers and services
-- SSR landing pages and authenticated app pages
-- generated controller accessors injected into page context
-- build, typecheck, lint, and diagnostic workflows run from the CLI
-
-In real apps, the common `package.json` scripts look like this:
-
-```json
-{
-  "scripts": {
-    "dev": "proteum dev",
-    "refresh": "proteum refresh",
-    "typecheck": "proteum typecheck",
-    "check": "proteum check",
-    "build": "proteum build --prod",
-    "start": "node ./bin/server.js"
-  }
-}
-```
-
-## Installation
-
-Proteum currently targets:
-
-- Node.js `>=20.19.0`
-- npm `>=3.10.10`
-
-Install in an app:
-
-```bash
-npm install proteum
-```
-
-You can bootstrap a new app with:
-
-```bash
-npx proteum init my-app --name "My App"
-npx proteum init my-app --name "My App" --dry-run --json
-```
-
-Then use the normal workflow:
-
-```bash
-npm install
-npx proteum configure agents
-npx proteum dev
-npx proteum check
-npx proteum build --prod
-```
-
-## Migrating To 2.5
-
-Proteum 2.5 removes the old contextual route/controller magic. Apps migrate by replacing ambient `@app` imports, top-level `Router.*(...)` route calls, controller classes, and `Application` subclasses with explicit definition objects and typed runtime callback parameters.
-
-Use [the 2.5 migration guide](docs/migration-2.5.md) for the full checklist.
-
-## Repository Structure
-
-This repository is organized around the same explicit framework surface it exposes:
-
-- `cli/`: compiler, commands, diagnostics, and developer workflow
-- `client/`: client runtime, page registration, islands, and router behavior
-- `server/`: controller base classes, services, runtime, and SSR server behavior
-- `common/`: shared router contracts, models, request/response types, and utilities
-- `docs/`: focused design notes and internal documentation
-- `agents/`: agent-specific conventions and scaffolding used in Proteum-based projects
-
-## Status
-
-Proteum is actively hardening its explicit model.
-
-The direction is deliberate:
-
-- less runtime magic
-- more generated and auditable contracts
-- clearer controller and service boundaries
-- better SSR, SEO, and explainability defaults
-- better ergonomics for both humans and AI agents
-
-If you want a framework that treats machine-readable architecture as a first-class feature, Proteum is what this repository is building.
+[MIT](./LICENSE) © [Gaetan Le Gac](https://github.com/gaetanlegac)
