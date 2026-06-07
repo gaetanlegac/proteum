@@ -514,16 +514,6 @@ const profilerStyles = `
     color: var(--profiler-muted);
 }
 
-.proteum-profiler__requestWorkspace {
-    display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 420px);
-    gap: 0;
-    align-items: stretch;
-    min-height: 100%;
-    height: 100%;
-    max-height: 100%;
-}
-
 .proteum-profiler__splitView {
     display: grid;
     grid-template-columns: minmax(0, 1.35fr) minmax(320px, 420px);
@@ -604,6 +594,12 @@ const profilerStyles = `
     scrollbar-width: thin;
 }
 
+.proteum-profiler__sidebarCharts {
+    display: grid;
+    gap: 0;
+    min-width: 0;
+}
+
 .proteum-profiler__titleRow {
     padding: 8px 10px;
     background: var(--profiler-title-row-bg);
@@ -679,13 +675,6 @@ const profilerStyles = `
     background: transparent !important;
 }
 
-.proteum-profiler__chartGrid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0;
-    border-top: 1px solid var(--profiler-line);
-}
-
 .proteum-profiler__chartCard {
     display: grid;
     align-content: start;
@@ -695,6 +684,10 @@ const profilerStyles = `
 }
 
 .proteum-profiler__chartCard:nth-child(2n + 1) {
+    border-left: none;
+}
+
+.proteum-profiler__sidebarCharts > .proteum-profiler__chartCard {
     border-left: none;
 }
 
@@ -771,10 +764,6 @@ const profilerStyles = `
         overflow: auto;
     }
 
-    .proteum-profiler__chartGrid {
-        grid-template-columns: 1fr;
-    }
-
     .proteum-profiler__chartCard {
         border-left: none;
     }
@@ -785,13 +774,6 @@ const profilerStyles = `
 
     .proteum-profiler__select {
         min-width: 132px;
-    }
-
-    .proteum-profiler__requestWorkspace {
-        grid-template-columns: 1fr;
-        min-height: 0;
-        height: auto;
-        max-height: none;
     }
 
     .proteum-profiler__splitView {
@@ -1622,7 +1604,7 @@ const ApiPanel = ({ session }: { session: TProfilerNavigationSession }) => {
             tags: [trace.status, ...(trace.requestId ? [`request:${trace.requestId}`] : [])],
         }));
     const requestItems = [...syncItems, ...asyncItems];
-    const [selectedRequestId, setSelectedRequestId] = React.useState<string | undefined>(() => requestItems[0]?.id);
+    const [selectedRequestId, setSelectedRequestId] = React.useState<string | undefined>();
     const endpointDurationChart = buildHorizontalBarChartOptions({
         color: profilerChartTheme.blue,
         entries: buildDurationEntries(
@@ -1652,103 +1634,108 @@ const ApiPanel = ({ session }: { session: TProfilerNavigationSession }) => {
     });
 
     React.useEffect(() => {
-        if (requestItems.some((item) => item.id === selectedRequestId)) return;
-        setSelectedRequestId(requestItems[0]?.id);
+        if (!selectedRequestId || requestItems.some((item) => item.id === selectedRequestId)) return;
+        setSelectedRequestId(undefined);
     }, [requestItems, selectedRequestId]);
 
+    const toggleRequestSelection = React.useCallback((requestId: string) => {
+        setSelectedRequestId((currentRequestId: string | undefined) => (currentRequestId === requestId ? undefined : requestId));
+    }, []);
+
     const waterfallItems = buildApiWaterfallItems(requestItems);
-    const selectedItem = requestItems.find((item) => item.id === selectedRequestId) || requestItems[0];
+    const selectedItem = selectedRequestId ? requestItems.find((item) => item.id === selectedRequestId) : undefined;
 
     return (
-        <div className="proteum-profiler__requestWorkspace">
-            <div className="proteum-profiler__splitColumn">
-                <div className="proteum-profiler__chartGrid">
-                    <ChartSection
-                        emptyLabel="No API request timings were captured for this session."
-                        options={endpointDurationChart}
-                        subtitle="Rank the most expensive endpoints across synchronous and async requests."
-                        title="Hot Endpoints"
-                    />
-                    <ChartSection
-                        emptyLabel="No API origin timings were captured for this session."
-                        options={originWorkloadChart}
-                        subtitle="Compare time spent in SSR fetchers, batch fetchers, and client async calls."
-                        title="Origin Mix"
-                    />
-                    <ChartSection
-                        emptyLabel="No API status information was captured for this session."
-                        options={statusCountChart}
-                        subtitle="Spot failures or pending requests without scanning every row."
-                        title="Status Spread"
-                    />
+        <ProfilerSplitLayout
+            sidebar={
+                selectedItem ? (
+                    <ApiRequestSidebar item={selectedItem} />
+                ) : (
+                    <ChartSidebar eyebrow="API charts" title="API overview">
+                        <ChartSection
+                            emptyLabel="No API request timings were captured for this session."
+                            options={endpointDurationChart}
+                            subtitle="Rank the most expensive endpoints across synchronous and async requests."
+                            title="Hot Endpoints"
+                        />
+                        <ChartSection
+                            emptyLabel="No API origin timings were captured for this session."
+                            options={originWorkloadChart}
+                            subtitle="Compare time spent in SSR fetchers, batch fetchers, and client async calls."
+                            title="Origin Mix"
+                        />
+                        <ChartSection
+                            emptyLabel="No API status information was captured for this session."
+                            options={statusCountChart}
+                            subtitle="Spot failures or pending requests without scanning every row."
+                            title="Status Spread"
+                        />
+                        <WaterfallChart
+                            emptyLabel="No API requests were captured for this session."
+                            itemLabel="request"
+                            items={waterfallItems}
+                            onSelect={(requestId) => setSelectedRequestId(requestId)}
+                        />
+                    </ChartSidebar>
+                )
+            }
+        >
+            <div className="proteum-profiler__requestGroups">
+                <div className="proteum-profiler__requestGroup">
+                    <div className="proteum-profiler__requestGroupHeader">
+                        <div className="proteum-profiler__sectionTitle">Synchronous calls</div>
+                        <div className="proteum-profiler__requestGroupCount">
+                            {syncItems.length} item{syncItems.length === 1 ? '' : 's'}
+                        </div>
+                    </div>
+
+                    {syncItems.length === 0 ? (
+                        <div className="proteum-profiler__empty">No synchronous SSR or batched API calls captured.</div>
+                    ) : (
+                        <div className="proteum-profiler__list">
+                            {syncItems.map((item) => (
+                                <ApiRequestListEntry
+                                    isSelected={item.id === selectedRequestId}
+                                    item={item}
+                                    key={item.id}
+                                    onSelect={() => toggleRequestSelection(item.id)}
+                                />
+                            ))}
+                        </div>
+                    )}
                 </div>
 
-                <WaterfallChart
-                    emptyLabel="No API requests were captured for this session."
-                    itemLabel="request"
-                    items={waterfallItems}
-                    onSelect={setSelectedRequestId}
-                />
-
-                <div className="proteum-profiler__requestGroups">
-                    <div className="proteum-profiler__requestGroup">
-                        <div className="proteum-profiler__requestGroupHeader">
-                            <div className="proteum-profiler__sectionTitle">Synchronous calls</div>
-                            <div className="proteum-profiler__requestGroupCount">
-                                {syncItems.length} item{syncItems.length === 1 ? '' : 's'}
-                            </div>
+                <div className="proteum-profiler__requestGroup">
+                    <div className="proteum-profiler__requestGroupHeader">
+                        <div className="proteum-profiler__sectionTitle">Async requests</div>
+                        <div className="proteum-profiler__requestGroupCount">
+                            {asyncItems.length} item{asyncItems.length === 1 ? '' : 's'}
                         </div>
-
-                        {syncItems.length === 0 ? (
-                            <div className="proteum-profiler__empty">No synchronous SSR or batched API calls captured.</div>
-                        ) : (
-                            <div className="proteum-profiler__list">
-                                {syncItems.map((item) => (
-                                    <ApiRequestListEntry
-                                        isSelected={item.id === selectedItem?.id}
-                                        item={item}
-                                        key={item.id}
-                                        onSelect={() => setSelectedRequestId(item.id)}
-                                    />
-                                ))}
-                            </div>
-                        )}
                     </div>
 
-                    <div className="proteum-profiler__requestGroup">
-                        <div className="proteum-profiler__requestGroupHeader">
-                            <div className="proteum-profiler__sectionTitle">Async requests</div>
-                            <div className="proteum-profiler__requestGroupCount">
-                                {asyncItems.length} item{asyncItems.length === 1 ? '' : 's'}
-                            </div>
+                    {asyncItems.length === 0 ? (
+                        <div className="proteum-profiler__empty">No async API calls captured.</div>
+                    ) : (
+                        <div className="proteum-profiler__list">
+                            {asyncItems.map((item) => (
+                                <ApiRequestListEntry
+                                    isSelected={item.id === selectedRequestId}
+                                    item={item}
+                                    key={item.id}
+                                    onSelect={() => toggleRequestSelection(item.id)}
+                                />
+                            ))}
                         </div>
-
-                        {asyncItems.length === 0 ? (
-                            <div className="proteum-profiler__empty">No async API calls captured.</div>
-                        ) : (
-                            <div className="proteum-profiler__list">
-                                {asyncItems.map((item) => (
-                                    <ApiRequestListEntry
-                                        isSelected={item.id === selectedItem?.id}
-                                        item={item}
-                                        key={item.id}
-                                        onSelect={() => setSelectedRequestId(item.id)}
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                    )}
                 </div>
             </div>
-
-            <ApiRequestSidebar item={selectedItem} />
-        </div>
+        </ProfilerSplitLayout>
     );
 };
 
 const SqlPanel = ({ session }: { session: TProfilerNavigationSession }) => {
     const { groups, queryItems } = buildSqlQueryWorkspace(session);
-    const [selectedQueryId, setSelectedQueryId] = React.useState<string | undefined>(() => queryItems[0]?.id);
+    const [selectedQueryId, setSelectedQueryId] = React.useState<string | undefined>();
     const callerDurationChart = buildHorizontalBarChartOptions({
         color: profilerChartTheme.teal,
         entries: buildDurationEntries(queryItems, (item) => item.callerLabel, (item) => item.durationMs),
@@ -1781,75 +1768,80 @@ const SqlPanel = ({ session }: { session: TProfilerNavigationSession }) => {
     });
 
     React.useEffect(() => {
-        if (queryItems.some((item) => item.id === selectedQueryId)) return;
-        setSelectedQueryId(queryItems[0]?.id);
+        if (!selectedQueryId || queryItems.some((item) => item.id === selectedQueryId)) return;
+        setSelectedQueryId(undefined);
     }, [queryItems, selectedQueryId]);
 
+    const toggleQuerySelection = React.useCallback((queryId: string) => {
+        setSelectedQueryId((currentQueryId: string | undefined) => (currentQueryId === queryId ? undefined : queryId));
+    }, []);
+
     const waterfallItems = buildSqlWaterfallItems(queryItems);
-    const selectedItem = queryItems.find((item) => item.id === selectedQueryId) || queryItems[0];
+    const selectedItem = selectedQueryId ? queryItems.find((item) => item.id === selectedQueryId) : undefined;
 
     return (
-        <div className="proteum-profiler__requestWorkspace">
-            <div className="proteum-profiler__splitColumn">
-                <div className="proteum-profiler__chartGrid">
-                    <ChartSection
-                        emptyLabel="No SQL timings were captured for this session."
-                        options={callerDurationChart}
-                        subtitle="Show which callers are driving the most database time."
-                        title="Hot Callers"
-                    />
-                    <ChartSection
-                        emptyLabel="No SQL operation counts were captured for this session."
-                        options={operationCountChart}
-                        subtitle="Highlight whether reads, writes, or raw queries dominate the request."
-                        title="Operation Mix"
-                    />
-                    <ChartSection
-                        emptyLabel="No caller or operation overlap was captured for this session."
-                        options={callerOperationHeatmap}
-                        subtitle="Surface dense caller and operation combinations at a glance."
-                        title="Caller Heatmap"
-                    />
-                </div>
-
-                <WaterfallChart
-                    emptyLabel="No SQL queries were captured for this session."
-                    itemLabel="query"
-                    items={waterfallItems}
-                    onSelect={setSelectedQueryId}
-                />
-
-                <div className="proteum-profiler__requestGroups">
-                    {groups.length === 0 ? (
-                        <div className="proteum-profiler__empty">No SQL queries were captured for this session.</div>
-                    ) : (
-                        groups.map((group) => (
-                            <div className="proteum-profiler__requestGroup" key={group.id}>
-                                <div className="proteum-profiler__requestGroupHeader">
-                                    <div className="proteum-profiler__sectionTitle">{group.label}</div>
-                                    <div className="proteum-profiler__requestGroupCount">
-                                        {group.items.length} item{group.items.length === 1 ? '' : 's'}
-                                    </div>
-                                </div>
-
-                                <div className="proteum-profiler__list">
-                                    {group.items.map((item) => (
-                                        <SqlQueryListEntry
-                                            isSelected={item.id === selectedItem?.id}
-                                            item={item}
-                                            key={item.id}
-                                            onSelect={() => setSelectedQueryId(item.id)}
-                                        />
-                                    ))}
+        <ProfilerSplitLayout
+            sidebar={
+                selectedItem ? (
+                    <SqlQuerySidebar item={selectedItem} />
+                ) : (
+                    <ChartSidebar eyebrow="SQL charts" title="SQL overview">
+                        <ChartSection
+                            emptyLabel="No SQL timings were captured for this session."
+                            options={callerDurationChart}
+                            subtitle="Show which callers are driving the most database time."
+                            title="Hot Callers"
+                        />
+                        <ChartSection
+                            emptyLabel="No SQL operation counts were captured for this session."
+                            options={operationCountChart}
+                            subtitle="Highlight whether reads, writes, or raw queries dominate the request."
+                            title="Operation Mix"
+                        />
+                        <ChartSection
+                            emptyLabel="No caller or operation overlap was captured for this session."
+                            options={callerOperationHeatmap}
+                            subtitle="Surface dense caller and operation combinations at a glance."
+                            title="Caller Heatmap"
+                        />
+                        <WaterfallChart
+                            emptyLabel="No SQL queries were captured for this session."
+                            itemLabel="query"
+                            items={waterfallItems}
+                            onSelect={(queryId) => setSelectedQueryId(queryId)}
+                        />
+                    </ChartSidebar>
+                )
+            }
+        >
+            <div className="proteum-profiler__requestGroups">
+                {groups.length === 0 ? (
+                    <div className="proteum-profiler__empty">No SQL queries were captured for this session.</div>
+                ) : (
+                    groups.map((group) => (
+                        <div className="proteum-profiler__requestGroup" key={group.id}>
+                            <div className="proteum-profiler__requestGroupHeader">
+                                <div className="proteum-profiler__sectionTitle">{group.label}</div>
+                                <div className="proteum-profiler__requestGroupCount">
+                                    {group.items.length} item{group.items.length === 1 ? '' : 's'}
                                 </div>
                             </div>
-                        ))
-                    )}
-                </div>
-            </div>
 
-            <SqlQuerySidebar item={selectedItem} />
-        </div>
+                            <div className="proteum-profiler__list">
+                                {group.items.map((item) => (
+                                    <SqlQueryListEntry
+                                        isSelected={item.id === selectedQueryId}
+                                        item={item}
+                                        key={item.id}
+                                        onSelect={() => toggleQuerySelection(item.id)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </ProfilerSplitLayout>
     );
 };
 
@@ -3154,6 +3146,35 @@ const ChartSection = ({
     </div>
 );
 
+const ChartSidebar = ({
+    children,
+    eyebrow = 'Charts',
+    title = 'Profiler overview',
+}: {
+    children: React.ReactNode;
+    eyebrow?: string;
+    title?: string;
+}) => (
+    <aside className="proteum-profiler__sidebar proteum-profiler__sidebar--charts">
+        <div className="proteum-profiler__sidebarScroller">
+            <div className="proteum-profiler__sidebarHeader">
+                <div className="proteum-profiler__sidebarEyebrow">{eyebrow}</div>
+                <div className="proteum-profiler__sidebarTitle">
+                    <strong>{title}</strong>
+                </div>
+            </div>
+            <div className="proteum-profiler__sidebarCharts">{children}</div>
+        </div>
+    </aside>
+);
+
+const ProfilerSplitLayout = ({ children, sidebar }: { children: React.ReactNode; sidebar: React.ReactNode }) => (
+    <div className="proteum-profiler__splitView">
+        <div className="proteum-profiler__splitColumn">{children}</div>
+        {sidebar}
+    </div>
+);
+
 const TimelinePanel = ({ session }: { session: TProfilerNavigationSession }) => {
     const selections: TTraceEventInspectorSelection[] = session.traces.flatMap((traceItem) =>
         traceItem.trace
@@ -3165,80 +3186,88 @@ const TimelinePanel = ({ session }: { session: TProfilerNavigationSession }) => 
               }))
             : [],
     );
-    const [selectedEventKey, setSelectedEventKey] = React.useState<string | undefined>(() => selections[0]?.key);
+    const [selectedEventKey, setSelectedEventKey] = React.useState<string | undefined>();
 
     React.useEffect(() => {
-        if (selections.some((selection) => selection.key === selectedEventKey)) return;
-        setSelectedEventKey(selections[0]?.key);
+        if (!selectedEventKey || selections.some((selection) => selection.key === selectedEventKey)) return;
+        setSelectedEventKey(undefined);
     }, [selectedEventKey, selections]);
 
+    const toggleEventSelection = React.useCallback((eventKey: string) => {
+        setSelectedEventKey((currentEventKey: string | undefined) => (currentEventKey === eventKey ? undefined : eventKey));
+    }, []);
+
     const waterfallItems = buildTimelineWaterfallItems(session);
-    const selected = selections.find((selection) => selection.key === selectedEventKey) || selections[0];
+    const selected = selectedEventKey ? selections.find((selection) => selection.key === selectedEventKey) : undefined;
 
     return (
-        <div className="proteum-profiler__splitView">
-            <div className="proteum-profiler__splitColumn">
-                <WaterfallChart
-                    emptyLabel="No timeline events were captured for this session."
-                    itemLabel="event"
-                    items={waterfallItems}
-                    onSelect={setSelectedEventKey}
-                />
-
-                <div className="proteum-profiler__section">
-                    <div className="proteum-profiler__titleRow">
-                        <div className="proteum-profiler__sectionTitle">Navigation steps</div>
-                    </div>
-                    <div className="proteum-profiler__list">
-                        {session.steps.map((step) => (
-                            <div className="proteum-profiler__row" key={step.id}>
-                                <div className="proteum-profiler__rowHeader">
-                                    <strong>{step.label}</strong>
-                                    <span className="proteum-profiler__mono proteum-profiler__muted">{formatDuration(step.durationMs)}</span>
-                                </div>
-                                <div className="proteum-profiler__tags">
-                                    <span className="proteum-profiler__tag">{step.status}</span>
-                                    {Object.entries(step.details || {}).map(([key, value]) => (
-                                        <span className="proteum-profiler__tag" key={`${step.id}:${key}`}>
-                                            {key}:{String(value)}
-                                        </span>
-                                    ))}
-                                    {step.errorMessage ? <span className="proteum-profiler__tag">{truncate(step.errorMessage, 72)}</span> : null}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {session.traces.map((traceItem) =>
-                    traceItem.trace ? (
-                        <TraceRows
-                            key={traceItem.id}
-                            onSelect={setSelectedEventKey}
-                            selectedEventKey={selectedEventKey}
-                            trace={traceItem.trace}
+        <ProfilerSplitLayout
+            sidebar={
+                selected ? (
+                    <TraceEventSidebar event={selected.event} label={selected.label} trace={selected.trace} />
+                ) : (
+                    <ChartSidebar eyebrow="Timeline charts" title="Timeline overview">
+                        <WaterfallChart
+                            emptyLabel="No timeline events were captured for this session."
+                            itemLabel="event"
+                            items={waterfallItems}
+                            onSelect={(eventKey) => setSelectedEventKey(eventKey)}
                         />
-                    ) : (
-                        <div className="proteum-profiler__row" key={traceItem.id}>
-                        <div className="proteum-profiler__rowHeader">
-                                <strong>{formatSessionTraceDisplay(traceItem)}</strong>
-                                <span className="proteum-profiler__mono proteum-profiler__muted">{traceItem.status}</span>
+                    </ChartSidebar>
+                )
+            }
+        >
+            <div className="proteum-profiler__section">
+                <div className="proteum-profiler__titleRow">
+                    <div className="proteum-profiler__sectionTitle">Navigation steps</div>
+                </div>
+                <div className="proteum-profiler__list">
+                    {session.steps.map((step) => (
+                        <div className="proteum-profiler__row" key={step.id}>
+                            <div className="proteum-profiler__rowHeader">
+                                <strong>{step.label}</strong>
+                                <span className="proteum-profiler__mono proteum-profiler__muted">{formatDuration(step.durationMs)}</span>
                             </div>
-                            <div className="proteum-profiler__mono">
-                                {formatProfilerRequestReference({
-                                    fallbackLabel: traceItem.label,
-                                    method: traceItem.method,
-                                    path: traceItem.path,
-                                    requestData: getTraceRequestData(traceItem.trace),
-                                })}
+                            <div className="proteum-profiler__tags">
+                                <span className="proteum-profiler__tag">{step.status}</span>
+                                {Object.entries(step.details || {}).map(([key, value]) => (
+                                    <span className="proteum-profiler__tag" key={`${step.id}:${key}`}>
+                                        {key}:{String(value)}
+                                    </span>
+                                ))}
+                                {step.errorMessage ? <span className="proteum-profiler__tag">{truncate(step.errorMessage, 72)}</span> : null}
                             </div>
                         </div>
-                    ),
-                )}
+                    ))}
+                </div>
             </div>
 
-            <TraceEventSidebar event={selected?.event} label={selected?.label || 'Trace event'} trace={selected?.trace} />
-        </div>
+            {session.traces.map((traceItem) =>
+                traceItem.trace ? (
+                    <TraceRows
+                        key={traceItem.id}
+                        onSelect={toggleEventSelection}
+                        selectedEventKey={selectedEventKey}
+                        trace={traceItem.trace}
+                    />
+                ) : (
+                    <div className="proteum-profiler__row" key={traceItem.id}>
+                        <div className="proteum-profiler__rowHeader">
+                            <strong>{formatSessionTraceDisplay(traceItem)}</strong>
+                            <span className="proteum-profiler__mono proteum-profiler__muted">{traceItem.status}</span>
+                        </div>
+                        <div className="proteum-profiler__mono">
+                            {formatProfilerRequestReference({
+                                fallbackLabel: traceItem.label,
+                                method: traceItem.method,
+                                path: traceItem.path,
+                                requestData: getTraceRequestData(traceItem.trace),
+                            })}
+                        </div>
+                    </div>
+                ),
+            )}
+        </ProfilerSplitLayout>
     );
 };
 
@@ -3297,55 +3326,61 @@ const AuthPanel = ({ session }: { session: TProfilerNavigationSession }) => {
             trace: section.trace,
         })),
     );
-    const [selectedEventKey, setSelectedEventKey] = React.useState<string | undefined>(() => selections[0]?.key);
+    const [selectedEventKey, setSelectedEventKey] = React.useState<string | undefined>();
 
     React.useEffect(() => {
-        if (selections.some((selection) => selection.key === selectedEventKey)) return;
-        setSelectedEventKey(selections[0]?.key);
+        if (!selectedEventKey || selections.some((selection) => selection.key === selectedEventKey)) return;
+        setSelectedEventKey(undefined);
     }, [selectedEventKey, selections]);
+
+    const toggleEventSelection = React.useCallback((eventKey: string) => {
+        setSelectedEventKey((currentEventKey: string | undefined) => (currentEventKey === eventKey ? undefined : eventKey));
+    }, []);
 
     if (authSections.length === 0) return <div className="proteum-profiler__empty">No auth activity was captured for this session.</div>;
 
-    const selected = selections.find((selection) => selection.key === selectedEventKey) || selections[0];
+    const selected = selectedEventKey ? selections.find((selection) => selection.key === selectedEventKey) : undefined;
 
     return (
-        <div className="proteum-profiler__splitView">
-            <div className="proteum-profiler__splitColumn">
-                <div className="proteum-profiler__chartGrid">
-                    <ChartSection
-                        emptyLabel="No auth events were captured for this session."
-                        options={authEventTypeChart}
-                        subtitle="See which auth phases are actually active for the selected navigation."
-                        title="Auth Flow"
-                    />
-                    <ChartSection
-                        emptyLabel="No rule checks were captured for this session."
-                        options={authRuleChart}
-                        subtitle="Highlight the rules that are firing most often in the current auth flow."
-                        title="Rule Pressure"
-                    />
-                    <ChartSection
-                        emptyLabel="No auth outcome events were captured for this session."
-                        options={authResultChart}
-                        subtitle="Summarize allow, deny, and routing outcomes without reading every trace row."
-                        title="Outcomes"
-                    />
-                </div>
-
-                {authSections.map((section) => (
-                    <AuthTraceSection
-                        authEvents={section.authEvents}
-                        key={section.id}
-                        label={section.label}
-                        onSelect={setSelectedEventKey}
-                        selectedEventKey={selectedEventKey}
-                        trace={section.trace}
-                    />
-                ))}
-            </div>
-
-            <TraceEventSidebar event={selected?.event} label={selected?.label || 'Auth event'} trace={selected?.trace} />
-        </div>
+        <ProfilerSplitLayout
+            sidebar={
+                selected ? (
+                    <TraceEventSidebar event={selected.event} label={selected.label} trace={selected.trace} />
+                ) : (
+                    <ChartSidebar eyebrow="Auth charts" title="Auth overview">
+                        <ChartSection
+                            emptyLabel="No auth events were captured for this session."
+                            options={authEventTypeChart}
+                            subtitle="See which auth phases are actually active for the selected navigation."
+                            title="Auth Flow"
+                        />
+                        <ChartSection
+                            emptyLabel="No rule checks were captured for this session."
+                            options={authRuleChart}
+                            subtitle="Highlight the rules that are firing most often in the current auth flow."
+                            title="Rule Pressure"
+                        />
+                        <ChartSection
+                            emptyLabel="No auth outcome events were captured for this session."
+                            options={authResultChart}
+                            subtitle="Summarize allow, deny, and routing outcomes without reading every trace row."
+                            title="Outcomes"
+                        />
+                    </ChartSidebar>
+                )
+            }
+        >
+            {authSections.map((section) => (
+                <AuthTraceSection
+                    authEvents={section.authEvents}
+                    key={section.id}
+                    label={section.label}
+                    onSelect={toggleEventSelection}
+                    selectedEventKey={selectedEventKey}
+                    trace={section.trace}
+                />
+            ))}
+        </ProfilerSplitLayout>
     );
 };
 
@@ -3458,8 +3493,9 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
         });
 
         return (
-            <>
-                <div className="proteum-profiler__chartGrid">
+            <ProfilerSplitLayout
+                sidebar={
+                    <ChartSidebar eyebrow="Summary charts" title="Session overview">
                     <ChartSection
                         emptyLabel="No recent session durations were captured yet."
                         options={durationTrendChart}
@@ -3484,8 +3520,9 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         subtitle="Quick view of SSR, navigation, and request status patterns."
                         title="Status Spread"
                     />
-                </div>
-
+                    </ChartSidebar>
+                }
+            >
                 <div className="proteum-profiler__metrics">
                     <SummaryRow label="Session" value={session.label} />
                     <SummaryRow label="Status" value={summary.statusLabel} />
@@ -3504,7 +3541,7 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                     <SummaryRow label="Errors" value={String(summary.errorCount)} />
                     <SummaryRow label="Request" value={session.requestId || 'client-only'} />
                 </div>
-            </>
+            </ProfilerSplitLayout>
         );
     }
 
@@ -3552,7 +3589,42 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
         const memoryChart = perf.memory ? buildPerfMemoryChartOptions(perf.memory.rows) : undefined;
 
         return (
-            <div className="proteum-profiler__section">
+            <ProfilerSplitLayout
+                sidebar={
+                    <ChartSidebar eyebrow="Performance charts" title="Performance overview">
+                        <WaterfallChart
+                            emptyLabel="No request stages were captured."
+                            itemLabel="stage"
+                            items={waterfallItems}
+                        />
+                        <ChartSection
+                            emptyLabel="No hot-path latency data matched this window."
+                            options={topLatencyChart}
+                            subtitle={`Compare average and p95 latency across the hottest ${perf.groupBy}s.`}
+                            title={`Hot ${perf.groupBy}s`}
+                        />
+                        <ChartSection
+                            emptyLabel="No breakdown data matched this window."
+                            options={topBreakdownChart}
+                            subtitle="See whether self time, SQL, external calls, or render work dominates the response."
+                            title="Time Breakdown"
+                        />
+                        <ChartSection
+                            emptyLabel="No compare data matched these windows."
+                            options={compareChart}
+                            subtitle={`Track p95 regression pressure between ${perf.baseline} and ${perf.target}.`}
+                            title="Regression Delta"
+                        />
+                        <ChartSection
+                            emptyLabel="No memory drift data matched this window."
+                            options={memoryChart}
+                            subtitle="Compare average heap growth, peak heap growth, and average RSS drift per group."
+                            title="Memory Drift"
+                        />
+                    </ChartSidebar>
+                }
+            >
+                <div className="proteum-profiler__section">
                 <div className="proteum-profiler__sectionHeader">
                     <div className="proteum-profiler__sectionTitle">Performance</div>
                     <div className="proteum-profiler__actions">
@@ -3646,11 +3718,6 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
 
                         {currentRequest ? (
                             <>
-                                <WaterfallChart
-                                    emptyLabel="No request stages were captured."
-                                    itemLabel="stage"
-                                    items={waterfallItems}
-                                />
                                 <div className="proteum-profiler__metrics">
                                     <SummaryRow label="Route" value={currentRequest.routeLabel} />
                                     <SummaryRow label="Controller" value={currentRequest.controllerLabel} />
@@ -3669,33 +3736,6 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                             <div className="proteum-profiler__empty">No traced request is attached to this session yet.</div>
                         )}
 
-                        <div className="proteum-profiler__chartGrid">
-                            <ChartSection
-                                emptyLabel="No hot-path latency data matched this window."
-                                options={topLatencyChart}
-                                subtitle={`Compare average and p95 latency across the hottest ${perf.groupBy}s.`}
-                                title={`Hot ${perf.groupBy}s`}
-                            />
-                            <ChartSection
-                                emptyLabel="No breakdown data matched this window."
-                                options={topBreakdownChart}
-                                subtitle="See whether self time, SQL, external calls, or render work dominates the response."
-                                title="Time Breakdown"
-                            />
-                            <ChartSection
-                                emptyLabel="No compare data matched these windows."
-                                options={compareChart}
-                                subtitle={`Track p95 regression pressure between ${perf.baseline} and ${perf.target}.`}
-                                title="Regression Delta"
-                            />
-                            <ChartSection
-                                emptyLabel="No memory drift data matched this window."
-                                options={memoryChart}
-                                subtitle="Compare average heap growth, peak heap growth, and average RSS drift per group."
-                                title="Memory Drift"
-                            />
-                        </div>
-
                         <SimpleSection empty="No hot calls captured for this request." rows={callRows} title="Current Request Calls" />
                         <SimpleSection empty="No hot SQL captured for this request." rows={sqlRows} title="Current Request SQL" />
                         <SimpleSection empty="No perf rollups matched this window." rows={topRows} title={`Hot ${perf.groupBy}s`} />
@@ -3703,7 +3743,8 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         <SimpleSection empty="No memory drift data matched this window." rows={memoryRows} title="Memory" />
                     </>
                 )}
-            </div>
+                </div>
+            </ProfilerSplitLayout>
         );
     }
 
@@ -3761,8 +3802,9 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
         });
 
         return (
-            <>
-                <div className="proteum-profiler__chartGrid">
+            <ProfilerSplitLayout
+                sidebar={
+                    <ChartSidebar eyebrow="Routing charts" title="Routing overview">
                     <ChartSection
                         emptyLabel="No routing events were captured yet."
                         options={routingFlowChart}
@@ -3781,8 +3823,9 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         subtitle="Highlight skip reasons, matched routes, and controller routing outcomes."
                         title="Decisions"
                     />
-                </div>
-
+                    </ChartSidebar>
+                }
+            >
                 <SimpleSection
                     empty="No routing data captured yet."
                     rows={routingEvents.map((event) => ({
@@ -3795,7 +3838,7 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                     showTitle={false}
                     title="Routing"
                 />
-            </>
+            </ProfilerSplitLayout>
         );
     }
 
@@ -3828,8 +3871,9 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
         });
 
         return (
-            <>
-                <div className="proteum-profiler__chartGrid">
+            <ProfilerSplitLayout
+                sidebar={
+                    <ChartSidebar eyebrow="Controller charts" title="Controller overview">
                     <ChartSection
                         emptyLabel="No controller events were captured yet."
                         options={controllerFlowChart}
@@ -3848,8 +3892,9 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         subtitle="Highlight which detail fields are most common across controller events."
                         title="Detail Keys"
                     />
-                </div>
-
+                    </ChartSidebar>
+                }
+            >
                 <SimpleSection
                     empty="No controller data captured yet."
                     rows={controllerEvents.map((event) => ({
@@ -3862,7 +3907,7 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                     showTitle={false}
                     title="Controller"
                 />
-            </>
+            </ProfilerSplitLayout>
         );
     }
 
@@ -3906,8 +3951,9 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
         });
 
         return (
-            <>
-                <div className="proteum-profiler__chartGrid">
+            <ProfilerSplitLayout
+                sidebar={
+                    <ChartSidebar eyebrow="SSR charts" title="SSR overview">
                     <ChartSection
                         emptyLabel="No SSR timing and payload data was captured yet."
                         options={ssrScatterChart}
@@ -3926,8 +3972,9 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         subtitle="Track render time across the last few SSR sessions."
                         title="Render Trend"
                     />
-                </div>
-
+                    </ChartSidebar>
+                }
+            >
                 <SimpleSection
                     empty="No SSR data captured for this session."
                     rows={ssrEvents.map((event) => ({
@@ -3940,7 +3987,7 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                     showTitle={false}
                     title="SSR"
                 />
-            </>
+            </ProfilerSplitLayout>
         );
     }
 
@@ -4024,7 +4071,31 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
             })) || [];
 
         return (
-            <div className="proteum-profiler__section">
+            <ProfilerSplitLayout
+                sidebar={
+                    <ChartSidebar eyebrow="Diagnose charts" title="Diagnose overview">
+                        <ChartSection
+                            emptyLabel="No suspect scores were returned for this diagnose run."
+                            options={suspectScoreChart}
+                            subtitle="Rank the files Proteum currently believes are most likely involved."
+                            title="Suspects"
+                        />
+                        <ChartSection
+                            emptyLabel="No owner matches were returned for this diagnose run."
+                            options={ownerScoreChart}
+                            subtitle="Compare owner candidates and their confidence scores."
+                            title="Owner Matches"
+                        />
+                        <ChartSection
+                            emptyLabel="No diagnose severity data was returned for this run."
+                            options={diagnoseSeverityChart}
+                            subtitle="Compare doctor diagnostics against contract diagnostics in one view."
+                            title="Severity"
+                        />
+                    </ChartSidebar>
+                }
+            >
+                <div className="proteum-profiler__section">
                 <div className="proteum-profiler__sectionHeader">
                     <div className="proteum-profiler__sectionTitle">Diagnose</div>
                     <div className="proteum-profiler__actions">
@@ -4059,33 +4130,14 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                                 value={diagnose.lastLoadedAt ? formatTimestamp(diagnose.lastLoadedAt) : 'Not loaded'}
                             />
                         </div>
-                        <div className="proteum-profiler__chartGrid">
-                            <ChartSection
-                                emptyLabel="No suspect scores were returned for this diagnose run."
-                                options={suspectScoreChart}
-                                subtitle="Rank the files Proteum currently believes are most likely involved."
-                                title="Suspects"
-                            />
-                            <ChartSection
-                                emptyLabel="No owner matches were returned for this diagnose run."
-                                options={ownerScoreChart}
-                                subtitle="Compare owner candidates and their confidence scores."
-                                title="Owner Matches"
-                            />
-                            <ChartSection
-                                emptyLabel="No diagnose severity data was returned for this run."
-                                options={diagnoseSeverityChart}
-                                subtitle="Compare doctor diagnostics against contract diagnostics in one view."
-                                title="Severity"
-                            />
-                        </div>
                         <SimpleSection empty="No likely suspect files were found." rows={suspectRows} title="Suspects" />
                         <SimpleSection empty="No owner matches were found." rows={ownerRows} title="Owner Matches" />
                         <SimpleSection empty="No contract diagnostics were found." rows={contractRows} title="Contracts" />
                         <SimpleSection empty="No recent server logs were captured." rows={logRows} title="Server Logs" />
                     </>
                 )}
-            </div>
+                </div>
+            </ProfilerSplitLayout>
         );
     }
 
@@ -4167,7 +4219,31 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
             : undefined;
 
         return (
-            <div className="proteum-profiler__section">
+            <ProfilerSplitLayout
+                sidebar={
+                    <ChartSidebar eyebrow="Explain charts" title="Manifest overview">
+                        <ChartSection
+                            emptyLabel="No manifest structure data is available."
+                            options={structureChart}
+                            subtitle="Summarize the main object counts in the current Proteum manifest."
+                            title="Structure"
+                        />
+                        <ChartSection
+                            emptyLabel="No manifest scope data is available."
+                            options={manifestScopeChart}
+                            subtitle="Show how much of the current manifest comes from app code vs framework code."
+                            title="Scope Split"
+                        />
+                        <ChartSection
+                            emptyLabel="No manifest env readiness data is available."
+                            options={envReadinessChart}
+                            subtitle="Check required variable coverage before digging through the raw manifest."
+                            title="Env Ready"
+                        />
+                    </ChartSidebar>
+                }
+            >
+                <div className="proteum-profiler__section">
                 <div className="proteum-profiler__sectionHeader">
                     <div className="proteum-profiler__sectionTitle">Explain</div>
                     <div className="proteum-profiler__actions">
@@ -4192,27 +4268,6 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                     <div className="proteum-profiler__empty">No explain manifest is available.</div>
                 ) : (
                     <>
-                        <div className="proteum-profiler__chartGrid">
-                            <ChartSection
-                                emptyLabel="No manifest structure data is available."
-                                options={structureChart}
-                                subtitle="Summarize the main object counts in the current Proteum manifest."
-                                title="Structure"
-                            />
-                            <ChartSection
-                                emptyLabel="No manifest scope data is available."
-                                options={manifestScopeChart}
-                                subtitle="Show how much of the current manifest comes from app code vs framework code."
-                                title="Scope Split"
-                            />
-                            <ChartSection
-                                emptyLabel="No manifest env readiness data is available."
-                                options={envReadinessChart}
-                                subtitle="Check required variable coverage before digging through the raw manifest."
-                                title="Env Ready"
-                            />
-                        </div>
-
                         <div className="proteum-profiler__row">
                             <div className="proteum-profiler__rowHeader">
                                 <strong>Manifest snapshot</strong>
@@ -4227,7 +4282,8 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         <TextBlocks blocks={blocks} />
                     </>
                 )}
-            </div>
+                </div>
+            </ProfilerSplitLayout>
         );
     }
 
@@ -4289,7 +4345,31 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
         const doctorBlocks = state.explain.manifest ? buildDoctorBlocks(state.explain.manifest) : [];
 
         return (
-            <div className="proteum-profiler__section">
+            <ProfilerSplitLayout
+                sidebar={
+                    <ChartSidebar eyebrow="Doctor charts" title="Doctor overview">
+                        <ChartSection
+                            emptyLabel="No doctor severity data is available."
+                            options={doctorSeverityChart}
+                            subtitle="Compare doctor and contract diagnostics across errors and warnings."
+                            title="Severity"
+                        />
+                        <ChartSection
+                            emptyLabel="No diagnostic codes are available."
+                            options={doctorCodeChart}
+                            subtitle="See which diagnostic families are dominating the current manifest."
+                            title="Codes"
+                        />
+                        <ChartSection
+                            emptyLabel="No diagnostic file hotspots are available."
+                            options={doctorFileChart}
+                            subtitle="Highlight the files attracting the most diagnostics."
+                            title="Files"
+                        />
+                    </ChartSidebar>
+                }
+            >
+                <div className="proteum-profiler__section">
                 <div className="proteum-profiler__sectionHeader">
                     <div className="proteum-profiler__sectionTitle">Doctor</div>
                     <div className="proteum-profiler__actions">
@@ -4331,26 +4411,6 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                                 value={doctor.lastLoadedAt ? formatTimestamp(doctor.lastLoadedAt) : 'Not loaded'}
                             />
                         </div>
-                        <div className="proteum-profiler__chartGrid">
-                            <ChartSection
-                                emptyLabel="No doctor severity data is available."
-                                options={doctorSeverityChart}
-                                subtitle="Compare doctor and contract diagnostics across errors and warnings."
-                                title="Severity"
-                            />
-                            <ChartSection
-                                emptyLabel="No diagnostic codes are available."
-                                options={doctorCodeChart}
-                                subtitle="See which diagnostic families are dominating the current manifest."
-                                title="Codes"
-                            />
-                            <ChartSection
-                                emptyLabel="No diagnostic file hotspots are available."
-                                options={doctorFileChart}
-                                subtitle="Highlight the files attracting the most diagnostics."
-                                title="Files"
-                            />
-                        </div>
                         {doctorBlocks.length > 0 ? (
                             <TextBlocks blocks={doctorBlocks} />
                         ) : (
@@ -4359,7 +4419,8 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         <SimpleSection empty="No contract diagnostics were found." rows={contractRows} title="Contracts" />
                     </>
                 )}
-            </div>
+                </div>
+            </ProfilerSplitLayout>
         );
     }
 
@@ -4394,7 +4455,31 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
         });
 
         return (
-            <div className="proteum-profiler__section">
+            <ProfilerSplitLayout
+                sidebar={
+                    <ChartSidebar eyebrow="Command charts" title="Command overview">
+                        <ChartSection
+                            emptyLabel="No command scope data is available."
+                            options={commandScopeChart}
+                            subtitle="Show how the registered dev commands split between app and framework scopes."
+                            title="Scope"
+                        />
+                        <ChartSection
+                            emptyLabel="No command execution durations have been captured yet."
+                            options={commandDurationChart}
+                            subtitle="Highlight the commands with the slowest latest execution."
+                            title="Latest Duration"
+                        />
+                        <ChartSection
+                            emptyLabel="No command execution statuses have been captured yet."
+                            options={commandStatusChart}
+                            subtitle="Separate commands that have never run from completed or failed commands."
+                            title="Status"
+                        />
+                    </ChartSidebar>
+                }
+            >
+                <div className="proteum-profiler__section">
                 <div className="proteum-profiler__sectionHeader">
                     <div className="proteum-profiler__sectionTitle">Available commands</div>
                     <div className="proteum-profiler__actions">
@@ -4431,27 +4516,6 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                     <div className="proteum-profiler__empty">No commands are registered for this app.</div>
                 ) : (
                     <>
-                        <div className="proteum-profiler__chartGrid">
-                            <ChartSection
-                                emptyLabel="No command scope data is available."
-                                options={commandScopeChart}
-                                subtitle="Show how the registered dev commands split between app and framework scopes."
-                                title="Scope"
-                            />
-                            <ChartSection
-                                emptyLabel="No command execution durations have been captured yet."
-                                options={commandDurationChart}
-                                subtitle="Highlight the commands with the slowest latest execution."
-                                title="Latest Duration"
-                            />
-                            <ChartSection
-                                emptyLabel="No command execution statuses have been captured yet."
-                                options={commandStatusChart}
-                                subtitle="Separate commands that have never run from completed or failed commands."
-                                title="Status"
-                            />
-                        </div>
-
                         <div className="proteum-profiler__list">
                             {commandsState.commands.map((command: TDevCommandDefinition) => {
                                 const execution = commandsState.executions[command.path] as TDevCommandExecution | undefined;
@@ -4513,7 +4577,8 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         </div>
                     </>
                 )}
-            </div>
+                </div>
+            </ProfilerSplitLayout>
         );
     }
 
@@ -4545,7 +4610,31 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
         });
 
         return (
-            <div className="proteum-profiler__section">
+            <ProfilerSplitLayout
+                sidebar={
+                    <ChartSidebar eyebrow="Cron charts" title="Cron overview">
+                        <ChartSection
+                            emptyLabel="No cron run counts are available."
+                            options={cronRunCountChart}
+                            subtitle="Highlight which tasks have been exercised the most in the current dev session."
+                            title="Runs"
+                        />
+                        <ChartSection
+                            emptyLabel="No cron duration data is available."
+                            options={cronDurationChart}
+                            subtitle="Compare the latest duration of tasks that have been executed."
+                            title="Duration"
+                        />
+                        <ChartSection
+                            emptyLabel="No cron status data is available."
+                            options={cronStatusChart}
+                            subtitle="Separate currently running, completed, failed, and never-run tasks."
+                            title="Status"
+                        />
+                    </ChartSidebar>
+                }
+            >
+                <div className="proteum-profiler__section">
                 <div className="proteum-profiler__sectionHeader">
                     <div className="proteum-profiler__sectionTitle">Registered tasks</div>
                     <div className="proteum-profiler__actions">
@@ -4583,27 +4672,6 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                     <div className="proteum-profiler__empty">No cron tasks are registered for this app.</div>
                 ) : (
                     <>
-                        <div className="proteum-profiler__chartGrid">
-                            <ChartSection
-                                emptyLabel="No cron run counts are available."
-                                options={cronRunCountChart}
-                                subtitle="Highlight which tasks have been exercised the most in the current dev session."
-                                title="Runs"
-                            />
-                            <ChartSection
-                                emptyLabel="No cron duration data is available."
-                                options={cronDurationChart}
-                                subtitle="Compare the latest duration of tasks that have been executed."
-                                title="Duration"
-                            />
-                            <ChartSection
-                                emptyLabel="No cron status data is available."
-                                options={cronStatusChart}
-                                subtitle="Separate currently running, completed, failed, and never-run tasks."
-                                title="Status"
-                            />
-                        </div>
-
                         <div className="proteum-profiler__list">
                             {cron.tasks.map((task) => (
                                 <div className="proteum-profiler__row" key={task.name}>
@@ -4657,7 +4725,8 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                         </div>
                     </>
                 )}
-            </div>
+                </div>
+            </ProfilerSplitLayout>
         );
     }
 
@@ -4693,8 +4762,9 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
     });
 
     return (
-        <>
-            <div className="proteum-profiler__chartGrid">
+        <ProfilerSplitLayout
+            sidebar={
+                <ChartSidebar eyebrow="Error charts" title="Error overview">
                 <ChartSection
                     emptyLabel="No errors were captured for this session."
                     options={errorSourceChart}
@@ -4707,14 +4777,15 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
                     subtitle="Highlight the error families that are repeating in the selected session."
                     title="Groups"
                 />
-            </div>
-
+                </ChartSidebar>
+            }
+        >
             <SimpleSection empty="No errors captured." rows={errorRows} showTitle={false} title="Errors" />
-        </>
+        </ProfilerSplitLayout>
     );
 };
 
-const splitScrollPanels = new Set<TProfilerPanel>(['timeline', 'auth', 'api', 'sql']);
+const splitScrollPanels = new Set<TProfilerPanel>(Object.keys(panelLabels) as TProfilerPanel[]);
 
 export default function DevProfiler() {
     const [state, setState] = React.useState(() => profilerRuntime.getState());
