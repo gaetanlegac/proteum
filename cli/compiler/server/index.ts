@@ -10,6 +10,11 @@ import { type Configuration } from '@rspack/core';
 import cli from '@cli';
 import createCommonConfig, { TCompileMode, TCompileOutputTarget, regex } from '../common';
 import { toRspackAliases } from '../common/rspackAliases';
+import {
+    isUiSingletonRequest,
+    resolveUiSingletonAliases,
+    resolveUiSingletonServerExternalRequest,
+} from '../common/uiSingletons';
 import { resolveServerExternalRequest } from './externals';
 
 // Type
@@ -51,6 +56,9 @@ const getDevGeneratedRuntimeEntries = (app: App) => ({
     __proteum_dev_routes: [app.paths.server.generated + '/routes.ts'],
     __proteum_dev_controllers: [app.paths.server.generated + '/controllers.ts'],
 });
+const resolveFromAppOrCore = (request: string) => cli.paths.resolveRequest(request, { preferApp: true });
+const resolvePackageRootFromAppOrCore = (packageName: string) =>
+    cli.paths.resolvePackageRoot(packageName, { preferApp: true });
 const normalizeModulePath = (value?: string) => (value || '').replace(/\\/g, '/');
 const getFrameworkSourceRoot = () => {
     const installedCoreRoot = cli.paths.framework.installedRoot
@@ -120,6 +128,13 @@ export default function createCompiler(
     const rspackAliases = toRspackAliases(resolvedAliases);
     rspackAliases['proteum'] = frameworkSourceRoot;
     rspackAliases['@/client/router$'] = frameworkSourceRoot + '/client/router.ts';
+    Object.assign(
+        rspackAliases,
+        resolveUiSingletonAliases({
+            resolvePackageRoot: resolvePackageRootFromAppOrCore,
+            resolveRequest: resolveFromAppOrCore,
+        }),
+    );
 
     debug &&
         console.log(
@@ -160,20 +175,27 @@ export default function createCompiler(
 
             // node_modules
             function ({ context, request }, callback) {
+                if (request === undefined) return callback();
+
+                const uiSingletonExternalRequest = resolveUiSingletonServerExternalRequest(request, resolveFromAppOrCore);
+                if (uiSingletonExternalRequest !== undefined) {
+                    return callback(undefined, 'commonjs ' + uiSingletonExternalRequest);
+                }
+
                 const shouldCompile =
-                    request !== undefined &&
                     // Local files
-                    (request[0] === '.' ||
-                        request[0] === '/' ||
-                        // Aliased modules
-                        app.aliases.server.containsAlias(request) ||
-                        // TODO: proteum.conf: compile: include
-                        app.isTranspileModuleRequest(request) ||
-                        // Compile proteum modules
-                        request.startsWith('proteum') ||
-                        // React-based UI packages must pass through the alias layer on the server,
-                        // otherwise SSR can mix real React packages with the Preact compat runtime.
-                        serverReactCompatCompilePrefixes.some((prefix) => request.startsWith(prefix)));
+                    request[0] === '.' ||
+                    request[0] === '/' ||
+                    // Aliased modules
+                    app.aliases.server.containsAlias(request) ||
+                    // TODO: proteum.conf: compile: include
+                    app.isTranspileModuleRequest(request) ||
+                    // Compile proteum modules
+                    request.startsWith('proteum') ||
+                    // React/Preact singleton packages and React-based UI packages must pass through the alias layer on the server,
+                    // otherwise SSR can mix real React packages with the Preact compat runtime.
+                    isUiSingletonRequest(request) ||
+                    serverReactCompatCompilePrefixes.some((prefix) => request.startsWith(prefix));
 
                 //console.log('isNodeModule', request, isNodeModule);
 

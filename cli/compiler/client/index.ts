@@ -12,6 +12,7 @@ import { rspack, type Configuration, type Module } from '@rspack/core';
 import createCommonConfig, { TCompileMode, TCompileOutputTarget, regex } from '../common';
 import { createClientBundleAnalysisPlugins } from '../common/bundleAnalysis';
 import { toRspackAliases } from '../common/rspackAliases';
+import { resolveUiSingletonAliases } from '../common/uiSingletons';
 import identityAssets from './identite';
 import cli from '../..';
 import { logVerbose } from '../../runtime/verbose';
@@ -35,7 +36,9 @@ const getFrameworkSourceRoot = () => {
     return activeCoreRoot;
 };
 
-const resolveFromAppOrCore = (_app: App, request: string) => cli.paths.resolveRequest(request);
+const resolveFromAppOrCore = (request: string) => cli.paths.resolveRequest(request, { preferApp: true });
+const resolvePackageRootFromAppOrCore = (packageName: string) =>
+    cli.paths.resolvePackageRoot(packageName, { preferApp: true });
 const rewriteFrameworkAliasTargets = (aliases: Record<string, string | string[]>) => {
     const visibleFrameworkRoots = [
         ...cli.paths.getVisiblePackageInstallRoots('proteum'),
@@ -145,9 +148,13 @@ export default function createCompiler(
     const rspackAliases = toRspackAliases(resolvedAliases);
     rspackAliases['proteum'] = frameworkSourceRoot;
     rspackAliases['@/client/router$'] = frameworkSourceRoot + '/client/router.ts';
-    rspackAliases['preact/jsx-runtime$'] = resolveFromAppOrCore(app, 'preact/jsx-runtime');
-    rspackAliases['react/jsx-runtime$'] = resolveFromAppOrCore(app, 'preact/jsx-runtime');
-    rspackAliases['react/jsx-dev-runtime$'] = resolveFromAppOrCore(app, 'preact/jsx-dev-runtime');
+    Object.assign(
+        rspackAliases,
+        resolveUiSingletonAliases({
+            resolvePackageRoot: resolvePackageRootFromAppOrCore,
+            resolveRequest: resolveFromAppOrCore,
+        }),
+    );
 
     debug && console.log('client aliases', rspackAliases);
     const config: Configuration = {
