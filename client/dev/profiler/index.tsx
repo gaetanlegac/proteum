@@ -142,19 +142,36 @@ const profilerStyles = `
     bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     display: inline-flex;
     align-items: center;
-    gap: 10px;
-    min-height: 30px;
-    padding: 0 12px;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    padding: 0;
     border: 1px solid var(--profiler-line-strong);
-    border-radius: 0;
+    border-radius: 999px;
     background: var(--profiler-bg-strong);
     backdrop-filter: none;
     color: var(--profiler-brand);
-    box-shadow: none;
-    cursor: pointer;
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    box-shadow: 0 8px 26px rgba(19, 32, 51, 0.16);
+    cursor: grab;
+    line-height: 0;
+    touch-action: none;
+    user-select: none;
+}
+
+.proteum-profiler__handle:hover {
+    color: var(--profiler-text);
+    background: var(--profiler-surface-hover);
+}
+
+.proteum-profiler__handle:active,
+.proteum-profiler__handle--dragging {
+    cursor: grabbing;
+}
+
+.proteum-profiler__handleIcon {
+    width: 25px;
+    height: 25px;
+    pointer-events: none;
 }
 
 .proteum-profiler__panel {
@@ -4786,9 +4803,136 @@ const renderPanel = (panel: TProfilerPanel, session: TProfilerNavigationSession,
 };
 
 const splitScrollPanels = new Set<TProfilerPanel>(Object.keys(panelLabels) as TProfilerPanel[]);
+const profilerHandleStorageKey = 'proteum.dev.profiler.handle-position';
+const profilerHandleSize = 46;
+const profilerHandleViewportMargin = 10;
+
+type TProfilerHandlePosition = {
+    x: number;
+    y: number;
+};
+
+type TProfilerHandleDragState = {
+    element: HTMLButtonElement;
+    moved: boolean;
+    origin: TProfilerHandlePosition;
+    pointerId: number;
+    size: number;
+    startX: number;
+    startY: number;
+};
+
+const clampProfilerHandlePosition = (position: TProfilerHandlePosition, size = profilerHandleSize): TProfilerHandlePosition => {
+    if (typeof window === 'undefined') return position;
+
+    const maxX = Math.max(profilerHandleViewportMargin, window.innerWidth - size - profilerHandleViewportMargin);
+    const maxY = Math.max(profilerHandleViewportMargin, window.innerHeight - size - profilerHandleViewportMargin);
+
+    return {
+        x: Math.min(Math.max(position.x, profilerHandleViewportMargin), maxX),
+        y: Math.min(Math.max(position.y, profilerHandleViewportMargin), maxY),
+    };
+};
+
+const isProfilerHandlePosition = (value: unknown): value is TProfilerHandlePosition => {
+    if (!value || typeof value !== 'object') return false;
+
+    const position = value as Partial<TProfilerHandlePosition>;
+    return typeof position.x === 'number' && Number.isFinite(position.x) && typeof position.y === 'number' && Number.isFinite(position.y);
+};
+
+const readProfilerHandlePosition = (): TProfilerHandlePosition | undefined => {
+    if (typeof window === 'undefined') return undefined;
+
+    try {
+        const value = window.sessionStorage.getItem(profilerHandleStorageKey);
+        if (!value) return undefined;
+
+        const position = JSON.parse(value) as unknown;
+        return isProfilerHandlePosition(position) ? clampProfilerHandlePosition(position) : undefined;
+    } catch (error) {
+        return undefined;
+    }
+};
+
+const writeProfilerHandlePosition = (position: TProfilerHandlePosition) => {
+    if (typeof window === 'undefined') return;
+
+    try {
+        window.sessionStorage.setItem(profilerHandleStorageKey, JSON.stringify(position));
+    } catch (error) {}
+};
+
+const getProfilerHandleElementPosition = (element: HTMLElement): TProfilerHandlePosition => {
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left, y: rect.top };
+};
+
+type TProfilerHandleMoveEvent = {
+    clientX: number;
+    clientY: number;
+    pointerId?: number;
+    preventDefault?: () => void;
+};
+
+type TProfilerHandleEndEvent = {
+    pointerId?: number;
+};
+
+const AtomIcon = () => (
+    <svg aria-hidden="true" className="proteum-profiler__handleIcon" fill="none" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" fill="currentColor" r="1.9" />
+        <ellipse cx="12" cy="12" rx="9" ry="3.7" stroke="currentColor" strokeWidth="1.7" />
+        <ellipse cx="12" cy="12" rx="9" ry="3.7" stroke="currentColor" strokeWidth="1.7" transform="rotate(60 12 12)" />
+        <ellipse cx="12" cy="12" rx="9" ry="3.7" stroke="currentColor" strokeWidth="1.7" transform="rotate(120 12 12)" />
+    </svg>
+);
 
 export default function DevProfiler() {
     const [state, setState] = React.useState(() => profilerRuntime.getState());
+    const [handlePosition, setHandlePosition] = React.useState<TProfilerHandlePosition | undefined>(() => readProfilerHandlePosition());
+    const [isHandleDragging, setIsHandleDragging] = React.useState(false);
+    const handleDragStateRef = React.useRef<TProfilerHandleDragState | undefined>(undefined);
+    const ignoreHandleClickRef = React.useRef(false);
+
+    const dragHandle = React.useCallback((event: TProfilerHandleMoveEvent) => {
+        const dragState = handleDragStateRef.current;
+        if (!dragState || (event.pointerId !== undefined && dragState.pointerId !== event.pointerId)) return;
+
+        const deltaX = event.clientX - dragState.startX;
+        const deltaY = event.clientY - dragState.startY;
+        if (!dragState.moved && Math.hypot(deltaX, deltaY) > 3) dragState.moved = true;
+
+        const nextPosition = clampProfilerHandlePosition(
+            {
+                x: dragState.origin.x + deltaX,
+                y: dragState.origin.y + deltaY,
+            },
+            dragState.size,
+        );
+
+        setHandlePosition(nextPosition);
+        writeProfilerHandlePosition(nextPosition);
+        event.preventDefault?.();
+    }, []);
+
+    const finishHandleDrag = React.useCallback((event: TProfilerHandleEndEvent) => {
+        const dragState = handleDragStateRef.current;
+        if (!dragState || (event.pointerId !== undefined && dragState.pointerId !== event.pointerId)) return;
+
+        if (dragState.moved) {
+            ignoreHandleClickRef.current = true;
+            window.setTimeout(() => {
+                ignoreHandleClickRef.current = false;
+            }, 250);
+        }
+
+        handleDragStateRef.current = undefined;
+        setIsHandleDragging(false);
+        if (dragState.element.hasPointerCapture(dragState.pointerId)) {
+            dragState.element.releasePointerCapture(dragState.pointerId);
+        }
+    }, []);
 
     React.useEffect(() => profilerRuntime.subscribe(() => setState(profilerRuntime.getState())), []);
     React.useEffect(() => {
@@ -4805,6 +4949,81 @@ export default function DevProfiler() {
 
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
+    }, []);
+
+    React.useEffect(() => {
+        const onResize = () => {
+            setHandlePosition((position: TProfilerHandlePosition | undefined) => {
+                if (!position) return position;
+
+                const nextPosition = clampProfilerHandlePosition(position);
+                writeProfilerHandlePosition(nextPosition);
+                return nextPosition;
+            });
+        };
+
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+
+    React.useEffect(() => {
+        if (!isHandleDragging) return;
+
+        const onPointerMove = (event: PointerEvent) => dragHandle(event);
+        const onPointerEnd = (event: PointerEvent) => finishHandleDrag(event);
+        const onMouseMove = (event: MouseEvent) => dragHandle(event);
+        const onMouseEnd = () => finishHandleDrag({});
+        const eventOptions: AddEventListenerOptions = { passive: false };
+
+        window.addEventListener('pointermove', onPointerMove, eventOptions);
+        window.addEventListener('pointerup', onPointerEnd);
+        window.addEventListener('pointercancel', onPointerEnd);
+        window.addEventListener('mousemove', onMouseMove, eventOptions);
+        window.addEventListener('mouseup', onMouseEnd);
+
+        return () => {
+            window.removeEventListener('pointermove', onPointerMove, eventOptions);
+            window.removeEventListener('pointerup', onPointerEnd);
+            window.removeEventListener('pointercancel', onPointerEnd);
+            window.removeEventListener('mousemove', onMouseMove, eventOptions);
+            window.removeEventListener('mouseup', onMouseEnd);
+        };
+    }, [dragHandle, finishHandleDrag, isHandleDragging]);
+
+    const beginHandleDrag = React.useCallback(
+        (event: React.PointerEvent<HTMLButtonElement>) => {
+            if (event.button !== 0) return;
+
+            const element = event.currentTarget;
+            const rect = element.getBoundingClientRect();
+            const origin = handlePosition || getProfilerHandleElementPosition(element);
+
+            handleDragStateRef.current = {
+                element,
+                moved: false,
+                origin,
+                pointerId: event.pointerId,
+                size: Math.max(rect.width, rect.height, profilerHandleSize),
+                startX: event.clientX,
+                startY: event.clientY,
+            };
+
+            setIsHandleDragging(true);
+            element.setPointerCapture(event.pointerId);
+            event.preventDefault();
+        },
+        [handlePosition],
+    );
+
+    const openProfilerFromHandle = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        if (ignoreHandleClickRef.current) {
+            ignoreHandleClickRef.current = false;
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+
+        profilerRuntime.setUiState('minimized');
     }, []);
 
     if (!window.dev) return null;
@@ -4834,11 +5053,27 @@ export default function DevProfiler() {
 
             {state.uiState === 'pinned-handle' ? (
                 <button
-                    className="proteum-profiler__handle"
-                    onClick={() => profilerRuntime.setUiState('minimized')}
+                    aria-label="Open Proteum profiler"
+                    className={isHandleDragging ? 'proteum-profiler__handle proteum-profiler__handle--dragging' : 'proteum-profiler__handle'}
+                    onClick={openProfilerFromHandle}
+                    onPointerCancel={finishHandleDrag}
+                    onPointerDown={beginHandleDrag}
+                    onPointerMove={dragHandle}
+                    onPointerUp={finishHandleDrag}
+                    style={
+                        handlePosition
+                            ? {
+                                  bottom: 'auto',
+                                  left: handlePosition.x,
+                                  right: 'auto',
+                                  top: handlePosition.y,
+                              }
+                            : undefined
+                    }
+                    title="Open Proteum profiler"
                     type="button"
                 >
-                    Proteum Profiler
+                    <AtomIcon />
                 </button>
             ) : (
                 <>
