@@ -1,87 +1,115 @@
 # Proteum Project Contract
 
-This is the canonical standalone-app contract for Proteum-based projects shipped with Proteum. Narrower `AGENTS.md` files in this folder add area-specific rules on top of this file.
-When splitting instructions across a monorepo, put the Proteum-wide rules in the monorepo-root `AGENTS.md` and keep only app-root-specific additions in each Proteum app root `AGENTS.md`.
-Role: keep only project-wide app rules here when one root `AGENTS.md` must carry both the reusable Proteum contract and the app-root addendum.
-Keep here: cross-cutting project workflow, architecture contracts, shared typing rules, and rules that apply across client, server, pages, and tests.
+This is the canonical project contract for Proteum-based projects shipped with Proteum. Narrower `AGENTS.md` files in this folder add area-specific rules on top of this file.
+Role: cross-cutting project workflow, architecture contracts, and rules that apply across client, server, pages, and tests.
 Do not put here: documentation-driven coding workflow, detailed diagnostics workflow, optimization checklists, coding-style details, or narrow area-specific instructions that belong in `DOCUMENTATION.md`, `diagnostics.md`, `optimizations.md`, `CODING_STYLE.md`, `client/AGENTS.md`, `client/pages/AGENTS.md`, `server/routes/AGENTS.md`, `server/services/AGENTS.md`, or `tests/AGENTS.md`.
+Every rule has exactly one canonical home. When another section or file needs a rule defined elsewhere, it points to the canonical home instead of restating it.
 
 Documentation source of truth: root-level `DOCUMENTATION.md`.
 Optimization source of truth: root-level `optimizations.md`.
 Diagnostics source of truth: root-level `diagnostics.md`.
-Coding style source of truth: root-level `CODING_STYLE.md`.
+Coding style source of truth: root-level `CODING_STYLE.md` (style, formatting, file organization, typing, comments).
 
 Managed compact root routers must use trigger -> canonical instruction file references, not copied summaries of this contract. If a trigger points here, load this full file before acting and keep the source rule here.
 
 ## Fast Triggers
 
-- If `cwd` is inside `/.codex/worktrees/`, run Worktree Preflight before implementation:
-  - Run `npx proteum worktree init --source <source-app-root>` when the bootstrap marker is missing.
-  - Run `npx proteum worktree init --source <source-app-root> --refresh` when Proteum reports stale bootstrap state.
-  - Use `--skip-deps --reason "..."` only when dependency installation is intentionally skipped.
-  - Run `npx proteum runtime status`.
-  - For runtime-visible work, start or reuse one tracked `npx proteum dev` session using the Task Lifecycle launch workflow.
-- If you are working in a newly created Proteum worktree, before following the rest of these instructions:
-  - Run `npx proteum worktree init --source <source-app-root>`.
-  - Read and acknowledge the applicable `AGENTS.md` files.
-  - Run the dev server with the task-safe elevated-permissions launch workflow from `Task Lifecycle`, keep it running so user can see the results by himself, and print the live server URL as a clickable Markdown link.
-- If the user pastes raw errors without asking for a fix, do not implement changes yet. First run the task-safe local reproduction path: identify the likely app, route, command, or request from the error, boot or reuse the relevant dev server with the elevated-permissions workflow in `Task Lifecycle`, reproduce the failing surface locally, and inspect server output, browser console output, diagnostics, traces, or the smallest relevant command result. If the error does not identify enough context to reproduce, say what is missing and use the available local evidence before guessing. Then list likely causes and, for each one, give probability, why, and how to fix it. After this, every time you implement a fix:
-    - test, re-run analysis and give a comparison table of before and after
-    - re-print the complete list of suggested fixes, but strike the ones we already implemented or not necessary anymore
+- If `cwd` is inside `/.codex/worktrees/` or you are working in a newly created Proteum worktree, run the `Worktree Preflight` in `Task Lifecycle` before implementation.
+- If the user pastes raw errors without asking for a fix, do not implement changes yet. Reproduce locally first using the `Initial Triage` workflow in root-level `diagnostics.md`, then list likely causes and, for each one, give probability, why, and how to fix it. After this, every time you implement a fix:
+  - test, re-run the analysis, and give a comparison table of before and after
+  - re-print the complete list of suggested fixes, but strike the ones already implemented or no longer necessary
 - If the user asks to implement a feature, first inspect the relevant existing surface and state any implementation problem, pain point, attention point, inconsistency, missing information, or question you see. If anything needs clarification or a decision, pause before editing, ask the user what decision to take, and resume only after the user answers.
-- If the task is ambiguous, generated, connected, or multi-repo, start with MCP `workflow_start` and then MCP `orient { projectId, query }` only if the bootstrap did not return a sufficient owner or next action; use `npx proteum orient <query>` only when MCP is unavailable or terminal evidence is required.
-- Treat Proteum CLI and MCP output as the workflow router. Treat instruction previews returned by MCP `workflow_start` or `instructions_resolve { projectId }` as the allowed instruction scope for read-only discovery and diagnostics. Read full file contents only before edits or git writes, when returned `fullRead`/`fullReadPolicy` requires it, or when the compact preview is insufficient. Do not read broad instruction folders or every managed instruction file up front.
-- When a Proteum MCP client is available, first call MCP `workflow_start` with `cwd` or a known `projectId`. If it is ambiguous or returns offline app candidates, call `project_resolve { cwd }`, select the intended app root, resolve any returned `data.readiness.state="blocked"` fresh-copy setup actions, start exactly one dev server from that app root when needed, then retry `workflow_start`. Pass the returned live `projectId` to every follow-up app-bound MCP tool. `npx proteum dev` ensures one managed machine MCP daemon is running; do not start a second managed daemon. Prefer MCP `runtime_status`, `orient`, `instructions_resolve`, `explain_summary`, `route_candidates`, `doctor`, `diagnose`, `trace_show`, `perf_request`, `logs_tail`, and `db_query` for read-only runtime/status/orientation/owner/route/trace/perf/log/database reads. Do not run CLI equivalents after a successful MCP result for the same read. Do not run broad source searches for route/page/controller ownership after MCP returns the owner. Use CLI commands when you need reproducible terminal validation, dev/build/check workflows, fallback repair, or output to share with a human.
-- MCP payloads are compact single-line `proteum-mcp-v1` JSON with capped and paginated detail. Do not expand MCP output for human readability.
+- If the task is ambiguous, generated, connected, or multi-repo, follow `MCP Orientation`.
 - For every non-trivial coding task, load and follow root-level `DOCUMENTATION.md` before coding.
 - For bug fixes, regressions, incidents, broken public routes, auth/OAuth failures, integration failures, or production behavior fixes, load and follow root-level `DOCUMENTATION.md` before coding so the relevant fix note, regression-test docs, ADR, or explicit skip reason is handled in the same change.
-- If the user reports an issue, or the agent encounters one during exploration, implementation, verification, or runtime reproduction, load and follow root-level `diagnostics.md`.
+- If the user reports an issue, or you encounter one during exploration, implementation, verification, or runtime reproduction, load and follow root-level `diagnostics.md`.
 - If the task touches client-side files, especially `client/**` and page files, load and apply root-level `optimizations.md` only after implementation for post-implementation checking and optimization. Skip it at task start and skip it for server-only, test-only, doc-only, and non-client refactor tasks unless the user explicitly asks for optimization work.
 - If the task changes UX, copy, onboarding, pricing, product semantics, or commercial positioning, use root-level `DOCUMENTATION.md` to choose the smallest relevant `./docs/` pack before editing. If a dev server is already running, print the live dev server URL as a clickable Markdown link.
 - If the task needs new app or artifact boilerplate, prefer `npx proteum init ...` and `npx proteum create ...` before creating files by hand. Use `--dry-run --json` when an agent needs a machine-readable plan before writing files.
-- If you changed `schema.prisma`, do not start testing or validation yet. Ask the user to run the following command in the affected worktree directory, replacing the placeholders, and wait for the user to reply exactly `continue` before resuming validation or tests:
-  ```
-  cd <worktree path>
-  npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
-  ```
+- If you changed `schema.prisma`, stop before testing or validation and follow the migration rule in `Hard Stops`.
 - If you encounter `runtime/provider-hook-outside-provider`, `runtime/client-only-hook-in-ssr`, `runtime/router-context-outside-router`, or `runtime/connected-boundary-mismatch`, treat it as a framework contract failure first. Fix the provider, SSR/client, router, or connected boundary before assuming a local leaf-component bug.
-- If the change is runtime-visible, request-time, router, SSR, browser-visible, or controller-behavior, use running-app verification.
-- If the change is docs-only, wording-only, type-only, test-only, generated-output cleanup, or a clearly local non-runtime refactor, use static verification only unless the user explicitly asks for runtime verification or the agent finds a real issue.
-- If the user replies exactly `commit`, generate one top-level short (up to 100 characters) sentence covering all changes made since the last `commit` and, if there has been no prior `commit`, since the beginning of the whole conversation, strictly using the Conventional Commits specification:
-  ```
-  <type>[optional scope]: <description>
+- If the change is runtime-visible, request-time, router, SSR, browser-visible, or controller-behavior, use running-app verification per the `Verification Matrix`.
+- If the change is docs-only, wording-only, type-only, test-only, generated-output cleanup, or a clearly local non-runtime refactor, use static verification only unless the user explicitly asks for runtime verification or you find a real issue.
+- If the user replies exactly `commit`, follow `Commit Workflow`.
 
-  [optional body]
-  ```
-  Then treat `commit` as conversation-wide and cross-project, not task-scoped. For downstream Proteum apps, before staging or committing, run only this commit-time verification: `proteum refresh`, then the targeted lint, typecheck, and test commands that match the conversation changes in parallel. Skip this downstream app verification when the affected repository is the Proteum framework repository itself; use the framework repo `AGENTS.md` commit workflow there. Do not run coverage, full `npm run check`, repository `check:commit`, unrelated broad suites, or any other check unless the user explicitly asks for it in the same request. Report any blocker instead of committing through failed commit-time verification. Identify every affected git repository or worktree touched during that span, stage all conversation-related changed files in each affected repository or worktree with `git add` while still avoiding unrelated pre-existing user changes or incidental untracked files, and create one `git commit` per affected repository or worktree. Do not omit linked local dependencies, framework repos, connected projects, or producer apps when they were changed to make the delivered behavior actually work. Do not stop at only suggesting the message.
-  After providing a commit message or after creating a commit, immediately follow it with this exact prompt and obey it:
-  `Explain in short minimalistic and few bullet points what we changed in this thread, like you would do to your grandma. Start with a verb in the past.`
+## MCP Orientation
+
+Treat Proteum CLI and MCP output as the workflow router.
+
+- When a Proteum MCP client is available, call MCP `workflow_start` first, with `cwd` or a known `projectId`.
+- If `workflow_start` is ambiguous or returns offline app candidates: call `project_resolve { cwd }`, select the intended app root, resolve any returned `data.readiness.state="blocked"` fresh-copy setup actions, start exactly one dev server from that app root when needed, then retry `workflow_start`.
+- Pass the returned live `projectId` to every follow-up app-bound MCP tool.
+- Prefer MCP `runtime_status`, `orient`, `instructions_resolve`, `explain_summary`, `route_candidates`, `doctor`, `diagnose`, `trace_show`, `perf_request`, `logs_tail`, and `db_query` for read-only runtime, status, orientation, owner, route, trace, perf, log, and database reads.
+- Do not run CLI equivalents after a successful MCP result for the same read. Do not run broad source searches for route/page/controller ownership after MCP returns the owner.
+- Treat instruction previews returned by MCP `workflow_start` or `instructions_resolve { projectId }` as the allowed instruction scope for read-only discovery and diagnostics. Read full file contents only before edits or git writes, when returned `fullRead`/`fullReadPolicy` requires it, or when the compact preview is insufficient. Do not read broad instruction folders or every managed instruction file up front.
+- MCP payloads are compact single-line `proteum-mcp-v1` JSON with capped and paginated detail. Do not expand MCP output for human readability.
+- During `npx proteum dev`, the app exposes the read-only Proteum MCP runtime endpoint at `/__proteum/mcp`; use it for repeated agent reads instead of spawning equivalent diagnostics commands.
+- For route/page/controller ownership, prefer `workflow_start`, `route_candidates { projectId, query }`, or `explain_summary { projectId, query }` over broad `npx proteum explain --routes --controllers --full` dumps.
+- `npx proteum dev` ensures one managed machine MCP daemon is running; do not start a second managed daemon.
+- Use CLI commands such as `npx proteum orient <query>` when MCP is unavailable, when terminal evidence is required, or when you need reproducible terminal validation, dev/build/check workflows, fallback repair, or output to share with a human.
 
 ## Task Lifecycle
 
+### Worktree Preflight
+
+- Run `npx proteum worktree init --source <source-app-root>` when the bootstrap marker is missing, or add `--refresh` when Proteum reports stale bootstrap state.
+- Use `--skip-deps --reason "..."` only when dependency installation is intentionally skipped.
+- Read and acknowledge the applicable `AGENTS.md` files.
+- Run `npx proteum runtime status`.
+- For runtime-visible work, start or reuse one tracked `npx proteum dev` session using the launch workflow in `During Implementation`, keep it running so the user can see the results, and print the live server URL as a clickable Markdown link.
+
 ### Before Editing
 
-- Before editing in a `.codex/worktrees` worktree, complete Worktree Preflight from Fast Triggers.
+- Complete `Worktree Preflight` when working inside a `.codex/worktrees` worktree.
 - Before changing any file, load root-level `CODING_STYLE.md` and any narrower area `AGENTS.md` that applies to the touched files. Do not spend response space explicitly acknowledging those reads unless the user asks.
 
 ### During Implementation
 
 - After running `npx proteum create ...`, adapt the generated code to the real feature instead of leaving placeholder logic in place.
 - If any inconsistency, ambiguity, conflicting source, missing information, or implementation detail needing clarification appears while coding, stop editing immediately, ask the user what decision to take, and resume only after the user answers. Do not silently choose a default or keep implementing under a guessed assumption.
-- When starting a long-lived dev server for an agent task, always request elevated permissions and run `npx proteum dev` outside the sandbox. Use an explicit task/thread-scoped session file such as `var/run/proteum/dev/agents/<task>.json`, inspect `npx proteum runtime status` first, then use its exact Start Dev next action so occupied router/HMR ports are avoided. Do not `curl` normal page routes to identify a port owner; use Proteum runtime status or dev-only `/__proteum/*` endpoints. After the server is ready, print the live server URL as a clickable Markdown link.
+- When starting a long-lived dev server for an agent task:
+  - Always request elevated permissions and run `npx proteum dev` outside the sandbox.
+  - Use an explicit task/thread-scoped session file such as `var/run/proteum/dev/agents/<task>.json`.
+  - Inspect `npx proteum runtime status` first, then use its exact Start Dev next action so occupied router/HMR ports are avoided.
+  - Do not `curl` normal page routes to identify a port owner; use Proteum runtime status or dev-only `/__proteum/*` endpoints.
+  - After the server is ready, print the live server URL as a clickable Markdown link.
 - Use `--replace-existing` only when restarting the exact session file started by the current thread/task. Never replace another live session that belongs to a user, another thread, or an unknown owner.
-- Do not start a second `npx proteum dev` server in the same worktree, and do not start a second managed MCP daemon. If machine MCP routing fails, run `npx proteum mcp status` and `npx proteum runtime status` from the intended app root; if no live session exists, use the exact MCP offline or runtime-status next action instead of assuming the manifest default port. If the same app already responds on the configured port without live tracking, use or repair that runtime instead of starting another server. If a live session exists but runtime/MCP is unreachable, stop the listed session file first, then start dev again. Do not run diagnose, trace, or perf reads while runtime health is unreachable. Then retry MCP `workflow_start` and use the returned `projectId`.
+- Do not start a second `npx proteum dev` server in the same worktree. If MCP routing fails, the runtime is unreachable, or an untracked runtime already answers on the configured port, follow the `Runtime Diagnostics` repair workflow in root-level `diagnostics.md` instead of starting another server.
 - If the current app depends on local `file:` connected projects, boot every connected producer app too, each with its own task-scoped session file and free port, and run every one of those `proteum dev` processes with elevated permissions outside the sandbox before starting or verifying the consumer app.
-- During `npx proteum dev`, the app exposes the read-only Proteum MCP runtime endpoint at `/__proteum/mcp`; use it for repeated agent reads instead of spawning equivalent diagnostics commands. For route/page/controller ownership, prefer MCP `workflow_start`, `route_candidates { projectId, query }`, or `explain_summary { projectId, query }` over broad `npx proteum explain --routes --controllers --full` dumps.
 - For browser validation, use the browser MCP against the running app. Keep Playwright inside `npx proteum e2e --port <port>` for targeted/full end-to-end suites. Bootstrap protected browser MCP state with `npx proteum session`; bootstrap protected E2E runs with `npx proteum e2e --session-email <email> --session-role <role>`.
-- Current CLI banner contract: only the bare `proteum build` and bare `proteum dev` commands print the welcome banner and include the active Proteum installation method. Any extra argument or option skips the welcome banner. Terminal `proteum mcp` may print a compact central MCP ready banner when it starts or reuses the managed daemon. Only `proteum dev` clears the interactive terminal before rendering, exposes `CTRL+R` reload plus `CTRL+C` shutdown hotkeys in its session UI, and reports connected app names plus successful connected `/ping` checks in the ready banner. Every `proteum dev` start ensures tracked instruction files contain the current managed `# Proteum Instructions` section and `CLAUDE.md` symlinks point to sibling `AGENTS.md` files before the dev loop begins.
 
 ### Before Finishing
 
-- Before finishing, re-check touched files against root-level `CODING_STYLE.md` and any narrower area `AGENTS.md` that applied to the edit. Re-check against root-level `optimizations.md` only for touched client-side files. Re-check against root-level `diagnostics.md` only if the task involved an issue, diagnosis, runtime reproduction, or verification failure.
+- Re-check touched files against root-level `CODING_STYLE.md`, including its self-check list, and any narrower area `AGENTS.md` that applied to the edit. Re-check root-level `optimizations.md` only for touched client-side files. Re-check root-level `diagnostics.md` only if the task involved an issue, diagnosis, runtime reproduction, or verification failure.
+- Scan the final diff for missing decision comments: every non-obvious choice, workaround, magic value, and bug fix must carry a why-comment per the `Decision and context comments` section of `CODING_STYLE.md`. A missing why-comment is a defect to fix before finishing, not optional polish.
 - Before finishing a production code change, re-check root-level `DOCUMENTATION.md` update rules. If behavior changed, a bug was fixed, a decision changed, or an important route, auth/OAuth, or integration issue was addressed, update the relevant docs before committing or explicitly explain why no docs update was needed.
-- Run targeted tests and checks that match the changed surface before finishing each feature or change. When the repository defines `proteum.verify.config.ts`, use `npx proteum verify changed` as the first post-change verification pass and expand only when the selected plan is insufficient. Continue running tests after changes, but do not run coverage by default. Downstream app commit workflows run only `proteum refresh`, then targeted lint, typecheck, and test commands in parallel; framework-repo commit workflows skip this downstream app verification. Reserve the full `npm run check` gate for push workflows, explicit user requests, or when project-local instructions require the full gate. After implementing a new feature or changing existing feature behavior, update the relevant end-to-end coverage and run the cheapest trustworthy Playwright or browser verification for that behavior before finishing. For docs-only, wording-only, type-only, generated-output cleanup, or clearly local non-runtime refactors, skip Playwright unless the user explicitly asks for it or verification reveals a real issue.
-- When you have finished your work, ask the user whether they want a commit message. After providing a commit message or after creating a commit, immediately follow it with this exact prompt and obey it:
+- Apply the `Verification Policy` to the changed surface.
+- When you have finished your work, ask the user whether they want a commit message, then follow `Commit Workflow`.
+
+## Commit Workflow
+
+This is the canonical git workflow. It applies when the user replies exactly `commit`, and after any commit message you provide.
+
+- Scope: conversation-wide and cross-project, not task-scoped. Cover all changes made since the last `commit` and, if there has been no prior `commit`, since the beginning of the whole conversation.
+- Splitting: default to one commit per affected repository or worktree. When the covered changes span clearly separable concerns — independent features, an unrelated fix, a refactor separable from a behavior change — create one commit per concern in that repository, each staging only the files that belong to it. Do not split when the changes only make sense together.
+- Message: one top-level short sentence (up to 100 characters) per commit, covering that commit's changes, strictly using the Conventional Commits specification:
+  ```
+  <type>[optional scope]: <description>
+
+  [optional body]
+  ```
+- Commit-time verification, before staging or committing:
+  - Downstream Proteum apps: run only `proteum refresh`, then the targeted lint, typecheck, and test commands that match the conversation changes, in parallel.
+  - The Proteum framework repository itself: skip the downstream verification above and use the framework repo `AGENTS.md` commit workflow.
+  - Do not run coverage, full `npm run check`, repository `check:commit`, unrelated broad suites, or any other check unless the user explicitly asks for it in the same request.
+  - Report any blocker instead of committing through failed commit-time verification.
+- Staging and committing:
+  - Identify every affected git repository or worktree touched during that span.
+  - Stage all conversation-related changed files in each affected repository or worktree with `git add`, while avoiding unrelated pre-existing user changes and incidental untracked files.
+  - Create one `git commit` per affected repository or worktree, or several per repository when the splitting rule above applies.
+  - Do not omit linked local dependencies, framework repos, connected projects, or producer apps when they were changed to make the delivered behavior actually work.
+  - Do not stop at only suggesting the message.
+- After providing a commit message or after creating a commit, immediately follow it with this exact prompt and obey it:
   `Explain in short minimalistic and few bullet points what we changed in this thread, like you would do to your grandma. Start with a verb in the past.`
 
 ## Core Contracts
@@ -93,9 +121,7 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 - Manual HTTP endpoints live only in `server/routes/**`.
 - Controllers declare input on `defineAction({ input, handler })`; handlers receive parsed `input` in context.
 - Request-scoped state lives only on action handler context and manual-route handler context objects.
-- Keep one class or one React/Preact component per file.
-- Prefer a deep tree grouped by business concern instead of long file names.
-- Use the default `*.ts` or `*.tsx` file unless an `*.ssr.ts` or `*.ssr.tsx` variant is truly required.
+- File organization, typing, formatting, and commenting rules live in root-level `CODING_STYLE.md`.
 - Never edit generated files under `.proteum`.
 - When a task changes database structure, edit the app's `schema.prisma` only.
 - Never create or edit migration files manually.
@@ -268,17 +294,29 @@ export default defineServerRoute({
   - `@client/...`, `@server/...`, `@common/...`: Proteum core modules
   - `@generated/*`: generated app surfaces
 
-## Verification Matrix
+## Verification
+
+### Verification Policy
+
+This is the canonical post-change verification policy. Other instruction files point here instead of restating it.
+
+- Use the cheapest trustworthy verification that matches the changed surface, including targeted tests for changed behavior.
+- When the repository defines `proteum.verify.config.ts`, run `npx proteum verify changed` as the first post-change verification pass and expand only when the selected plan is insufficient.
+- Applicable production changes must always add or update focused unit tests and run the targeted unit or integration tests that match the changed behavior. Document any generated files, migrations, framework shims, unreachable defensive branches, or changes that cannot reasonably be unit-tested as explicit exceptions in the completion note.
+- After implementing a new feature or changing existing feature behavior, update the relevant end-to-end coverage and run the cheapest trustworthy Playwright or browser verification for that behavior before finishing.
+- For docs-only, wording-only, type-only, test-only, generated-output cleanup, or clearly local non-runtime refactors, use static verification only and skip Playwright unless the user explicitly asks for it or verification reveals a real issue.
+- Do not run coverage by default after ordinary changes. Reserve whole-project coverage and the full `npm run check` gate for push workflows, explicit user requests, or when project-local instructions require the full gate.
+- Commit-time verification is defined in `Commit Workflow`.
+
+### Verification Matrix
 
 Verify at the correct layer:
 
-- Default: use the cheapest trustworthy verification for the changed surface, including targeted tests for changed behavior. When `proteum.verify.config.ts` exists, start with `npx proteum verify changed`. Do not run coverage by default during ordinary change closeout.
 - Route additions: boot the app and hit the real URL.
 - Controller changes: exercise the generated client call or generated `/api/...` endpoint.
 - SSR changes: use the browser MCP to load the real page and inspect rendered HTML plus browser console.
 - Router or plugin changes: verify request context, auth, redirects, metrics, and validation on a running app.
-- New features or feature-behavior changes: use the cheapest trustworthy verification while iterating, use the browser MCP for browser-visible validation, then update and run the relevant end-to-end coverage. During downstream app commit workflows, run only `proteum refresh`, then targeted lint, typecheck, and test commands in parallel; skip this verification for framework-repo commits and reserve the full `npm run check` gate for push workflows unless the user or project-local instructions explicitly ask for the full gate earlier.
-- Generated, connected, or ownership-ambiguous changes: start with MCP `workflow_start`, then `orient { projectId, query }` and `explain_summary { projectId, query }` only when more detail is needed; use `npx proteum orient <query>` and `npx proteum verify owner <query>` when MCP is unavailable or terminal evidence is required.
+- Generated, connected, or ownership-ambiguous changes: follow `MCP Orientation`; use `npx proteum orient <query>` and `npx proteum verify owner <query>` when MCP is unavailable or terminal evidence is required.
 - Browser-visible issues: use the browser MCP after request-level verification is insufficient. Use `npx proteum e2e --port <port> ...` only when automated end-to-end coverage or a Playwright suite is required.
 - Raw browser execution outside end-to-end suites: use the browser MCP only. Keep Playwright in `npx proteum e2e --port <port>` for targeted/full end-to-end suites.
 - For trace-first reproduction, session-based auth setup, temporary logs, and post-fix surface checks, follow root-level `diagnostics.md`.
@@ -293,16 +331,12 @@ Verify at the correct layer:
 - When the task explicitly involves client-side optimization work, use root-level `optimizations.md` to decide whether custom infrastructure is justified over an existing package.
 - When you choose custom over a package, explain the reason briefly.
 
-### Catalogs And Typing
+### Catalogs
 
 - Keep one canonical catalog or registry file and import it everywhere else.
 - Client-only catalogs live in `/client/catalogs/**`, server-only catalogs in `/server/catalogs/**`, and shared catalogs in `/common/catalogs/**`.
 - Do not create nested `catalogs/` folders under pages, components, services, tests, or other feature folders.
-- Keep strong TypeScript typings across the project.
-- Do not introduce `any` or `unknown`, including through casts, helper aliases, or fallback generic defaults.
-- Do not use `Reflect.get`, bracket access, broad `in` checks, or local loose reader helpers to bypass missing typings for app-owned data; fix the type contract or normalize once with a typed adapter at the boundary.
-- Fix typing issues only on code you wrote.
-- Never cast with `as any` or `as unknown`; fix the contract or add an explicit typed adapter.
+- Typing rules, including the ban on `any`, `unknown`, and loose casts, live in root-level `CODING_STYLE.md`.
 
 ### Design Rules
 
@@ -322,9 +356,41 @@ Verify at the correct layer:
 
 - Never run schema-mutating SQL such as `ALTER TABLE`, `CREATE TABLE`, `DROP TABLE`, or `CREATE INDEX` to change database structure.
 - For read-only SQL diagnosis, use MCP `db_query` or `npx proteum db query "<sql>"`; only one capped `SELECT`, `SHOW`, or `EXPLAIN` statement is allowed.
-- Do not run `prisma *` yourself. If a schema change requires migration, ask the user to run `npx prisma migrate dev --config ./prisma.config.ts --name <migration name>` and wait for `continue`.
+- Do not run `prisma *` yourself. If you changed `schema.prisma`, do not start testing or validation yet. Ask the user to run the following command in the affected worktree directory, replacing the placeholders, and wait for the user to reply exactly `continue` before resuming validation or tests:
+  ```
+  cd <worktree path>
+  npx prisma migrate dev --config ./prisma.config.ts --name <migration name>
+  ```
 - Do not run `git restore` or `git reset`.
-- Do not run write-mode git commands by default. The built-in exception is an exact `commit` reply, which allows `git add` and `git commit` in every affected repository or worktree touched during the whole conversation after the applicable commit-time verification succeeds. For downstream apps, commit-time verification is limited to `proteum refresh`, then targeted lint, typecheck, and test commands in parallel. For the Proteum framework repository itself, skip this downstream app verification and use the framework repo `AGENTS.md` commit workflow. This exception does not allow coverage, full `npm run check`, repository `check:commit`, unrelated broad suites, or other checks unless the user explicitly requests them in the same message. Any other write-mode git action requires an explicit user request. Before any explicit push, run `npm run check` in every affected repository or worktree that defines it and report any blocker instead of pushing through a failed check.
+- Do not run write-mode git commands by default. The only built-in exception is the exact `commit` reply handled by `Commit Workflow`, which allows `git add` and `git commit` after its commit-time verification succeeds. Any other write-mode git action requires an explicit user request.
+- Before any explicit push, run `npm run check` in every affected repository or worktree that defines it and report any blocker instead of pushing through a failed check.
+
+## Delivery Workflow
+
+Agents working in generated Proteum projects must use this delivery workflow for production code changes:
+
+1. BDD / ATDD: translate the requested behavior into acceptance scenarios before changing implementation code.
+2. TDD: write or update the smallest failing unit/integration test that proves the next behavior.
+3. Implementation: make the narrowest production change that satisfies the failing test while preserving Proteum boundaries, recording non-obvious decisions as why-comments per `CODING_STYLE.md` while the reasoning is still in context.
+4. Targeted validation: refresh generated framework contracts after route, page, controller, service, command, or config changes, then apply the `Verification Policy` to the changed surface.
+5. Validate unit + E2E: run the relevant unit tests and real-world journey E2E checks before calling the work complete.
+
+E2E expectation: real-world journeys must follow the project-local instructions in `tests/e2e/REAL_WORLD_JOURNEY_TESTS.md`. These tests should model complete user workflows, role transitions, permissions, state changes, and cross-view consistency rather than isolated happy paths.
+
+Recommended validation sequence:
+
+```bash
+npm run refresh
+npm run typecheck
+npm run lint
+npm run test
+npm run test:integration
+npx proteum check
+npx proteum doctor --contracts --strict
+npx proteum e2e --port <port>
+```
+
+When bundling, SSR, server startup, routing, or build-time behavior changes, also run the project build command before finishing.
 
 ## Appendix
 
@@ -411,32 +477,3 @@ Edit these only when required, and keep changes minimal and explicit:
 - `PORT`, `ENV_*`, `URL`, `TRACE_*`, and `ENABLE_PROFILER` env setup
 - Prisma-generated files
 - symbolic links
-
-## Delivery Workflow
-
-Agents working in generated Proteum projects must use this delivery workflow for production code changes:
-
-1. BDD / ATDD: translate the requested behavior into acceptance scenarios before changing implementation code.
-2. TDD: write or update the smallest failing unit/integration test that proves the next behavior.
-3. Implementation: make the narrowest production change that satisfies the failing test while preserving Proteum boundaries.
-4. Targeted validation: refresh generated framework contracts after route, page, controller, service, command, or config changes, then run the targeted tests/checks that match the changed surface.
-5. Validate unit + E2E: run the relevant unit tests and real-world journey E2E checks before calling the work complete.
-
-Unit test expectation: production changes must always add or update focused unit tests and run the targeted unit or integration tests that match the changed behavior. Do not run coverage after every change by default. Reserve whole-project coverage for the repository's full `npm run check` gate during push workflows or when the user explicitly requests it; downstream app commit-only workflows run `proteum refresh`, then targeted lint, typecheck, and test commands in parallel unless the user explicitly requests more, while framework-repo commits skip this downstream app verification. Any excluded generated files, migrations, framework shims, unreachable defensive branches, or changes that cannot reasonably be unit-tested must be documented in the completion note.
-
-E2E expectation: real-world journeys must follow the project-local instructions in `tests/e2e/REAL_WORLD_JOURNEY_TESTS.md`. These tests should model complete user workflows, role transitions, permissions, state changes, and cross-view consistency rather than isolated happy paths.
-
-Recommended validation sequence:
-
-```bash
-npm run refresh
-npm run typecheck
-npm run lint
-npm run test
-npm run test:integration
-npx proteum check
-npx proteum doctor --contracts --strict
-npx proteum e2e --port <port>
-```
-
-When bundling, SSR, server startup, routing, or build-time behavior changes, also run the project build command before finishing.

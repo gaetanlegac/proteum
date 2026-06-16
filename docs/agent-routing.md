@@ -96,11 +96,11 @@ Standard triggered reads:
 - Worktree Preflight (`cwd` inside `/.codex/worktrees/`, newly created Proteum worktree, or before editing in a Codex worktree): root contract fallback, then `npx proteum worktree init --source <source-app-root>` or the returned `--refresh` command, `npx proteum runtime status`, and tracked `npx proteum dev` for runtime-visible work.
 - Git lifecycle (`commit`, `and commit`, `stage`, `push`, `PR`, pull request): root contract fallback.
 - Before git writes after a bug fix, behavior change, decision change, or docs-relevant production change: `DOCUMENTATION.md`.
-- Before finishing production code changes: root contract fallback, `DOCUMENTATION.md`, `CODING_STYLE.md`, and touched area `AGENTS.md`.
+- Before finishing production code changes: root contract fallback, `DOCUMENTATION.md`, `CODING_STYLE.md`, and touched area `AGENTS.md`, then the `CODING_STYLE.md` self-check on the final diff; a non-obvious decision without a why-comment is a defect.
 - Runtime-visible, request-time, router, SSR, browser, or controller behavior: root contract fallback plus `diagnostics.md`.
 - Bug fixes, regressions, incidents, broken public routes, auth/OAuth failures, integration failures, or production behavior fixes: `DOCUMENTATION.md`.
 - Non-trivial feature, product, business-rule, UX, copy, or docs changes: `DOCUMENTATION.md`.
-- Implementation edits: `CODING_STYLE.md` plus the matching area file from the routing table.
+- Implementation edits: `CODING_STYLE.md` plus the matching area file from the routing table; record non-obvious decisions, workarounds, and constraints as why-comments while editing.
 
 `workflow_start`, `orient`, `route_candidates`, and MCP `instructions_resolve` should promote obvious triggered files into selected instruction previews; ambiguous conditional reads can remain in `readWhen`.
 

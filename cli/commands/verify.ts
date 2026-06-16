@@ -1149,7 +1149,12 @@ const runChangedVerify = async () => {
             code: 'changed/check-failed',
             message: `Verification check "${execution.checkId}" failed with exit code ${execution.exitCode ?? 'unknown'}.`,
             source: 'changed',
-            details: [`command=${execution.command}`, `cwd=${execution.cwd}`, `durationMs=${execution.durationMs}`],
+            details: [
+                `command=${execution.command}`,
+                `cwd=${execution.cwd}`,
+                `durationMs=${execution.durationMs}`,
+                'fix=Fix the failing surface and re-run npx proteum verify changed; broader gates only per the root AGENTS.md Verification Policy.',
+            ],
         }));
 
     return finalizeResult({

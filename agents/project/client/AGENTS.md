@@ -42,7 +42,6 @@ Coding style source of truth: root-level `CODING_STYLE.md`.
 
 - Do not add `React` imports just for JSX.
 - Do not use `React.useCallback` unless it is necessary or already common in the touched area.
-- Keep one component per file.
 - Load data and define handlers in the directly concerned component when that keeps ownership clearer.
 - Keep curated lists, option registries, and UI copy catalogs under `/client/catalogs/**`.
 - Follow the section-comment format from the root-level `CODING_STYLE.md`.

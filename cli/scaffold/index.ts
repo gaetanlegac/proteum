@@ -556,6 +556,9 @@ export const runCreateScaffold = async () => {
 
     result.notes.push(...plan.notes);
     result.nextSteps.push(...plan.nextSteps);
+    result.nextSteps.push(
+        'Adapt the generated code to the real feature and record non-obvious decisions as why-comments per `CODING_STYLE.md` (`Decision and context comments`).',
+    );
     printResult(result);
 };
 

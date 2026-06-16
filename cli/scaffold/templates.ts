@@ -22,7 +22,15 @@ export const createPageTemplate = ({
     routePath: string;
     heading: string;
     message: string;
-}) => `import { definePageRoute } from '@common/router/definitions';
+}) => `/*----------------------------------
+- DEPENDANCES
+----------------------------------*/
+
+import { definePageRoute } from '@common/router/definitions';
+
+/*----------------------------------
+- PAGE
+----------------------------------*/
 
 export default definePageRoute({
     path: ${JSON.stringify(routePath)},
@@ -53,7 +61,15 @@ export const createControllerTemplate = ({
     appIdentifier: string;
     className: string;
     methodName: string;
-}) => `import { defineAction, defineController } from '@generated/server/controller';
+}) => `/*----------------------------------
+- DEPENDANCES
+----------------------------------*/
+
+import { defineAction, defineController } from '@generated/server/controller';
+
+/*----------------------------------
+- CONTROLEUR
+----------------------------------*/
 
 export default defineController({
     actions: {
@@ -74,10 +90,22 @@ export const createCommandTemplate = ({
 }: {
     className: string;
     methodName: string;
-}) => `import { Commands } from '@server/app/commands';
+}) => `/*----------------------------------
+- DEPENDANCES
+----------------------------------*/
+
+import { Commands } from '@server/app/commands';
 import type AppApplication from '@/server/index';
 
+/*----------------------------------
+- TYPES
+----------------------------------*/
+
 type App = InstanceType<typeof AppApplication>;
+
+/*----------------------------------
+- COMMANDS
+----------------------------------*/
 
 export default class ${className} extends Commands<App> {
     public async ${methodName}() {
@@ -95,7 +123,15 @@ export const createRouteTemplate = ({
 }: {
     httpMethod: string;
     routePath: string;
-}) => `import { defineServerRoute } from '@common/router/definitions';
+}) => `/*----------------------------------
+- DEPENDANCES
+----------------------------------*/
+
+import { defineServerRoute } from '@common/router/definitions';
+
+/*----------------------------------
+- ROUTES
+----------------------------------*/
 
 export default defineServerRoute({
     method: ${JSON.stringify(httpMethod.toUpperCase())},
@@ -115,11 +151,23 @@ export const createServiceTemplate = ({
 }: {
     appIdentifier: string;
     className: string;
-}) => `import Service from '@server/app/service';
+}) => `/*----------------------------------
+- DEPENDANCES
+----------------------------------*/
+
+import Service from '@server/app/service';
+
+/*----------------------------------
+- TYPES
+----------------------------------*/
 
 export type Config = {
     debug?: boolean;
 };
+
+/*----------------------------------
+- SERVICE
+----------------------------------*/
 
 export default class ${className} extends Service<Config, {}, ${appIdentifier}, ${appIdentifier}> {
     public async health() {
@@ -138,8 +186,16 @@ export const createServiceConfigTemplate = ({
     configExportName: string;
     serviceImportPath: string;
     serviceImportName: string;
-}) => `import { Services } from '@server/app';
+}) => `/*----------------------------------
+- DEPENDANCES
+----------------------------------*/
+
+import { Services } from '@server/app';
 import ${serviceImportName} from ${JSON.stringify(serviceImportPath)};
+
+/*----------------------------------
+- CONFIG
+----------------------------------*/
 
 export const ${configExportName} = Services.config(${serviceImportName}, {});
 `;

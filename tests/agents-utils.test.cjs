@@ -109,10 +109,6 @@ test('project instruction sources require unit tests for applicable production c
         /production changes must always add or update focused unit tests/,
     );
     assert.match(
-        fs.readFileSync(path.join(projectAgentsRoot, 'root', 'AGENTS.md'), 'utf8'),
-        /always add or update focused unit tests/,
-    );
-    assert.match(
         fs.readFileSync(path.join(projectAgentsRoot, 'tests', 'AGENTS.md'), 'utf8'),
         /For every production change, add or update focused unit tests/,
     );

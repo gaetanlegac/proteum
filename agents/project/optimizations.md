@@ -23,12 +23,7 @@ When tradeoffs exist inside optimization work, optimize in this order:
 
 ## SSR And Page Size
 
-- SSR page data belongs in the explicit `definePageRoute({ path, options, data, render })` `data` function, not in `api.fetch(...)`.
-- `options` carries route behavior. `data` returns one flat object or is `null` when the page has no SSR data loader.
-- Route-option keys and `_`-prefixed route-option aliases are forbidden in page data and must live in `options`.
-- If a page needs route data, return it from `data` and read it in `render`.
-- Controller fetchers and promises returned from `data` resolve before render.
-- Never use `api.fetch(...)` in page files for SSR loading.
+- The page `data` / `options` / `render` contract is defined in `client/pages/AGENTS.md`; SSR page data belongs in the route definition `data` function, never in `api.fetch(...)`.
 - Synchronous or SSR data calls must return only the strictly necessary data for the current render path to minimize SSR payload size.
 - If an existing controller or data method returns a broader shape than the SSR path needs, create a dedicated proxy controller method with a narrower typed contract instead of reusing the oversized payload.
 - Keep Prisma runtime access inside services when possible and prefer explicit `select` or narrow `include` in database queries.
@@ -46,4 +41,3 @@ When tradeoffs exist inside optimization work, optimize in this order:
 - For browser or SSR changes, use the browser MCP to load the real page, inspect the rendered HTML, and confirm the change does not ship unnecessary client code or oversized SSR payloads.
 - Treat clearly worse bundle size, runtime cost, or crawlable HTML quality as regressions to fix or justify explicitly, not as optional follow-up cleanup.
 - Build-only checks are supplementary.
-- For SSR changes, use the browser MCP to load the real page and inspect the rendered HTML plus browser console.

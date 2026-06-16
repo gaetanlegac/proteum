@@ -29,9 +29,7 @@ Diagnostics source of truth: root-level `diagnostics.md`.
 - Use runtime models through `this.models` or the app model accessors.
 - Use Prisma typings through `@models/types` only.
 - In database queries, prefer explicit `select` or narrow `include`.
-- For database structure changes, edit the app's `schema.prisma` only. Never create or edit migration files manually.
-- Never use raw SQL DDL or other schema-mutating SQL to change database structure.
-- For read-only SQL diagnosis, use MCP `db_query` or `npx proteum db query "<sql>"`; only one capped `SELECT`, `SHOW`, or `EXPLAIN` statement is allowed.
+- For database structure changes, edit the app's `schema.prisma` only. Never create or edit migration files manually; the full database safety rules live in the root contract `Hard Stops`.
 - Prefer inferred return types such as `Awaited<ReturnType<MyService['methodName']>>` over manual DTO duplication.
 
 ## Errors
