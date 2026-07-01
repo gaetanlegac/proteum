@@ -6,7 +6,6 @@
 import { serialize } from 'v8';
 import { formatWithOptions } from 'util';
 import md5 from 'md5';
-import dayjs from 'dayjs';
 import stringify from 'fast-safe-stringify';
 
 // Npm
@@ -178,7 +177,6 @@ export default class Console {
     public logger!: Logger<ILogObj>;
     // Buffers
     public logs: TJsonLog[] = [];
-    private reported: { [hash: string]: { times: number; last: Date } } = {};
 
     /*----------------------------------
     - LIFECYCLE
@@ -371,24 +369,9 @@ export default class Console {
         // Genertae unique error hash
         const hash = md5(inspection.stacktraces[0]);
 
-        // Don't send the same error twice in a row (avoid email spamming)
-        const lastReport = this.reported[hash];
-        let isDuplicate = false;
-        if (lastReport === undefined) {
-            this.reported[hash] = { times: 0, last: new Date() };
-
-            // If error older than 1 day
-        } else if (dayjs(now).diff(dayjs(lastReport.last), 'day') > 1) {
-            lastReport.times++;
-            lastReport.last = now;
-        } else {
-            isDuplicate = true;
-        }
-
         const bugReport: ServerBug = {
             // Context
             hash: hash,
-            isDuplicate,
             date: now,
             channelType,
             channelId,
