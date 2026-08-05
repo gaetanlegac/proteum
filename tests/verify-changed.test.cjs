@@ -46,7 +46,10 @@ test('changed verification planner runs related tests for source files', () => {
         changedFiles: ['packages/auth/src/session.ts'],
     });
 
-    assert.deepEqual(planCommands(plan), ["npx vitest related 'packages/auth/src/session.ts'"]);
+    assert.deepEqual(planCommands(plan), [
+        "npx vitest related 'packages/auth/src/session.ts'",
+        'npx proteum docs check',
+    ]);
     assert.deepEqual(plan.selectedChecks[0].matchedFiles, ['packages/auth/src/session.ts']);
 });
 
@@ -115,7 +118,9 @@ test('changed verification planner skips tests for docs-only changes', () => {
         changedFiles: ['docs/testing.md'],
     });
 
-    assert.deepEqual(plan.selectedChecks, []);
+    // Test suites are skipped, but the doc-anchor check still runs: moving or
+    // renaming a document is precisely what leaves an anchor pointing nowhere.
+    assert.deepEqual(planIds(plan), ['builtin:doc-anchors']);
     assert.equal(plan.docsOnly, true);
     assert.deepEqual(plan.skippedChecks.map((check) => check.id), ['builtin:docs-only']);
 });
@@ -195,6 +200,49 @@ test('verify changed CLI JSON output keeps the planner and execution shape stabl
     assert.ok(Array.isArray(output.skippedChecks));
     assert.ok(Array.isArray(output.executions));
     assert.equal(typeof output.result.ok, 'boolean');
-    assert.equal(output.result.selectedChecks, 0);
+    // A docs-only change still skips the test suites, but it does run the
+    // doc-anchor check: renaming a document is exactly what orphans an anchor.
+    assert.equal(output.result.selectedChecks, 1);
+    assert.deepEqual(
+        output.selectedChecks.map((check) => check.id),
+        ['builtin:doc-anchors'],
+    );
     assert.equal(output.result.failedChecks, 0);
+});
+
+test('changed verification planner checks doc anchors when documentation moves', () => {
+    const root = createRoot();
+    writeFile(root, 'docs/features/search/README.md', '# Search\n');
+
+    const plan = buildChangedVerificationPlan({
+        cwd: root,
+        changedFiles: ['docs/features/search/README.md'],
+    });
+
+    assert.deepEqual(planIds(plan), ['builtin:doc-anchors']);
+    assert.deepEqual(planCommands(plan), ['npx proteum docs check']);
+});
+
+test('changed verification planner checks doc anchors when a source file changes', () => {
+    const root = createRoot();
+    writeFile(root, 'apps/product/server/controllers/Domains/search.ts', 'export default {};\n');
+
+    const plan = buildChangedVerificationPlan({
+        cwd: root,
+        changedFiles: ['apps/product/server/controllers/Domains/search.ts'],
+    });
+
+    assert.ok(planIds(plan).includes('builtin:doc-anchors'));
+});
+
+test('changed verification planner leaves doc anchors alone for unrelated changes', () => {
+    const root = createRoot();
+    writeFile(root, 'README.md', '# Root\n');
+
+    const plan = buildChangedVerificationPlan({
+        cwd: root,
+        changedFiles: ['README.md'],
+    });
+
+    assert.equal(planIds(plan).includes('builtin:doc-anchors'), false);
 });

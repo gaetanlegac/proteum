@@ -144,6 +144,13 @@ const isDocsOnlyFile = (filepath: string) =>
     filepath.startsWith('agents/') ||
     docsOnlyExtensions.has(path.extname(filepath));
 
+/**
+ * A change that can break the code-to-documentation link: either the corpus
+ * moved under the anchors, or a source file that may carry anchors changed.
+ */
+const isDocAnchorRelevantFile = (filepath: string) =>
+    filepath.startsWith('docs/') || isRelatedSourceFile(filepath);
+
 const normalizeGlob = (glob: string) => normalizePath(glob.trim());
 
 const escapeRegExp = (value: string) => value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
@@ -346,6 +353,20 @@ export const buildChangedVerificationPlan = ({
             scope: 'targeted',
             source: 'builtin',
             suite: 'npx vitest related {files}',
+        });
+        if (check) addCheck({ check, selectedChecks });
+    }
+
+    const docAnchorFiles = files.filter(isDocAnchorRelevantFile);
+    if (docAnchorFiles.length > 0) {
+        const check = createSuiteCheck({
+            configRoot: gitRoot,
+            files: docAnchorFiles,
+            id: 'builtin:doc-anchors',
+            reason: 'Changed docs or source files should keep doc anchors resolvable.',
+            scope: 'static',
+            source: 'builtin',
+            suite: 'npx proteum docs check',
         });
         if (check) addCheck({ check, selectedChecks });
     }

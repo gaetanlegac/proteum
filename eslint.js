@@ -1,7 +1,18 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const tseslint = require('typescript-eslint');
 const reactPlugin = require('eslint-plugin-react');
 const reactHooksPlugin = require('eslint-plugin-react-hooks');
 const jsxA11yPlugin = require('eslint-plugin-jsx-a11y');
+
+const {
+    buildDocAnchorGroups,
+    docAnchorTags,
+    hasDocAnchorTag,
+    isPathDocAnchorTag,
+    minDocAnchorRuleLength,
+    parseDocAnchorComment,
+} = require('./docAnchors.js');
 
 const defaultIgnores = [
     '**/node_modules/**',
@@ -307,7 +318,250 @@ const createNoAppImportRule = () => ({
     },
 });
 
-const createProteumEslintConfig = ({ ignores = [] } = {}) => [
+// Error routes are deliberately absent: a `_messages/404` page renders a status
+// message and carries no feature-specific rule, so requiring a feature pack for
+// one would manufacture documentation to satisfy the linter. An error page that
+// does carry a real rule can still add an anchor, and `valid-doc-anchor` keeps
+// checking it.
+const defaultDocAnchorDefinitions = [
+    'defineController',
+    'definePageRoute',
+    'defineServerRoute',
+    'defineServerRoutes',
+];
+
+const docsRootCache = new Map();
+const directoryEntriesCache = new Map();
+
+const getSourceCode = (context) => context.sourceCode || context.getSourceCode?.();
+
+const getContextCwd = (context) => context.cwd || context.getCwd?.() || process.cwd();
+
+const pathExists = (candidate) => {
+    try {
+        return fs.existsSync(candidate);
+    } catch (_error) {
+        return false;
+    }
+};
+
+const readDirectoryEntries = (directory) => {
+    if (directoryEntriesCache.has(directory)) return directoryEntriesCache.get(directory);
+
+    let entries = [];
+    try {
+        entries = fs.readdirSync(directory);
+    } catch (_error) {
+        entries = [];
+    }
+
+    directoryEntriesCache.set(directory, entries);
+    return entries;
+};
+
+/**
+ * Collect every ancestor of a linted file that holds a `docs/` directory,
+ * nearest first.
+ *
+ * All of them are candidates, not just the nearest: a monorepo app commonly has
+ * its own `apps/<app>/docs/` alongside the repository-level corpus, and stopping
+ * at the first match would make every anchor aimed at the shared corpus fail to
+ * resolve.
+ */
+const findDocsRoots = (startDirectory) => {
+    if (docsRootCache.has(startDirectory)) return docsRootCache.get(startDirectory);
+
+    const resolved = [];
+    let current = startDirectory;
+    while (current) {
+        if (pathExists(path.join(current, 'docs'))) resolved.push(current);
+
+        const parent = path.dirname(current);
+        if (parent === current) break;
+        current = parent;
+    }
+
+    docsRootCache.set(startDirectory, resolved);
+    return resolved;
+};
+
+const resolveAnchorRoots = (context) => {
+    const filename = context.filename || context.getFilename?.() || '';
+    const fileDirectory = filename ? path.dirname(filename) : undefined;
+    const cwd = getContextCwd(context);
+    const roots = [];
+
+    const addRoot = (root) => {
+        if (root && !roots.includes(root)) roots.push(root);
+    };
+
+    if (fileDirectory) findDocsRoots(fileDirectory).forEach(addRoot);
+    addRoot(cwd);
+    addRoot(fileDirectory);
+
+    return roots;
+};
+
+const resolvePathAnchor = (value, roots) => {
+    if (path.isAbsolute(value)) return pathExists(value);
+
+    return roots.some((root) => pathExists(path.resolve(root, value)));
+};
+
+const resolveAdrAnchor = (value, roots) => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+
+    const decisionDirectories = roots
+        .map((root) => path.join(root, 'docs', 'decisions'))
+        .filter((directory) => pathExists(directory));
+
+    // Projects without a decisions corpus never fail this check, so the rule
+    // stays silent instead of inventing a convention the app has not adopted.
+    if (decisionDirectories.length === 0) return true;
+
+    return decisionDirectories.some((directory) =>
+        readDirectoryEntries(directory).some((entry) => entry.toLowerCase().startsWith(normalized)),
+    );
+};
+
+const collectFileDocAnchors = (context) => {
+    const sourceCode = getSourceCode(context);
+    if (!sourceCode) return buildDocAnchorGroups([]);
+
+    const entries = [];
+    sourceCode.getAllComments().forEach((comment) => {
+        if (comment.type !== 'Block') return;
+        entries.push(...parseDocAnchorComment(comment.value, comment.loc?.start?.line || 1));
+    });
+
+    return buildDocAnchorGroups(entries);
+};
+
+const unwrapExpression = (node) => {
+    let current = node;
+    while (
+        current &&
+        (current.type === 'TSAsExpression' ||
+            current.type === 'TSSatisfiesExpression' ||
+            current.type === 'TSNonNullExpression')
+    ) {
+        current = current.expression;
+    }
+
+    return current;
+};
+
+const getDefinitionCalleeName = (node, definitions) => {
+    const expression = unwrapExpression(node);
+    if (expression?.type !== 'CallExpression') return null;
+
+    const name = getCalleePropertyName(expression.callee);
+    return name && definitions.includes(name) ? name : null;
+};
+
+const createRequireDocAnchorRule = () => ({
+    meta: {
+        type: 'suggestion',
+        docs: {
+            description: 'Require Proteum definition files to anchor the documentation that governs them.',
+        },
+        messages: {
+            missingAnchor:
+                '`{{definition}}` files must carry a doc anchor. Add a leading block comment with `@docs <path to the feature pack>`, plus `@rule <one-line invariant>` when a fix or decision constrains this file.',
+            missingTag:
+                '`{{definition}}` files must carry a `@{{tag}}` doc anchor in a leading block comment.',
+        },
+        schema: [
+            {
+                type: 'object',
+                properties: {
+                    definitions: { type: 'array', items: { type: 'string' } },
+                    requiredTags: { type: 'array', items: { enum: docAnchorTags } },
+                },
+                additionalProperties: false,
+            },
+        ],
+    },
+    create(context) {
+        const options = context.options?.[0] || {};
+        const definitions = options.definitions || defaultDocAnchorDefinitions;
+        const requiredTags = options.requiredTags || ['docs'];
+
+        return {
+            ExportDefaultDeclaration(node) {
+                const definition = getDefinitionCalleeName(node.declaration, definitions);
+                if (!definition) return;
+
+                const anchors = collectFileDocAnchors(context);
+                if (anchors.entries.length === 0) {
+                    context.report({ node, messageId: 'missingAnchor', data: { definition } });
+                    return;
+                }
+
+                const missingTag = requiredTags.find((tag) => !hasDocAnchorTag(anchors, tag));
+                if (missingTag) {
+                    context.report({ node, messageId: 'missingTag', data: { definition, tag: missingTag } });
+                }
+            },
+        };
+    },
+});
+
+const createValidDocAnchorRule = () => ({
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Require doc anchors to point at documentation that still exists.',
+        },
+        messages: {
+            unresolvedPath:
+                'Doc anchor `@{{tag}} {{value}}` does not resolve to a file or directory. Update the anchor to the current documentation path, or remove it.',
+            unresolvedAdr:
+                'Doc anchor `@adr {{value}}` matches no decision record under `docs/decisions`. Use the current ADR identifier.',
+            emptyRule:
+                'Doc anchor `@rule` must state the invariant in full so an agent editing this file can apply it without opening the linked document.',
+        },
+        schema: [],
+    },
+    create(context) {
+        return {
+            'Program:exit'() {
+                const anchors = collectFileDocAnchors(context);
+                if (anchors.entries.length === 0) return;
+
+                const roots = resolveAnchorRoots(context);
+                anchors.entries.forEach((entry) => {
+                    const loc = { line: entry.line, column: 0 };
+
+                    if (entry.tag === 'rule') {
+                        if (entry.value.length < minDocAnchorRuleLength) {
+                            context.report({ loc, messageId: 'emptyRule' });
+                        }
+                        return;
+                    }
+
+                    if (isPathDocAnchorTag(entry.tag)) {
+                        if (!resolvePathAnchor(entry.value, roots)) {
+                            context.report({
+                                loc,
+                                messageId: 'unresolvedPath',
+                                data: { tag: entry.tag, value: entry.value },
+                            });
+                        }
+                        return;
+                    }
+
+                    if (entry.tag === 'adr' && !resolveAdrAnchor(entry.value, roots)) {
+                        context.report({ loc, messageId: 'unresolvedAdr', data: { value: entry.value } });
+                    }
+                });
+            },
+        };
+    },
+});
+
+const createProteumEslintConfig = ({ docAnchors = 'warn', ignores = [] } = {}) => [
     {
         ignores: [...defaultIgnores, ...ignores],
     },
@@ -334,6 +588,8 @@ const createProteumEslintConfig = ({ ignores = [] } = {}) => [
                 rules: {
                     'no-app-import': createNoAppImportRule(),
                     'no-swallowed-caught-error': createSwallowedErrorRule(),
+                    'require-doc-anchor': createRequireDocAnchorRule(),
+                    'valid-doc-anchor': createValidDocAnchorRule(),
                 },
             },
             react: reactPlugin,
@@ -344,6 +600,13 @@ const createProteumEslintConfig = ({ ignores = [] } = {}) => [
             '@typescript-eslint/no-explicit-any': 'error',
             'proteum/no-app-import': 'error',
             'proteum/no-swallowed-caught-error': 'error',
+            // Missing anchors warn by default so adopting apps see the backlog
+            // without a failing build; pass `docAnchors: 'error'` once backfilled.
+            'proteum/require-doc-anchor': docAnchors,
+            // A stale anchor is always an error: it only fires on files that
+            // already opted in, and a pointer to a deleted document is worse
+            // than no pointer at all.
+            'proteum/valid-doc-anchor': docAnchors === 'off' ? 'off' : 'error',
             'no-restricted-syntax': [
                 'error',
                 {

@@ -1,17 +1,53 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { Linter } = require('eslint');
 
 const { createProteumEslintConfig } = require('../eslint.js');
 
-const lint = (code, filename = 'client/example.tsx') => {
+const lint = (code, filename = 'client/example.tsx', configOptions) => {
     const linter = new Linter({ configType: 'flat' });
-    return linter.verify(code, createProteumEslintConfig(), {
+    return linter.verify(code, createProteumEslintConfig(configOptions), {
         filename,
     });
 };
 
 const swallowedErrorRuleId = 'proteum/no-swallowed-caught-error';
 const noAppImportRuleId = 'proteum/no-app-import';
+const requireDocAnchorRuleId = 'proteum/require-doc-anchor';
+const validDocAnchorRuleId = 'proteum/valid-doc-anchor';
+
+const messagesFor = (messages, ruleId) => messages.filter((message) => message.ruleId === ruleId);
+
+// The fixture lives inside the repository `.temp` directory rather than the OS
+// temp directory: on macOS the latter sits under `/var/folders`, which the
+// shared `**/var/**` ignore would exclude from linting entirely.
+const docProjectParent = path.resolve(__dirname, '..', '.temp');
+const docProjectRoots = [];
+
+afterAll(() => {
+    docProjectRoots.forEach((root) => fs.rmSync(root, { force: true, recursive: true }));
+});
+
+/**
+ * Build a throwaway project whose documentation corpus really exists on disk,
+ * because the anchor rules resolve their paths against the filesystem.
+ */
+const createDocProject = () => {
+    fs.mkdirSync(docProjectParent, { recursive: true });
+    const root = fs.mkdtempSync(path.join(docProjectParent, 'proteum-doc-anchor-'));
+    docProjectRoots.push(root);
+
+    fs.mkdirSync(path.join(root, 'docs', 'features', 'search'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs', 'features', 'search', 'README.md'), '# Search\n');
+    fs.mkdirSync(path.join(root, 'docs', 'decisions'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs', 'decisions', 'ADR-0004-page-query-contracts.md'), '# ADR-0004\n');
+    fs.mkdirSync(path.join(root, 'docs', 'fixes'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs', 'fixes', '2026-06-09-keyword-order.md'), '# Fix\n');
+    fs.mkdirSync(path.join(root, 'client', 'pages'), { recursive: true });
+
+    return { pageFile: path.join(root, 'client', 'pages', 'browse.tsx'), root };
+};
 
 test('proteum lint rejects contextual @app imports', () => {
     const messages = lint(`
@@ -383,4 +419,201 @@ test('proteum lint allows direct reject promise catch handlers', () => {
     );
 
     assert.equal(messages.filter((message) => message.ruleId === swallowedErrorRuleId).length, 0);
+});
+
+test('proteum lint requires a doc anchor on definition files', () => {
+    const { pageFile } = createDocProject();
+    const messages = lint(`export default definePageRoute({ path: '/browse' });`, pageFile);
+
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 1);
+});
+
+test('proteum lint accepts a definition file that anchors its feature pack', () => {
+    const { pageFile } = createDocProject();
+    const messages = lint(
+        `
+            /**
+             * @docs docs/features/search
+             */
+            export default definePageRoute({ path: '/browse' });
+        `,
+        pageFile,
+    );
+
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 0);
+    assert.equal(messagesFor(messages, validDocAnchorRuleId).length, 0);
+});
+
+test('proteum lint requires a doc anchor on every Proteum definition kind', () => {
+    const { pageFile } = createDocProject();
+
+    for (const definition of [
+        'defineController',
+        'definePageRoute',
+        'defineServerRoute',
+        'defineServerRoutes',
+    ]) {
+        const messages = lint(`export default ${definition}({ path: '/browse' });`, pageFile);
+        assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 1, definition);
+    }
+});
+
+test('proteum lint does not require a doc anchor on error routes', () => {
+    const { root } = createDocProject();
+    const messages = lint(
+        `export default defineErrorRoute({ code: 404 });`,
+        path.join(root, 'client', 'pages', '_messages', '404.tsx'),
+    );
+
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 0);
+});
+
+test('proteum lint ignores files that export no Proteum definition', () => {
+    const { pageFile } = createDocProject();
+    const messages = lint(`export default { path: '/browse' };`, pageFile);
+
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 0);
+});
+
+test('proteum lint reports a definition file whose anchors omit the feature pack', () => {
+    const { pageFile } = createDocProject();
+    const messages = lint(
+        `
+            /**
+             * @rule Browse rows never expose raw score values.
+             */
+            export default definePageRoute({ path: '/browse' });
+        `,
+        pageFile,
+    );
+
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 1);
+});
+
+test('proteum lint resolves anchors against the repo corpus when the app has its own docs directory', () => {
+    const { root } = createDocProject();
+
+    // Mirrors the monorepo layout: apps/<app>/docs/ sits between the source file
+    // and the repository-level corpus that the anchor actually points at.
+    const appRoot = path.join(root, 'apps', 'website');
+    fs.mkdirSync(path.join(appRoot, 'docs', 'fixes'), { recursive: true });
+    fs.mkdirSync(path.join(appRoot, 'client', 'pages'), { recursive: true });
+
+    const messages = lint(
+        `
+            /**
+             * @docs docs/features/search
+             */
+            export default definePageRoute({ path: '/browse' });
+        `,
+        path.join(appRoot, 'client', 'pages', 'browse.tsx'),
+    );
+
+    assert.equal(messagesFor(messages, validDocAnchorRuleId).length, 0);
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 0);
+});
+
+test('proteum lint rejects a doc anchor pointing at a missing document', () => {
+    const { pageFile } = createDocProject();
+    const messages = lint(
+        `
+            /**
+             * @docs docs/features/deleted-feature
+             */
+            export default definePageRoute({ path: '/browse' });
+        `,
+        pageFile,
+    );
+
+    const reported = messagesFor(messages, validDocAnchorRuleId);
+    assert.equal(reported.length, 1);
+    assert.equal(/docs\/features\/deleted-feature/.test(reported[0].message), true);
+});
+
+test('proteum lint resolves fix and decision anchors against the documentation corpus', () => {
+    const { pageFile } = createDocProject();
+    const messages = lint(
+        `
+            /**
+             * @docs docs/features/search
+             * @adr  ADR-0004
+             * @fix  docs/fixes/2026-06-09-keyword-order.md
+             * @rule Composite ordering stays alias-aware.
+             */
+            export default definePageRoute({ path: '/browse' });
+        `,
+        pageFile,
+    );
+
+    assert.equal(messagesFor(messages, validDocAnchorRuleId).length, 0);
+});
+
+test('proteum lint rejects a decision anchor that matches no decision record', () => {
+    const { pageFile } = createDocProject();
+    const messages = lint(
+        `
+            /**
+             * @docs docs/features/search
+             * @adr  ADR-9999
+             */
+            export default definePageRoute({ path: '/browse' });
+        `,
+        pageFile,
+    );
+
+    assert.equal(messagesFor(messages, validDocAnchorRuleId).length, 1);
+});
+
+test('proteum lint rejects a rule anchor that states no invariant', () => {
+    const { pageFile } = createDocProject();
+    const messages = lint(
+        `
+            /**
+             * @docs docs/features/search
+             * @rule todo
+             */
+            export default definePageRoute({ path: '/browse' });
+        `,
+        pageFile,
+    );
+
+    assert.equal(messagesFor(messages, validDocAnchorRuleId).length, 1);
+});
+
+test('proteum lint validates anchors on files that export no definition', () => {
+    const { root } = createDocProject();
+    const messages = lint(
+        `
+            /**
+             * @docs docs/features/deleted-feature
+             */
+            export const helper = () => null;
+        `,
+        path.join(root, 'server', 'services', 'search.ts'),
+    );
+
+    assert.equal(messagesFor(messages, validDocAnchorRuleId).length, 1);
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 0);
+});
+
+test('proteum lint escalates and disables doc anchor rules through config options', () => {
+    const { pageFile } = createDocProject();
+    const source = `
+        /**
+         * @docs docs/features/deleted-feature
+         */
+        export default definePageRoute({ path: '/browse' });
+    `;
+
+    const warned = lint(`export default definePageRoute({ path: '/browse' });`, pageFile);
+    assert.equal(messagesFor(warned, requireDocAnchorRuleId)[0].severity, 1);
+
+    const escalated = lint(`export default definePageRoute({ path: '/browse' });`, pageFile, {
+        docAnchors: 'error',
+    });
+    assert.equal(messagesFor(escalated, requireDocAnchorRuleId)[0].severity, 2);
+
+    const disabled = lint(source, pageFile, { docAnchors: 'off' });
+    assert.equal(messagesFor(disabled, requireDocAnchorRuleId).length, 0);
+    assert.equal(messagesFor(disabled, validDocAnchorRuleId).length, 0);
 });

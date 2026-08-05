@@ -68,6 +68,32 @@ retries++;
 // See docs/fixes/2026-06-02-stripe-replay.md.
 ```
 
+## Doc anchors
+
+A why-comment explains one decision. A doc anchor connects the file to the durable documentation that governs it, so an agent that opens the file finds the feature pack, the decision record and the invariant without searching the corpus first.
+
+Write anchors in a leading block comment:
+
+```typescript
+/**
+ * @docs docs/features/search
+ * @adr  ADR-0004
+ * @fix  docs/fixes/2026-06-09-keyword-search-semantic-order.md
+ * @rule Composite ordering stays alias-aware. Never rewrite ORDER BY with regex.
+ */
+```
+
+- `@docs` points at the feature pack that owns the file. Required on every file that default-exports `definePageRoute`, `defineController`, `defineServerRoute`, or `defineServerRoutes`. Error routes are exempt: they render a status message and carry no feature-specific rule, so requiring a pack for one would manufacture documentation. Add an anchor to an error route only when it really does carry a rule.
+- `@adr` and `@fix` point at the decision record and fix note that constrain the file. Add them where the decision or the bug actually lives, not on every file in the area.
+- `@rule` states the invariant inline, in full. It is the one anchor that carries content rather than a pointer, because the rule is what an agent needs at the moment of editing. A `@rule` that only says `todo` or repeats the linked title is a defect.
+- Anchors are not a substitute for the documents. Narrative, alternatives, benchmarks and acceptance stay under `docs/**`; the anchor carries the pointer and the single-sentence rule.
+
+Two ESLint rules enforce this. `proteum/require-doc-anchor` reports definition files with no `@docs`, and warns by default so an adopting project sees its backlog without a failing build; pass `docAnchors: 'error'` to `createProteumEslintConfig` once the backfill is done. `proteum/valid-doc-anchor` always errors, because an anchor pointing at a deleted document is worse than no anchor.
+
+The read-only MCP owner payloads return these anchors alongside `explain_summary`, `orient`, `route_candidates`, `diagnose`, and `workflow_start`, so the documentation reaches the agent in the same response that identifies the owner.
+
+`proteum docs check` verifies the whole corpus in both directions: it fails on an anchor that no longer resolves, and reports as a backlog every fix note carrying an `Agent warning` that no code anchors, plus every feature pack nothing points at. `proteum verify changed` selects it automatically whenever `docs/**` or a source file changes, so a renamed document cannot silently orphan an anchor.
+
 ## Self-check before finishing
 
 Re-scan every touched file against this list before declaring the work done:
@@ -75,5 +101,6 @@ Re-scan every touched file against this list before declaring the work done:
 - No `any`, `unknown`, or casts introduced; contracts fixed at the boundary.
 - New code sits under the right banner section, and section names still match their content.
 - Every non-obvious decision, workaround, magic value, and bug fix has a why-comment at the site.
+- Every touched definition file carries a `@docs` anchor, and any fix or decision applied in this pass left a `@rule` anchor at the code site it constrains.
 - No comments that restate code; no leftover debug logs or commented-out code.
 - Repeated logic extracted; one class or component per file; catalogs stay canonical.

@@ -14,6 +14,7 @@ export const proteumCommandNames = [
     'typecheck',
     'lint',
     'check',
+    'docs',
     'e2e',
     'connect',
     'doctor',
@@ -299,6 +300,19 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         bestFor: 'One command before commits, pushes, or CI when you want the standard local validation path.',
         examples: [{ description: 'Run the full default validation pipeline', command: 'proteum check' }],
         notes: ['This command executes refresh, typecheck, then lint in that order.', 'From a monorepo wrapper root, check runs once per discovered Proteum app.'],
+        status: 'stable',
+    },
+    docs: {
+        name: 'docs',
+        category: 'Quality gates',
+        summary: 'Check that code and documentation still point at each other.',
+        usage: 'proteum docs check',
+        bestFor: 'Confirming doc anchors resolve and that fix notes and feature packs are reachable from code.',
+        examples: [{ description: 'Check every doc anchor in the repository', command: 'proteum docs check' }],
+        notes: [
+            'Only an anchor that no longer resolves fails the command; missing coverage is reported as a backlog.',
+            'Anchors are the `@docs`, `@adr`, `@fix`, and `@rule` tags described in `CODING_STYLE.md`.',
+        ],
         status: 'stable',
     },
     e2e: {
@@ -594,7 +608,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
         name: 'session',
         category: 'Manifest and contracts',
         summary: 'Mint a dev-only auth session token and cookie payload for a known user.',
-        usage: 'proteum session <email> [--role <role>] [--port <port>|--url <baseUrl>] [--json]',
+        usage: 'proteum session <email> [--role <role>] [--redirect <path>] [--port <port>|--url <baseUrl>] [--json]',
         bestFor:
             'Starting browser or API automation from an authenticated state without driving the login UI, while still using the app-configured auth service.',
         examples: [
@@ -606,11 +620,16 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
                 description: 'Mint a GOD session for unique.domains and print machine-readable cookie data',
                 command: 'proteum session god@example.com --role GOD --json',
             },
+            {
+                description: 'Print a browser login URL that sets the cookie and opens a protected page',
+                command: 'proteum session admin@example.com --port 3101 --redirect /admin --json',
+            },
         ],
         notes: [
             'Sessions are available only in dev mode and use the auth service registered on the current app router.',
             'You must provide the target user email explicitly; Proteum does not guess your admin account universally across apps.',
             'The command returns a token plus Playwright-ready cookie JSON so agents can inject the session into a browser context directly.',
+            'The command also returns a browser login URL that works on localhost dev servers, sets the same session cookie, and redirects to a local path.',
             'Without `--port` or `--url`, Proteum refreshes generated artifacts, builds the dev output, starts a temporary local dev server, creates the session, prints the payload, and exits.',
         ],
         status: 'experimental',

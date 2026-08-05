@@ -352,6 +352,22 @@ class CheckCommand extends ProteumCommand {
     }
 }
 
+class DocsCommand extends ProteumCommand {
+    public static paths = [['docs']];
+
+    public static usage = buildUsage('docs');
+
+    public args = Option.Rest();
+
+    public async execute() {
+        const [action = '', ...restArgs] = this.args;
+
+        assertNoLegacyArgs('docs', restArgs);
+        this.setCliArgs({ action });
+        await runCommandModule(() => import('../commands/docs'));
+    }
+}
+
 class E2eCommand extends ProteumCommand {
     public static paths = [['e2e']];
 
@@ -617,6 +633,7 @@ class SessionCommand extends ProteumCommand {
     public role = Option.String('--role', { description: 'Require the resolved user to have the given role.' });
     public port = Option.String('--port', { description: 'Target an existing dev server on the given port.' });
     public url = Option.String('--url', { description: 'Target an existing dev server at the given base URL.' });
+    public redirect = Option.String('--redirect', { description: 'Local path used by the browser login URL.' });
     public json = Option.Boolean('--json', false, { description: 'Print JSON output.' });
     public args = Option.Rest();
 
@@ -628,6 +645,7 @@ class SessionCommand extends ProteumCommand {
             role: this.role ?? '',
             port: this.port ?? '',
             url: this.url ?? '',
+            redirect: this.redirect ?? '',
             json: this.json,
         });
 
@@ -917,6 +935,7 @@ export const registeredCommands = {
     typecheck: TypecheckCommand,
     lint: LintCommand,
     check: CheckCommand,
+    docs: DocsCommand,
     e2e: E2eCommand,
     connect: ConnectCommand,
     doctor: DoctorCommand,
@@ -953,6 +972,7 @@ export const createCli = (version: string) => {
     clipanion.register(TypecheckCommand);
     clipanion.register(LintCommand);
     clipanion.register(CheckCommand);
+    clipanion.register(DocsCommand);
     clipanion.register(E2eCommand);
     clipanion.register(ConnectCommand);
     clipanion.register(DoctorCommand);

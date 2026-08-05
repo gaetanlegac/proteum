@@ -18,6 +18,7 @@ const {
     compactRouteCandidatesResponse,
     compactTraceResponse,
     compactWorkflowStartResponse,
+    readOwnerDocAnchors,
     resolveInstructionRouting,
 } = require('../common/dev/mcpPayloads.ts');
 const { createProteumMcpServer } = require('../common/dev/mcpServer.ts');
@@ -239,6 +240,114 @@ test('instruction routing promotes triggered full instruction files', () => {
         ),
         true,
     );
+});
+
+test('owner doc anchors resolve the documentation that governs a source file', () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-doc-anchor-'));
+    const anchoredFile = path.join(appRoot, 'client/pages/browse.tsx');
+    const plainFile = path.join(appRoot, 'client/pages/plain.tsx');
+
+    writeFile(
+        anchoredFile,
+        [
+            '/**',
+            ' * @docs docs/features/search',
+            ' * @adr  ADR-0004',
+            ' * @fix  docs/fixes/2026-06-09-keyword-order.md',
+            ' * @rule Composite ordering stays alias-aware.',
+            ' */',
+            "export default definePageRoute({ path: '/browse' });",
+        ].join('\n'),
+    );
+    writeFile(plainFile, "export default definePageRoute({ path: '/plain' });\n");
+
+    const anchors = readOwnerDocAnchors(anchoredFile);
+
+    assert.deepEqual(anchors.docs, ['docs/features/search']);
+    assert.deepEqual(anchors.adr, ['ADR-0004']);
+    assert.deepEqual(anchors.fix, ['docs/fixes/2026-06-09-keyword-order.md']);
+    assert.deepEqual(anchors.rules, ['Composite ordering stays alias-aware.']);
+
+    assert.equal(readOwnerDocAnchors(plainFile), undefined);
+    assert.equal(readOwnerDocAnchors(path.join(appRoot, 'missing.tsx')), undefined);
+    assert.equal(readOwnerDocAnchors(undefined), undefined);
+});
+
+test('owner payloads carry the doc anchors declared by the owning file', () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-owner-docs-'));
+    const pageFile = path.join(appRoot, 'client/pages/domains.tsx');
+
+    writeFile(path.join(appRoot, 'AGENTS.md'), '# App Agents\n\n- root\n');
+    writeFile(
+        pageFile,
+        [
+            '/**',
+            ' * @docs docs/features/product-domain-listings',
+            ' * @rule Public rows never expose raw score values.',
+            ' */',
+            'export default function Domains() { return null; }',
+        ].join('\n'),
+    );
+
+    const manifest = {
+        version: 10,
+        app: {
+            root: appRoot,
+            coreRoot,
+            identityFilepath: path.join(appRoot, 'identity.config.ts'),
+            setupFilepath: path.join(appRoot, 'proteum.config.ts'),
+            identity: { name: 'Owner Docs App', identifier: 'OwnerDocsApp', description: '' },
+            setup: {},
+        },
+        conventions: { routeOptionKeys: [], reservedRouteOptionKeys: [] },
+        env: {
+            source: 'test',
+            loadedVariableKeys: [],
+            requiredVariables: [],
+            resolved: {
+                name: 'test',
+                profile: 'dev',
+                routerPort: 3105,
+                routerCurrentDomain: 'localhost',
+                routerInternalUrl: 'http://localhost:3105',
+            },
+        },
+        connectedProjects: [],
+        services: { app: [], routerPlugins: [] },
+        controllers: [],
+        commands: [],
+        routes: { client: [], server: [] },
+        layouts: [],
+        diagnostics: [],
+    };
+    const doctor = { summary: { errors: 0, warnings: 0, strictFailed: false }, diagnostics: [] };
+    const payload = compactWorkflowStartResponse({
+        contracts: doctor,
+        doctor,
+        manifest,
+        owner: {
+            matches: [
+                {
+                    details: [],
+                    kind: 'route',
+                    label: '/domains',
+                    matchedOn: ['path'],
+                    originHint: 'manifest',
+                    scopeLabel: 'local',
+                    score: 100,
+                    source: { filepath: pageFile, line: 1, column: 1 },
+                },
+            ],
+            normalizedQuery: '/domains',
+            query: '/domains',
+        },
+        route: '/domains',
+        runtime: { publicUrl: 'http://localhost:3105', mcpUrl: 'http://localhost:3105/__proteum/mcp' },
+        task: 'read-only runtime health pass',
+    });
+
+    assert.deepEqual(payload.data.owner.top.docs.docs, ['docs/features/product-domain-listings']);
+    assert.deepEqual(payload.data.owner.top.docs.rules, ['Public rows never expose raw score values.']);
 });
 
 test('workflow start payload combines compact runtime, instructions, owner, and duplicate guidance', () => {

@@ -37,6 +37,8 @@ Do not code from assumptions when a source-of-truth document exists.
 
 Do not duplicate rules across documents. Link to the source of truth when needed.
 
+Documentation must be reachable from the code it governs. Every document written under these rules names the code it affects; the code must point back with a doc anchor, so the next agent finds the governing document by opening the file rather than by searching the corpus. Anchors carry pointers plus the single-sentence invariant, never the narrative. The format and the lint rules that enforce it are in `CODING_STYLE.md`.
+
 ---
 
 # 2. Always read these first
@@ -86,6 +88,7 @@ docs/features/<feature>/acceptance.md
 docs/testing/regression-tests.md              if a regression test was added
 docs/decisions/                               if a major decision changed
 docs/fixes/                                   if a bug or regression was fixed
+@docs anchor on each definition file the feature owns
 ```
 
 ---
@@ -108,6 +111,7 @@ After fixing the bug, update:
 docs/fixes/YYYY-MM-DD-short-bug-name.md
 docs/testing/regression-tests.md
 affected feature edge-cases.md if a new edge case was discovered
+@rule and @fix anchors at the code site that regressed
 ```
 
 A bug fix is incomplete if:
@@ -117,6 +121,7 @@ the root cause is not documented
 the implemented solution is not documented
 the regression test is not linked
 future agents cannot tell what pattern must not return
+the invariant lives only in the fix note and not at the code site that regressed
 ```
 
 ---
@@ -847,11 +852,17 @@ tests/regression/<area>/<bug-name>.test.ts
 
 ## New rule added
 
-What should future agents follow?
+What should future agents follow? Both sections below are mandatory, and each one must also be mirrored to a `@rule` doc anchor at the code site it constrains. A rule that lives only in this note reaches no agent editing that file.
 
 ## Agent warning
 
 What pattern must not be reintroduced?
+
+## Code anchor
+
+```txt
+path/to/file        the @rule and @fix anchors added there
+```
 
 ## Related docs
 
@@ -1004,11 +1015,17 @@ tests/performance/<benchmark>.test.ts
 
 ## New rule added
 
-What should future agents follow?
+What should future agents follow? Both sections below are mandatory, and each one must also be mirrored to a `@rule` doc anchor at the code site it constrains. A rule that lives only in this note reaches no agent editing that file.
 
 ## Agent warning
 
 What pattern must not be reintroduced?
+
+## Code anchor
+
+```txt
+path/to/file        the @rule and @fix anchors added there
+```
 ````
 
 ---

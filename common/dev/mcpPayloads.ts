@@ -45,8 +45,34 @@ type TNodePath = {
     resolve: (...segments: string[]) => string;
 };
 
+type TDocAnchorEntry = {
+    line: number;
+    tag: string;
+    value: string;
+};
+
+type TDocAnchorGroups = {
+    adr: string[];
+    docs: string[];
+    entries: TDocAnchorEntry[];
+    fix: string[];
+    rules: string[];
+};
+
+type TDocAnchorsModule = {
+    collectDocAnchors: (sourceText: string, options?: { maxLength?: number }) => TDocAnchorGroups;
+};
+
+export type TOwnerDocAnchors = {
+    adr?: string[];
+    docs?: string[];
+    fix?: string[];
+    rules?: string[];
+};
+
 const maxInstructionPreviewLength = 360;
 const maxTextLength = 220;
+const maxOwnerDocAnchorRules = 3;
 const nodeRequire = (() => {
     try {
         return eval('require') as NodeRequire;
@@ -56,6 +82,23 @@ const nodeRequire = (() => {
 })();
 const fs = nodeRequire ? (nodeRequire('fs') as TNodeFs) : undefined;
 const path = nodeRequire ? (nodeRequire('path') as TNodePath) : undefined;
+const docAnchors = (() => {
+    if (!nodeRequire) return undefined;
+
+    // Relative resolution covers the linked framework checkout; the package
+    // specifier covers an installed copy whose transpiled layout may differ.
+    // Owner payloads stay valid without anchors, so a resolution failure
+    // degrades to the previous behaviour instead of breaking the tool.
+    for (const specifier of ['../../docAnchors.js', 'proteum/docAnchors.js']) {
+        try {
+            return nodeRequire(specifier) as TDocAnchorsModule;
+        } catch (_error) {
+            continue;
+        }
+    }
+
+    return undefined;
+})();
 
 const hasNodeFs = () => fs !== undefined;
 const hasNodePath = () => path !== undefined;
@@ -217,14 +260,49 @@ export const summarizeManifest = (manifest: TProteumManifest | undefined) => {
     };
 };
 
-const compactOwnerMatch = (match: TExplainOwnerResponse['matches'][number]) => ({
-    kind: match.kind,
-    label: match.label,
-    score: match.score,
-    scope: match.scopeLabel,
-    origin: match.originHint,
-    source: match.source,
-});
+/**
+ * Resolve the doc anchors declared in an owner's source file.
+ *
+ * This is what makes the documentation corpus discoverable at the point an
+ * agent asks who owns a route: the governing feature pack, decision record and
+ * fix note arrive with the owner instead of costing a separate search.
+ */
+export const readOwnerDocAnchors = (filepath?: string): TOwnerDocAnchors | undefined => {
+    if (!filepath || !docAnchors || fs === undefined || !fileExists(filepath)) return undefined;
+
+    let groups: TDocAnchorGroups;
+    try {
+        groups = docAnchors.collectDocAnchors(fs.readFileSync(filepath, 'utf8'));
+    } catch (_error) {
+        return undefined;
+    }
+
+    if (groups.entries.length === 0) return undefined;
+
+    return {
+        docs: groups.docs.length > 0 ? groups.docs : undefined,
+        adr: groups.adr.length > 0 ? groups.adr : undefined,
+        fix: groups.fix.length > 0 ? groups.fix : undefined,
+        rules:
+            groups.rules.length > 0
+                ? compactList(groups.rules, maxOwnerDocAnchorRules).map((rule) => truncateForMcp(rule))
+                : undefined,
+    };
+};
+
+const compactOwnerMatch = (match: TExplainOwnerResponse['matches'][number]) => {
+    const docs = readOwnerDocAnchors(match.source.filepath);
+
+    return {
+        kind: match.kind,
+        label: match.label,
+        score: match.score,
+        scope: match.scopeLabel,
+        origin: match.originHint,
+        source: match.source,
+        ...(docs ? { docs } : {}),
+    };
+};
 
 const compactDiagnostic = (diagnostic: TDoctorResponse['diagnostics'][number]) => ({
     level: diagnostic.level,
