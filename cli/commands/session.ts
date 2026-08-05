@@ -4,7 +4,13 @@ import { spawn } from 'child_process';
 import { UsageError } from 'clipanion';
 
 import cli from '..';
-import type { TDevSessionErrorResponse, TDevSessionStartResponse } from '../../common/dev/session';
+import {
+    buildDevSessionLoginUrl,
+    devSessionStartPath,
+    normalizeDevSessionRedirectPath,
+    type TDevSessionErrorResponse,
+    type TDevSessionStartResponse,
+} from '../../common/dev/session';
 
 const localSessionResultMarker = '__PROTEUM_SESSION_RESULT__';
 
@@ -13,6 +19,7 @@ type TResolvedSessionOutput = {
     user: TDevSessionStartResponse['user'];
     session: TDevSessionStartResponse['session'];
     browserCookie: string;
+    browserLoginUrl: string;
     curlCookieHeader: string;
     playwright: {
         cookies: Array<{
@@ -28,6 +35,13 @@ type TResolvedSessionOutput = {
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
+const normalizeRedirectPath = (value: string): string => {
+    try {
+        return normalizeDevSessionRedirectPath(value);
+    } catch (error) {
+        throw new UsageError(error instanceof Error ? error.message : String(error));
+    }
+};
 
 const getRouterPortFromManifest = () => {
     const manifestFilepath = path.join(cli.args.workdir as string, '.proteum', 'manifest.json');
@@ -82,7 +96,7 @@ const requestSession = async (email: string, role: string) => {
 
     for (const baseUrl of getRouterBaseUrls()) {
         try {
-            const response = await got(`${baseUrl}/__proteum/session/start`, {
+            const response = await got(`${baseUrl}${devSessionStartPath}`, {
                 method: 'POST',
                 json: role ? { email, role } : { email },
                 responseType: 'json',
@@ -92,7 +106,7 @@ const requestSession = async (email: string, role: string) => {
 
             if (response.statusCode >= 400) {
                 if (response.statusCode === 404 && !hasStructuredSessionError(response.body as TDevSessionErrorResponse | object | string | undefined)) {
-                    attempts.push(`${baseUrl}/__proteum/session/start: returned 404`);
+                    attempts.push(`${baseUrl}${devSessionStartPath}: returned 404`);
                     continue;
                 }
 
@@ -109,7 +123,7 @@ const requestSession = async (email: string, role: string) => {
             if (error instanceof UsageError) throw error;
 
             const message = error instanceof Error ? error.message : String(error);
-            attempts.push(`${baseUrl}/__proteum/session/start: ${message}`);
+            attempts.push(`${baseUrl}${devSessionStartPath}: ${message}`);
         }
     }
 
@@ -124,9 +138,13 @@ const requestSession = async (email: string, role: string) => {
 
 const buildSessionOutput = ({
     baseUrl,
+    redirect,
+    role,
     response,
 }: {
     baseUrl: string;
+    redirect: string;
+    role: string;
     response: TDevSessionStartResponse;
 }): TResolvedSessionOutput => {
     const expires = Math.floor(Date.parse(response.session.expiresAt) / 1000);
@@ -137,6 +155,12 @@ const buildSessionOutput = ({
         user: response.user,
         session: response.session,
         browserCookie: `${response.session.cookieName}=${response.session.token}; Path=/`,
+        browserLoginUrl: buildDevSessionLoginUrl({
+            baseUrl,
+            email: response.user.email,
+            redirect,
+            role,
+        }),
         curlCookieHeader: `Cookie: ${response.session.cookieName}=${response.session.token}`,
         playwright: {
             cookies: [
@@ -170,6 +194,8 @@ const renderSession = (value: TResolvedSessionOutput) =>
         JSON.stringify(value.playwright, null, 2),
         'Browser Cookie',
         value.browserCookie,
+        'Browser Login URL',
+        value.browserLoginUrl,
     ].join('\n');
 
 const runLocalSession = async (email: string, role: string) => {
@@ -232,6 +258,7 @@ const runLocalSession = async (email: string, role: string) => {
 export const run = async () => {
     const email = typeof cli.args.email === 'string' ? cli.args.email.trim() : '';
     const role = typeof cli.args.role === 'string' ? cli.args.role.trim() : '';
+    const redirect = normalizeRedirectPath(typeof cli.args.redirect === 'string' ? cli.args.redirect : '/');
     const shouldPrintJson = cli.args.json === true;
     const shouldUseRemoteServer =
         (typeof cli.args.port === 'string' && cli.args.port.length > 0) ||
@@ -242,7 +269,11 @@ export const run = async () => {
     }
 
     const resolved = buildSessionOutput(
-        shouldUseRemoteServer ? await requestSession(email, role) : await runLocalSession(email, role),
+        {
+            ...(shouldUseRemoteServer ? await requestSession(email, role) : await runLocalSession(email, role)),
+            redirect,
+            role,
+        },
     );
 
     if (shouldPrintJson) {

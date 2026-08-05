@@ -29,6 +29,7 @@ Managed compact root routers must use trigger -> canonical instruction file refe
 - If you changed `schema.prisma`, stop before testing or validation and follow the migration rule in `Hard Stops`.
 - If you encounter `runtime/provider-hook-outside-provider`, `runtime/client-only-hook-in-ssr`, `runtime/router-context-outside-router`, or `runtime/connected-boundary-mismatch`, treat it as a framework contract failure first. Fix the provider, SSR/client, router, or connected boundary before assuming a local leaf-component bug.
 - If the change is runtime-visible, request-time, router, SSR, browser-visible, or controller-behavior, use running-app verification per the `Verification Matrix`.
+- If a new feature is visible in the UI or browser, run the mandatory browser MCP pass defined in the `Verification Policy` before finishing.
 - If the change is docs-only, wording-only, type-only, test-only, generated-output cleanup, or a clearly local non-runtime refactor, use static verification only unless the user explicitly asks for runtime verification or you find a real issue.
 - If the user replies exactly `commit`, follow `Commit Workflow`.
 
@@ -76,7 +77,7 @@ Treat Proteum CLI and MCP output as the workflow router.
 - Use `--replace-existing` only when restarting the exact session file started by the current thread/task. Never replace another live session that belongs to a user, another thread, or an unknown owner.
 - Do not start a second `npx proteum dev` server in the same worktree. If MCP routing fails, the runtime is unreachable, or an untracked runtime already answers on the configured port, follow the `Runtime Diagnostics` repair workflow in root-level `diagnostics.md` instead of starting another server.
 - If the current app depends on local `file:` connected projects, boot every connected producer app too, each with its own task-scoped session file and free port, and run every one of those `proteum dev` processes with elevated permissions outside the sandbox before starting or verifying the consumer app.
-- For browser validation, use the browser MCP against the running app. Keep Playwright inside `npx proteum e2e --port <port>` for targeted/full end-to-end suites. Bootstrap protected browser MCP state with `npx proteum session`; bootstrap protected E2E runs with `npx proteum e2e --session-email <email> --session-role <role>`.
+- For browser validation, use the browser MCP against the running app. Keep Playwright inside `npx proteum e2e --port <port>` for targeted/full end-to-end suites. Before every browser MCP pass, bootstrap the browser with the project instructions' admin account via `npx proteum session <admin-email> --role GOD` or its `browserLoginUrl`, unless the task is explicitly testing auth, login, anonymous, or non-admin behavior. If the project instructions do not declare an admin email for local validation, stop and ask before running the browser pass. Bootstrap protected E2E runs with `npx proteum e2e --session-email <email> --session-role <role>`.
 
 ### Before Finishing
 
@@ -303,7 +304,8 @@ This is the canonical post-change verification policy. Other instruction files p
 - Use the cheapest trustworthy verification that matches the changed surface, including targeted tests for changed behavior.
 - When the repository defines `proteum.verify.config.ts`, run `npx proteum verify changed` as the first post-change verification pass and expand only when the selected plan is insufficient.
 - Applicable production changes must always add or update focused unit tests and run the targeted unit or integration tests that match the changed behavior. Document any generated files, migrations, framework shims, unreachable defensive branches, or changes that cannot reasonably be unit-tested as explicit exceptions in the completion note.
-- After implementing a new feature or changing existing feature behavior, update the relevant end-to-end coverage and run the cheapest trustworthy Playwright or browser verification for that behavior before finishing.
+- After implementing a new feature that is visible in the UI or browser, run a browser MCP pass against the real page before finishing. This is mandatory even when `npx proteum verify changed`, request diagnostics, lint, or typecheck pass; inspect the rendered page, the primary interaction or state, browser console output, and relevant server output for blocking errors.
+- After implementing a new feature or changing existing feature behavior, update the relevant end-to-end coverage. Run targeted `npx proteum e2e --port <port> ...` when the behavior needs automated browser assertions or journey coverage.
 - For docs-only, wording-only, type-only, test-only, generated-output cleanup, or clearly local non-runtime refactors, use static verification only and skip Playwright unless the user explicitly asks for it or verification reveals a real issue.
 - Do not run coverage by default after ordinary changes. Reserve whole-project coverage and the full `npm run check` gate for push workflows, explicit user requests, or when project-local instructions require the full gate.
 - Commit-time verification is defined in `Commit Workflow`.
@@ -314,6 +316,7 @@ Verify at the correct layer:
 
 - Route additions: boot the app and hit the real URL.
 - Controller changes: exercise the generated client call or generated `/api/...` endpoint.
+- New UI-visible features: run the mandatory browser MCP pass against the real page before finishing, using the project instructions' admin account through `npx proteum session <admin-email> --role GOD` or the emitted `browserLoginUrl` before opening the page unless the scenario is explicitly auth, anonymous, or non-admin.
 - SSR changes: use the browser MCP to load the real page and inspect rendered HTML plus browser console.
 - Router or plugin changes: verify request context, auth, redirects, metrics, and validation on a running app.
 - Generated, connected, or ownership-ambiguous changes: follow `MCP Orientation`; use `npx proteum orient <query>` and `npx proteum verify owner <query>` when MCP is unavailable or terminal evidence is required.

@@ -30,7 +30,13 @@ import type { TServerRouter } from '..';
 import type { TDevConsoleLogLevel } from '@common/dev/console';
 import type { TPerfGroupBy } from '@common/dev/performance';
 import type { TServerReadyConnectedProject } from '@common/dev/serverHotReload';
-import type { TDevSessionStartResponse, TDevSessionUserSummary } from '@common/dev/session';
+import {
+    devSessionLoginPath,
+    devSessionStartPath,
+    normalizeDevSessionRedirectPath,
+    type TDevSessionStartResponse,
+    type TDevSessionUserSummary,
+} from '@common/dev/session';
 import { serverHotReloadMessageType } from '@common/dev/serverHotReload';
 import { explainSectionNames } from '@common/dev/diagnostics';
 import {
@@ -88,6 +94,16 @@ type TDevSessionAuthService = {
     createSession: (session: { email: string }, request: { id: string; res: express.Response }) => string;
     decodeSession: (session: { email: string }, req: express.Request) => Promise<TBasicUser | null>;
 };
+type TDevSessionResult =
+    | {
+          ok: true;
+          response: TDevSessionStartResponse;
+      }
+    | {
+          ok: false;
+          error: string;
+          statusCode: number;
+      };
 
 const createContentSecurityPolicy = (config: Config['csp']): TContentSecurityPolicyOptions => {
     const directives: TContentSecurityPolicyDirectives = {
@@ -174,6 +190,77 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
             type: user.type,
             roles: [...user.roles],
             locale: user.locale ?? null,
+        };
+    }
+
+    private getSingleQueryValue(value: express.Request['query'][string]): string {
+        if (typeof value === 'string') return value.trim();
+        if (Array.isArray(value) && value.length === 1 && typeof value[0] === 'string') return value[0].trim();
+        return '';
+    }
+
+    private normalizeDevSessionRedirect(value: express.Request['query'][string]): string {
+        try {
+            return normalizeDevSessionRedirectPath(this.getSingleQueryValue(value));
+        } catch {
+            return '';
+        }
+    }
+
+    private isLocalDevSessionRequest(req: express.Request): boolean {
+        const hostname = req.hostname.toLowerCase();
+        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+    }
+
+    private async createDevSessionResponse({
+        email,
+        req,
+        requiredRole,
+        res,
+        source,
+    }: {
+        email: string;
+        req: express.Request;
+        requiredRole: string;
+        res: express.Response;
+        source: 'login' | 'start';
+    }): Promise<TDevSessionResult> {
+        if (!email) return { ok: false, statusCode: 400, error: 'Email is required.' };
+
+        const auth = this.resolveDevSessionAuthService();
+        const user = await auth.decodeSession({ email }, req);
+
+        if (!user) return { ok: false, statusCode: 404, error: `No user could be resolved for "${email}".` };
+        if (requiredRole && !user.roles.includes(requiredRole)) {
+            return {
+                ok: false,
+                statusCode: 403,
+                error: `User "${email}" does not have required role "${requiredRole}".`,
+            };
+        }
+
+        const token = auth.createSession(
+            { email },
+            {
+                id: `proteum-session-${source}:${Date.now()}`,
+                res,
+            },
+        );
+        const issuedAt = new Date().toISOString();
+        const expiresAt = new Date(Date.now() + auth.config.jwt.expiration).toISOString();
+
+        return {
+            ok: true,
+            response: {
+                user: this.summarizeDevSessionUser(user),
+                session: {
+                    token,
+                    cookieName: 'authorization',
+                    expiresInMs: auth.config.jwt.expiration,
+                    issuedAt,
+                    expiresAt,
+                },
+            },
         };
     }
 
@@ -766,50 +853,60 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
             }
         });
 
-        routes.post('/__proteum/session/start', async (req, res) => {
-            const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
-            const requiredRole = typeof req.body?.role === 'string' ? req.body.role.trim() : '';
+        routes.get(devSessionLoginPath, async (req, res) => {
+            if (!this.isLocalDevSessionRequest(req)) {
+                res.status(403).send('Proteum session login is only available from localhost.');
+                return;
+            }
 
-            if (!email) {
-                res.status(400).json({ error: 'Email is required.' });
+            const email = this.getSingleQueryValue(req.query.email);
+            const requiredRole = this.getSingleQueryValue(req.query.role);
+            const redirect = this.normalizeDevSessionRedirect(req.query.redirect);
+
+            if (!redirect) {
+                res.status(400).send('Redirect must be a local absolute path.');
                 return;
             }
 
             try {
-                const auth = this.resolveDevSessionAuthService();
-                const user = await auth.decodeSession({ email }, req);
+                const result = await this.createDevSessionResponse({
+                    email,
+                    req,
+                    requiredRole,
+                    res,
+                    source: 'login',
+                });
 
-                if (!user) {
-                    res.status(404).json({ error: `No user could be resolved for "${email}".` });
+                if (!result.ok) {
+                    res.status(result.statusCode).send(result.error);
                     return;
                 }
 
-                if (requiredRole && !user.roles.includes(requiredRole)) {
-                    res.status(403).json({ error: `User "${email}" does not have required role "${requiredRole}".` });
+                res.redirect(302, redirect);
+            } catch (error) {
+                res.status(500).send(error instanceof Error ? error.message : String(error));
+            }
+        });
+
+        routes.post(devSessionStartPath, async (req, res) => {
+            const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+            const requiredRole = typeof req.body?.role === 'string' ? req.body.role.trim() : '';
+
+            try {
+                const result = await this.createDevSessionResponse({
+                    email,
+                    req,
+                    requiredRole,
+                    res,
+                    source: 'start',
+                });
+
+                if (!result.ok) {
+                    res.status(result.statusCode).json({ error: result.error });
                     return;
                 }
 
-                const token = auth.createSession(
-                    { email },
-                    {
-                        id: `proteum-session:${Date.now()}`,
-                        res,
-                    },
-                );
-                const issuedAt = new Date().toISOString();
-                const expiresAt = new Date(Date.now() + auth.config.jwt.expiration).toISOString();
-                const response: TDevSessionStartResponse = {
-                    user: this.summarizeDevSessionUser(user),
-                    session: {
-                        token,
-                        cookieName: 'authorization',
-                        expiresInMs: auth.config.jwt.expiration,
-                        issuedAt,
-                        expiresAt,
-                    },
-                };
-
-                res.json(response);
+                res.json(result.response);
             } catch (error) {
                 res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
             }
