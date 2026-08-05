@@ -240,6 +240,46 @@ test('an error pushed into a result collection counts as preservation', () => {
     assert.equal(count(messages, swallowedRuleId), 0);
 });
 
+test('translating a failure into a new throw counts, even without the original', () => {
+    const messages = lint(`
+        export const assertUrl = (raw) => {
+            try {
+                return new URL(raw);
+            } catch {
+                throw new Error('must be an absolute URL');
+            }
+        };
+    `);
+
+    assert.equal(count(messages, swallowedRuleId), 0);
+});
+
+test('preservation inside a loop body counts, because iteration is not a condition', () => {
+    const messages = lint(`
+        export const run = (batch) => {
+            load().catch((error) => {
+                for (const item of batch) {
+                    item.reject(error);
+                }
+            });
+        };
+    `);
+
+    assert.equal(count(messages, swallowedRuleId), 0);
+});
+
+test('a returned fallback is still a swallow, however it is spelled', () => {
+    const nullFallback = lint(`
+        export const run = () => {
+            try { risky(); } catch { return null; }
+        };
+    `);
+    assert.equal(count(nullFallback, swallowedRuleId), 1);
+
+    const emptyList = lint(`export const run = (d) => dns.resolveMx(d).catch(() => []);`);
+    assert.equal(count(emptyList, swallowedRuleId), 1);
+});
+
 test('a console-only catch is still reported', () => {
     const messages = lint(`
         export const run = async () => {

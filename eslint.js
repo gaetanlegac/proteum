@@ -183,6 +183,8 @@ const hasOptionalCallBoundary = (callExpression, ancestors = []) => {
     return hasOptional || ancestors.some(({ node }) => node.type === 'ChainExpression');
 };
 
+// A loop body is iteration, not a condition. `for (const item of batch) item.reject(error)`
+// preserves the error for every item there is, so it is not a swallow.
 const isUnderConditionalControlFlow = (ancestors = []) =>
     ancestors.some(({ node, childKey }) => {
         if (node.type === 'IfStatement') return childKey === 'consequent' || childKey === 'alternate';
@@ -190,12 +192,32 @@ const isUnderConditionalControlFlow = (ancestors = []) =>
         if (node.type === 'LogicalExpression') return childKey === 'right';
         if (node.type === 'SwitchCase') return childKey === 'consequent';
 
-        return (
-            ['ForInStatement', 'ForOfStatement', 'ForStatement', 'WhileStatement', 'DoWhileStatement'].includes(
-                node.type,
-            ) && childKey === 'body'
-        );
+        return false;
     });
+
+/**
+ * Does the handler throw, whatever it throws?
+ *
+ * `catch { throw new Error('must be an absolute URL') }` translates a failure
+ * into the domain's own vocabulary. The original object is dropped, but the
+ * failure still propagates and nothing continues silently, which is what this
+ * rule exists to prevent. Attaching the original as `cause` is better practice,
+ * not a separate correctness question for this rule.
+ */
+const handlerThrows = (node) => {
+    let throws = false;
+
+    traverseNode(node, (child, _parent, _parentKey, ancestors) => {
+        if (child.type === 'ThrowStatement' && !isUnderConditionalControlFlow(ancestors)) throws = true;
+    });
+
+    return throws;
+};
+
+// A returned fallback is deliberately NOT accepted. `catch { return null }` is
+// the textbook swallow, and no structural signal separates it from
+// `.catch(() => [])`. Where a fallback really is correct, the call site says so
+// with a disable comment and a reason, which stays greppable.
 
 const defaultErrorReporters = ['app.reportError', 'app.handleError'];
 
@@ -363,6 +385,11 @@ const createSwallowedErrorRule = () => ({
         const reportHandler = (node, params, body) => {
             const names = params.flatMap((param) => collectPatternNames(param));
             if (names.length === 0) {
+                // Nothing was bound, so nothing can be routed. Still accepted when
+                // the handler translates the failure into a throw, because the
+                // failure keeps propagating rather than being continued past.
+                if (handlerThrows(body)) return;
+
                 context.report({ node, messageId: 'missingParam' });
                 return;
             }
@@ -372,6 +399,8 @@ const createSwallowedErrorRule = () => ({
                 context.report({ node, messageId: 'unusedParam', data: { name: names[0] } });
                 return;
             }
+
+            if (handlerThrows(body)) return;
 
             if (!handlerPreservesCaughtError(body, collectDerivedErrorNames(body, names), side, reporters)) {
                 context.report({ node, messageId: 'unpreserved', data: { name: referencedName } });
