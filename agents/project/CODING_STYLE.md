@@ -107,6 +107,8 @@ Two rules police the edges of the type system and the error path. Both allow the
 - the input of a type guard, since narrowing an untrusted value is the guard's whole job;
 - anything carrying a `@boundary` tag in its doc comment.
 
+Test files are exempt from this rule entirely: a fixture built with `as unknown as X` is a test technique, not a trust boundary. The other rules still apply in tests.
+
 Use `@boundary` when the value genuinely arrives from outside: a parsed response, a provider payload, a third-party shim. State where it comes from, so the codebase's trust boundaries stay greppable:
 
 ```typescript

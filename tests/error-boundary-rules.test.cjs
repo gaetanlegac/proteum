@@ -36,6 +36,21 @@ test('unknown is allowed on a catch binding, which is how TypeScript types it', 
     assert.equal(count(messages, looseUnknownRuleId), 0);
 });
 
+test('unknown inside a catch BODY still needs a reason, only the binding is exempt', () => {
+    const messages = lint(`
+        export const run = () => {
+            try {
+                risky();
+            } catch (error: unknown) {
+                const detail: unknown = extract(error);
+                throw error;
+            }
+        };
+    `);
+
+    assert.equal(count(messages, looseUnknownRuleId), 1);
+});
+
 test('unknown is allowed as the input of a type guard', () => {
     const messages = lint(`
         export const isDomainField = (value: unknown): value is string => typeof value === 'string';

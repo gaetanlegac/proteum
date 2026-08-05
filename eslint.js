@@ -407,14 +407,39 @@ const boundaryTagPattern = /(^|\s)@boundary(\s|$)/;
  * value is DomainField` is the correct signature. Any narrower input type would
  * defeat the guard it belongs to.
  */
-const isWithinTypeGuardSignature = (ancestors) =>
-    ancestors.some(({ node }) => {
-        const returnType = node?.returnType?.typeAnnotation;
-        return returnType?.type === 'TSTypePredicate';
-    });
+const isWithinTypeGuardSignature = (node) => {
+    let current = node.parent;
+    while (current) {
+        if (current.returnType?.typeAnnotation?.type === 'TSTypePredicate') return true;
+        current = current.parent;
+    }
 
-const isWithinCatchParameter = (ancestors) =>
-    ancestors.some(({ node, childKey }) => node?.type === 'CatchClause' && childKey === 'param');
+    return false;
+};
+
+/**
+ * Is this `unknown` inside the *parameter* of a catch clause?
+ *
+ * Range containment rather than a parent-chain shape check, so a destructured or
+ * annotated binding qualifies too. The containment test matters: the catch BODY
+ * also has the clause as an ancestor, and `unknown` there is not the language's
+ * doing and still needs a reason.
+ */
+const isWithinCatchParameter = (node) => {
+    let current = node.parent;
+    while (current) {
+        if (current.type === 'CatchClause') {
+            return (
+                current.param != null &&
+                node.range[0] >= current.param.range[0] &&
+                node.range[1] <= current.param.range[1]
+            );
+        }
+        current = current.parent;
+    }
+
+    return false;
+};
 
 const createNoLooseUnknownRule = () => ({
     meta: {
@@ -455,21 +480,10 @@ const createNoLooseUnknownRule = () => ({
 
         return {
             TSUnknownKeyword(node) {
-                const ancestors = [];
-                let current = node.parent;
-                while (current) {
-                    ancestors.push({ childKey: null, node: current });
-                    current = current.parent;
-                }
-
                 // TypeScript itself types a catch binding as `unknown`, so banning
                 // it there bans the language's own contract.
-                if (node.parent?.type === 'TSTypeAnnotation' && node.parent.parent?.type === 'Identifier') {
-                    const owner = node.parent.parent.parent;
-                    if (owner?.type === 'CatchClause') return;
-                }
-                if (isWithinCatchParameter(ancestors)) return;
-                if (isWithinTypeGuardSignature(ancestors)) return;
+                if (isWithinCatchParameter(node)) return;
+                if (isWithinTypeGuardSignature(node)) return;
                 if (hasBoundaryTag(node)) return;
 
                 context.report({ node, messageId: 'looseUnknown' });
