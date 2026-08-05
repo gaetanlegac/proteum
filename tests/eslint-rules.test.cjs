@@ -458,6 +458,89 @@ test('proteum lint requires a doc anchor on every Proteum definition kind', () =
     }
 });
 
+test('proteum lint requires a doc anchor on exported service classes', () => {
+    const { root } = createDocProject();
+    const serviceFile = path.join(root, 'server', 'services', 'Domains', 'search', 'index.ts');
+
+    const missing = lint(
+        `export default class DomainsSearchService extends Service<Config, {}, Application, object> {}`,
+        serviceFile,
+    );
+    assert.equal(messagesFor(missing, requireDocAnchorRuleId).length, 1);
+
+    const anchored = lint(
+        `
+            /**
+             * @docs docs/features/search
+             */
+            export default class DomainsSearchService extends Service<Config, {}, Application, object> {}
+        `,
+        serviceFile,
+    );
+    assert.equal(messagesFor(anchored, requireDocAnchorRuleId).length, 0);
+});
+
+test('proteum lint covers app-specific service base classes and named exports', () => {
+    const { root } = createDocProject();
+    const messages = lint(
+        `export class AuthManagement extends UsersManagementService<TUser, AuthApplication, TJwtSession> {}`,
+        path.join(root, 'server', 'services', 'Users', 'Auth', 'index.ts'),
+    );
+
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 1);
+});
+
+test('proteum lint leaves non-service classes alone', () => {
+    const { root } = createDocProject();
+    const messages = lint(
+        `export default class DomainCard extends React.Component {}`,
+        path.join(root, 'client', 'components', 'DomainCard.tsx'),
+    );
+
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 0);
+});
+
+test('proteum lint reports a service class only once per file', () => {
+    const { root } = createDocProject();
+    const messages = lint(
+        `
+            export class FirstService extends Service {}
+            export default class SecondService extends Service {}
+        `,
+        path.join(root, 'server', 'services', 'Two', 'index.ts'),
+    );
+
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 1);
+});
+
+test('proteum lint opts extra files in through include globs', () => {
+    const { root } = createDocProject();
+    const paywallFile = path.join(root, 'client', 'components', 'paywall', 'PaywallModal', 'index.tsx');
+    const iconFile = path.join(root, 'client', 'components', 'Icon.tsx');
+    const source = `const Modal = () => null;\nexport default Modal;\n`;
+    const options = { docAnchors: 'warn', includeDocAnchors: ['client/components/paywall/**'] };
+
+    assert.equal(messagesFor(lint(source, paywallFile, options), requireDocAnchorRuleId).length, 1);
+    assert.equal(messagesFor(lint(source, iconFile, options), requireDocAnchorRuleId).length, 0);
+});
+
+test('proteum lint accepts an included file once it carries an anchor', () => {
+    const { root } = createDocProject();
+    const messages = lint(
+        `
+            /**
+             * @docs docs/features/search
+             */
+            const Modal = () => null;
+            export default Modal;
+        `,
+        path.join(root, 'client', 'components', 'paywall', 'PaywallModal', 'index.tsx'),
+        { docAnchors: 'warn', includeDocAnchors: ['client/components/paywall/**'] },
+    );
+
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 0);
+});
+
 test('proteum lint does not require a doc anchor on error routes', () => {
     const { root } = createDocProject();
     const messages = lint(

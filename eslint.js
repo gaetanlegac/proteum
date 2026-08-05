@@ -460,6 +460,74 @@ const getDefinitionCalleeName = (node, definitions) => {
     return name && definitions.includes(name) ? name : null;
 };
 
+const getSuperClassName = (node) => {
+    const superClass = node?.superClass;
+    if (!superClass) return null;
+    if (superClass.type === 'Identifier') return superClass.name;
+    // `extends Service<Config, Hooks, App, object>` parses the generic call as a
+    // member or call expression depending on the parser path.
+    if (superClass.type === 'CallExpression') return getCalleePropertyName(superClass.callee);
+    if (superClass.type === 'MemberExpression') return getMemberPropertyName(superClass);
+
+    return null;
+};
+
+/**
+ * An exported class extending a Proteum service base owns business logic, so it
+ * carries the same documentation obligation as a route or controller. Matching
+ * on the base-class suffix covers both `extends Service` and app-specific bases
+ * such as `extends UsersManagementService`.
+ */
+const isServiceClass = (node, pattern) => {
+    if (node?.type !== 'ClassDeclaration') return false;
+
+    const superClassName = getSuperClassName(node);
+    return Boolean(superClassName && pattern.test(superClassName));
+};
+
+const globToRegExp = (glob) => {
+    let pattern = '';
+
+    for (let index = 0; index < glob.length; index += 1) {
+        const character = glob[index];
+
+        if (character === '*') {
+            if (glob[index + 1] === '*') {
+                // `**/` spans any number of directories; a trailing `**` spans
+                // the rest of the path, separators included.
+                if (glob[index + 2] === '/') {
+                    pattern += '(?:[^/]*\/)*';
+                    index += 2;
+                    continue;
+                }
+
+                pattern += '.*';
+                index += 1;
+                continue;
+            }
+
+            pattern += '[^/]*';
+            continue;
+        }
+
+        pattern += '.+^${}()|[]\\?'.includes(character) ? `\\${character}` : character;
+    }
+
+    return new RegExp(`(^|/)${pattern}$`);
+};
+
+const includeMatchers = new Map();
+
+const matchesIncludeGlob = (filename, includes) => {
+    if (!filename || includes.length === 0) return false;
+
+    const normalized = filename.replace(/\\/g, '/');
+    return includes.some((glob) => {
+        if (!includeMatchers.has(glob)) includeMatchers.set(glob, globToRegExp(glob));
+        return includeMatchers.get(glob).test(normalized);
+    });
+};
+
 const createRequireDocAnchorRule = () => ({
     meta: {
         type: 'suggestion',
@@ -477,7 +545,9 @@ const createRequireDocAnchorRule = () => ({
                 type: 'object',
                 properties: {
                     definitions: { type: 'array', items: { type: 'string' } },
+                    include: { type: 'array', items: { type: 'string' } },
                     requiredTags: { type: 'array', items: { enum: docAnchorTags } },
+                    serviceBasePattern: { type: 'string' },
                 },
                 additionalProperties: false,
             },
@@ -487,22 +557,52 @@ const createRequireDocAnchorRule = () => ({
         const options = context.options?.[0] || {};
         const definitions = options.definitions || defaultDocAnchorDefinitions;
         const requiredTags = options.requiredTags || ['docs'];
+        const includes = options.include || [];
+        const serviceBasePattern = new RegExp(options.serviceBasePattern || 'Service$');
+        const filename = context.filename || context.getFilename?.() || '';
+
+        let reported = false;
+
+        const reportMissing = (node, subject) => {
+            // One report per file: a service class and an include glob can both
+            // match, and repeating the same instruction adds no information.
+            if (reported) return;
+
+            const anchors = collectFileDocAnchors(context);
+            if (anchors.entries.length === 0) {
+                reported = true;
+                context.report({ node, messageId: 'missingAnchor', data: { definition: subject } });
+                return;
+            }
+
+            const missingTag = requiredTags.find((tag) => !hasDocAnchorTag(anchors, tag));
+            if (missingTag) {
+                reported = true;
+                context.report({ node, messageId: 'missingTag', data: { definition: subject, tag: missingTag } });
+            }
+        };
+
+        const checkClass = (node) => {
+            if (!isServiceClass(node, serviceBasePattern)) return;
+            reportMissing(node, getSuperClassName(node));
+        };
 
         return {
             ExportDefaultDeclaration(node) {
-                const definition = getDefinitionCalleeName(node.declaration, definitions);
-                if (!definition) return;
-
-                const anchors = collectFileDocAnchors(context);
-                if (anchors.entries.length === 0) {
-                    context.report({ node, messageId: 'missingAnchor', data: { definition } });
+                if (node.declaration?.type === 'ClassDeclaration') {
+                    checkClass(node.declaration);
                     return;
                 }
 
-                const missingTag = requiredTags.find((tag) => !hasDocAnchorTag(anchors, tag));
-                if (missingTag) {
-                    context.report({ node, messageId: 'missingTag', data: { definition, tag: missingTag } });
-                }
+                const definition = getDefinitionCalleeName(node.declaration, definitions);
+                if (definition) reportMissing(node, definition);
+            },
+            ExportNamedDeclaration(node) {
+                if (node.declaration?.type === 'ClassDeclaration') checkClass(node.declaration);
+            },
+            'Program:exit'(node) {
+                if (!matchesIncludeGlob(filename, includes)) return;
+                reportMissing(node, path.basename(filename));
             },
         };
     },
@@ -561,7 +661,7 @@ const createValidDocAnchorRule = () => ({
     },
 });
 
-const createProteumEslintConfig = ({ docAnchors = 'warn', ignores = [] } = {}) => [
+const createProteumEslintConfig = ({ docAnchors = 'warn', includeDocAnchors = [], ignores = [] } = {}) => [
     {
         ignores: [...defaultIgnores, ...ignores],
     },
@@ -602,7 +702,11 @@ const createProteumEslintConfig = ({ docAnchors = 'warn', ignores = [] } = {}) =
             'proteum/no-swallowed-caught-error': 'error',
             // Missing anchors warn by default so adopting apps see the backlog
             // without a failing build; pass `docAnchors: 'error'` once backfilled.
-            'proteum/require-doc-anchor': docAnchors,
+            // Routes, controllers and service classes are covered automatically.
+            // `includeDocAnchors` opts in extra paths, which is how a project
+            // covers the feature-owning components without dragging in every
+            // presentational primitive.
+            'proteum/require-doc-anchor': [docAnchors, { include: includeDocAnchors }],
             // A stale anchor is always an error: it only fires on files that
             // already opted in, and a pointer to a deleted document is worse
             // than no pointer at all.

@@ -83,7 +83,8 @@ Write anchors in a leading block comment:
  */
 ```
 
-- `@docs` points at the feature pack that owns the file. Required on every file that default-exports `definePageRoute`, `defineController`, `defineServerRoute`, or `defineServerRoutes`. Error routes are exempt: they render a status message and carry no feature-specific rule, so requiring a pack for one would manufacture documentation. Add an anchor to an error route only when it really does carry a rule.
+- `@docs` points at the feature pack that owns the file. Required on every file that default-exports `definePageRoute`, `defineController`, `defineServerRoute`, or `defineServerRoutes`, and on every exported class extending a service base such as `Service` or `UsersManagementService`. Error routes are exempt: they render a status message and carry no feature-specific rule, so requiring a pack for one would manufacture documentation. Add an anchor to an error route only when it really does carry a rule.
+- Components are not covered automatically. A presentational primitive such as `Icon.tsx` or `Card.tsx` owns no feature, so a blanket rule would manufacture documentation for hundreds of files. Cover the component directories that do own a feature by listing them in `includeDocAnchors` when building the ESLint config, for example `['client/components/paywall/**']`.
 - `@adr` and `@fix` point at the decision record and fix note that constrain the file. Add them where the decision or the bug actually lives, not on every file in the area.
 - `@rule` states the invariant inline, in full. It is the one anchor that carries content rather than a pointer, because the rule is what an agent needs at the moment of editing. A `@rule` that only says `todo` or repeats the linked title is a defect.
 - Anchors are not a substitute for the documents. Narrative, alternatives, benchmarks and acceptance stay under `docs/**`; the anchor carries the pointer and the single-sentence rule.
