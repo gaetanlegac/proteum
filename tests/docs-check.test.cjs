@@ -83,6 +83,45 @@ test('docs check resolves anchors aimed at the repo corpus when run from an app 
     assert.equal(report.anchoredFiles, 1);
 });
 
+test('docs check resolves an adr anchor against the decisions corpus', () => {
+    const root = createRoot();
+    writeFile(root, 'docs/decisions/ADR-0004-page-query-contracts.md', '# ADR-0004\n');
+    writeFile(root, 'apps/product/server/controllers/search.ts', '/**\n * @adr ADR-0004\n */\nexport default {};\n');
+
+    assert.equal(kinds(buildDocsCheckReport(root), 'unresolved-anchor').length, 0);
+});
+
+test('docs check reports an adr anchor matching no decision record', () => {
+    const root = createRoot();
+    writeFile(root, 'docs/decisions/ADR-0004-page-query-contracts.md', '# ADR-0004\n');
+    writeFile(root, 'apps/product/server/controllers/search.ts', '/**\n * @adr ADR-9999\n */\nexport default {};\n');
+
+    const unresolved = kinds(buildDocsCheckReport(root), 'unresolved-anchor');
+
+    assert.equal(unresolved.length, 1);
+    assert.equal(unresolved[0].detail, '@adr ADR-9999');
+});
+
+test('docs check reports an adr identifier shared by two decision records', () => {
+    const root = createRoot();
+    writeFile(root, 'docs/decisions/ADR-0010-catalog-provenance.md', '# ADR-0010\n');
+    writeFile(root, 'docs/decisions/ADR-0010-visual-system.md', '# ADR-0010\n');
+    writeFile(root, 'apps/product/server/controllers/search.ts', '/**\n * @adr ADR-0010\n */\nexport default {};\n');
+
+    const ambiguous = kinds(buildDocsCheckReport(root), 'ambiguous-anchor');
+
+    assert.equal(ambiguous.length, 1);
+    assert.equal(/matches 2 records/.test(ambiguous[0].detail), true);
+});
+
+test('docs check stays silent about adr anchors when a project has no decisions corpus', () => {
+    const root = createRoot();
+    writeFile(root, 'docs/features/search/README.md', '# Search\n');
+    writeFile(root, 'apps/product/server/controllers/search.ts', '/**\n * @adr ADR-0004\n */\nexport default {};\n');
+
+    assert.equal(kinds(buildDocsCheckReport(root), 'unresolved-anchor').length, 0);
+});
+
 test('docs check reports a fix note whose invariant no code anchors', () => {
     const root = createRoot();
     writeFile(root, 'docs/fixes/2026-06-14-watchdog.md', '# Fix\n\n## Agent warning\n\nDo not remove the guards.\n');

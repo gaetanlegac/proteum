@@ -8,6 +8,7 @@ import { renderStep, renderSuccess, renderTitle, renderWarning } from '../presen
 
 const { collectDocAnchors } = require('../../docAnchors.js') as {
     collectDocAnchors: (sourceText: string) => {
+        adr: string[];
         docs: string[];
         fix: string[];
         entries: { line: number; tag: string; value: string }[];
@@ -20,7 +21,7 @@ const { collectDocAnchors } = require('../../docAnchors.js') as {
 
 type TDocsCheckFinding = {
     detail: string;
-    kind: 'unresolved-anchor' | 'unanchored-fix-note' | 'orphan-feature-pack';
+    kind: 'unresolved-anchor' | 'ambiguous-anchor' | 'unanchored-fix-note' | 'orphan-feature-pack';
     subject: string;
 };
 
@@ -96,6 +97,39 @@ const resolveAnchorValue = (value: string, fromDirectory: string, root: string) 
     return roots.some((candidate) => fs.existsSync(path.resolve(candidate, value)));
 };
 
+/**
+ * Resolve an `@adr` reference to the decision records whose filename starts with
+ * it. Returns every match, because two records sharing an identifier makes the
+ * reference ambiguous rather than merely valid.
+ */
+const resolveAdrReference = (value: string, fromDirectory: string, root: string) => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return [];
+
+    const directories: string[] = [];
+    let current = fromDirectory;
+    while (current) {
+        const candidate = path.join(current, 'docs', 'decisions');
+        if (fs.existsSync(candidate)) directories.push(candidate);
+        const parent = path.dirname(current);
+        if (parent === current) break;
+        current = parent;
+    }
+
+    const rootCandidate = path.join(root, 'docs', 'decisions');
+    if (fs.existsSync(rootCandidate) && !directories.includes(rootCandidate)) directories.push(rootCandidate);
+
+    // A project with no decisions corpus never fails this check.
+    if (directories.length === 0) return null;
+
+    return directories.flatMap((directory) =>
+        fs
+            .readdirSync(directory)
+            .filter((entry) => entry.toLowerCase().startsWith(normalized))
+            .map((entry) => path.relative(root, path.join(directory, entry))),
+    );
+};
+
 const listFeaturePacks = (root: string) => {
     const featuresDir = path.join(root, 'docs', 'features');
     if (!fs.existsSync(featuresDir)) return [];
@@ -141,6 +175,24 @@ export const buildDocsCheckReport = (root: string): TDocsCheckReport => {
             referencedFixNotes.add(path.basename(value));
             if (!resolveAnchorValue(value, path.dirname(filepath), root)) {
                 findings.push({ detail: `@fix ${value}`, kind: 'unresolved-anchor', subject: relative });
+            }
+        });
+
+        anchors.adr.forEach((value) => {
+            const matches = resolveAdrReference(value, path.dirname(filepath), root);
+            if (matches === null) return;
+
+            if (matches.length === 0) {
+                findings.push({ detail: `@adr ${value}`, kind: 'unresolved-anchor', subject: relative });
+                return;
+            }
+
+            if (matches.length > 1) {
+                findings.push({
+                    detail: `@adr ${value} matches ${matches.length} records: ${matches.join(', ')}`,
+                    kind: 'ambiguous-anchor',
+                    subject: relative,
+                });
             }
         });
     });
@@ -202,6 +254,7 @@ export const run = async (): Promise<void> => {
                 { label: 'files anchored', value: String(report.anchoredFiles) },
             ]),
             renderFindings(report.findings, 'unresolved-anchor', 'Unresolved anchors'),
+            renderFindings(report.findings, 'ambiguous-anchor', 'Ambiguous anchors'),
             renderFindings(report.findings, 'unanchored-fix-note', 'Fix notes with no code anchor'),
             renderFindings(report.findings, 'orphan-feature-pack', 'Feature packs with no inbound anchor'),
         ].join('\n\n'),
