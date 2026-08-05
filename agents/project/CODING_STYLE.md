@@ -97,6 +97,27 @@ The read-only MCP owner payloads return these anchors alongside `explain_summary
 
 `proteum docs check` verifies the whole corpus in both directions: it fails on an anchor that no longer resolves, and reports as a backlog every fix note carrying an `Agent warning` that no code anchors, plus every feature pack nothing points at. `proteum verify changed` selects it automatically whenever `docs/**` or a source file changes, so a renamed document cannot silently orphan an anchor.
 
+## Trust boundaries and caught errors
+
+Two rules police the edges of the type system and the error path. Both allow the correct idiom and report the lazy one, so read the message before reaching for a disable comment.
+
+`proteum/no-loose-unknown` reports `unknown` because it usually hides a contract that should be written down. It allows `unknown` in three places, because there it is the correct and safe answer:
+
+- a catch binding, which is how TypeScript types it;
+- the input of a type guard, since narrowing an untrusted value is the guard's whole job;
+- anything carrying a `@boundary` tag in its doc comment.
+
+Use `@boundary` when the value genuinely arrives from outside: a parsed response, a provider payload, a third-party shim. State where it comes from, so the codebase's trust boundaries stay greppable:
+
+```typescript
+/** @boundary HumbleWorth prediction output, shape owned by the provider. */
+export const parseOutput = (output: unknown) => ...
+```
+
+`proteum/no-swallowed-caught-error` requires a caught error to reach somewhere. It accepts a rethrow, `Promise.reject`, `next(error)` for Express propagation, an error surfaced to the caller as a returned or pushed result, and the reporters configured through `errorReporters`. It also accepts preservation guarded by a condition **about the error**, because choosing which failures to report is a decision. It still reports a guard on whether the reporter exists, such as `if (app) app.reportError(error)`, because the error is lost whenever it does not.
+
+`console.error(error)` is not error handling and never satisfies either rule.
+
 ## Self-check before finishing
 
 Re-scan every touched file against this list before declaring the work done:

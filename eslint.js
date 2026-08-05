@@ -197,31 +197,130 @@ const isUnderConditionalControlFlow = (ancestors = []) =>
         );
     });
 
-const isPreservingCall = (callExpression, names, side, ancestors = []) => {
+const defaultErrorReporters = ['app.reportError', 'app.handleError'];
+
+/**
+ * Does this call match one of the configured `receiver.method` reporters?
+ *
+ * The receiver may be a bare identifier or the property of a longer chain, so
+ * `app.reportError(...)`, `this.app.reportError(...)` and `ctx.app.report(...)`
+ * all match a `app.reportError` entry.
+ */
+const matchesConfiguredReporter = (callExpression, reporters) => {
+    const method = getMemberPropertyName(callExpression.callee);
+    if (!method) return false;
+
+    // Only project-added reporters are matched here. The built-in two stay with
+    // the side logic below, so a server file calling the client's `handleError`
+    // is still reported rather than quietly accepted.
+    const extraReporters = reporters.filter((reporter) => !defaultErrorReporters.includes(reporter));
+
+    return extraReporters.some((reporter) => {
+        const [receiverName, methodName] = reporter.includes('.') ? reporter.split('.') : [null, reporter];
+        if (method !== methodName) return false;
+        if (receiverName === null) return true;
+
+        const receiver = callExpression.callee.object;
+        if (receiver?.type === 'Identifier') return receiver.name === receiverName;
+
+        return getMemberPropertyName(receiver) === receiverName;
+    });
+};
+
+/**
+ * Express hands a caught error to its error middleware with `next(error)`. That
+ * is the framework's own propagation path, so treating it as a swallow would
+ * report the correct implementation of every route handler.
+ */
+const isFrameworkPropagationCall = (callExpression, names) =>
+    callExpression.callee?.type === 'Identifier' &&
+    callExpression.callee.name === 'next' &&
+    (callExpression.arguments || []).some((argument) => nodeReferencesName(argument, names));
+
+const isPreservingCall = (callExpression, names, side, ancestors = [], reporters = defaultErrorReporters) => {
     if (!nodeReferencesName(callExpression, names)) return false;
     if (hasOptionalCallBoundary(callExpression, ancestors)) return false;
-    if (isUnderConditionalControlFlow(ancestors)) return false;
     if (isConsoleMember(callExpression.callee)) return false;
     if (isPromiseRejectCall(callExpression)) return true;
+    if (isFrameworkPropagationCall(callExpression, names)) return true;
+    if (matchesConfiguredReporter(callExpression, reporters)) return true;
     if (side === 'client') return isClientErrorHandlerCall(callExpression);
     if (side === 'server') return isServerErrorReporterCall(callExpression);
 
     return isClientErrorHandlerCall(callExpression) || isServerErrorReporterCall(callExpression);
 };
 
-const handlerPreservesCaughtError = (node, names, side) => {
+/**
+ * Is the caught error handed back to the caller as a value?
+ *
+ * `return { ok: false, message: error.message }` and
+ * `results.push({ state: 'unavailable', message: describeError(error) })` both
+ * surface the failure in the API's own vocabulary. That is a designed
+ * degradation path, not a loss, so it counts as preservation.
+ */
+const handlerSurfacesCaughtError = (node, names) => {
+    let surfaces = false;
+
+    traverseNode(node, (child) => {
+        if (child.type === 'ReturnStatement' && nodeReferencesName(child.argument, names)) surfaces = true;
+
+        if (
+            child.type === 'CallExpression' &&
+            ['push', 'unshift', 'add', 'set'].includes(getCalleePropertyName(child.callee) || '') &&
+            (child.arguments || []).some((argument) => nodeReferencesName(argument, names))
+        ) {
+            surfaces = true;
+        }
+    });
+
+    return surfaces;
+};
+
+/**
+ * Is preservation guarded by a condition that tests the caught error itself?
+ *
+ * `if (!(error instanceof ExpectedPause)) report(error)` is deliberate
+ * filtering: the author chose which failures are worth reporting, which is a
+ * decision rather than a swallow. `if (app) app.reportError(error)` is not: it
+ * gates on whether the reporter exists, so the error is lost whenever it does
+ * not. Only the first is accepted.
+ */
+const isGuardedByErrorPredicate = (ancestors, names) =>
+    ancestors.some(({ node, childKey }) => {
+        if (node.type === 'IfStatement' && (childKey === 'consequent' || childKey === 'alternate'))
+            return nodeReferencesName(node.test, names);
+        if (node.type === 'ConditionalExpression' && (childKey === 'consequent' || childKey === 'alternate'))
+            return nodeReferencesName(node.test, names);
+        if (node.type === 'LogicalExpression' && childKey === 'right') return nodeReferencesName(node.left, names);
+        if (node.type === 'SwitchCase' && childKey === 'consequent') return true;
+
+        return false;
+    });
+
+const preservationSurvivesControlFlow = (ancestors, names) =>
+    !isUnderConditionalControlFlow(ancestors) || isGuardedByErrorPredicate(ancestors, names);
+
+const handlerPreservesCaughtError = (node, names, side, reporters = defaultErrorReporters) => {
     let preserves = false;
 
     traverseNode(node, (child, _parent, _parentKey, ancestors) => {
         if (
             child.type === 'ThrowStatement' &&
             nodeReferencesName(child.argument, names) &&
-            !isUnderConditionalControlFlow(ancestors)
+            preservationSurvivesControlFlow(ancestors, names)
         ) {
             preserves = true;
         }
-        if (child.type === 'CallExpression' && isPreservingCall(child, names, side, ancestors)) preserves = true;
+        if (
+            child.type === 'CallExpression' &&
+            isPreservingCall(child, names, side, ancestors, reporters) &&
+            preservationSurvivesControlFlow(ancestors, names)
+        ) {
+            preserves = true;
+        }
     });
+
+    if (!preserves && handlerSurfacesCaughtError(node, names)) preserves = true;
 
     return preserves;
 };
@@ -245,10 +344,22 @@ const createSwallowedErrorRule = () => ({
             unpreserved:
                 'Caught error `{{name}}` is used but not routed through the standard error path. Rethrow it, call app.reportError on the server, or call app.handleError on the client.',
         },
-        schema: [],
+        schema: [
+            {
+                type: 'object',
+                properties: {
+                    // `receiver.method` or a bare `method`. A project whose error
+                    // path is not `app.reportError` names it here rather than
+                    // being told its own convention is a swallow.
+                    reporters: { type: 'array', items: { type: 'string' } },
+                },
+                additionalProperties: false,
+            },
+        ],
     },
     create(context) {
         const side = getErrorHandlingSide(context.filename || context.getFilename?.() || '');
+        const reporters = context.options?.[0]?.reporters || defaultErrorReporters;
         const reportHandler = (node, params, body) => {
             const names = params.flatMap((param) => collectPatternNames(param));
             if (names.length === 0) {
@@ -262,7 +373,7 @@ const createSwallowedErrorRule = () => ({
                 return;
             }
 
-            if (!handlerPreservesCaughtError(body, collectDerivedErrorNames(body, names), side)) {
+            if (!handlerPreservesCaughtError(body, collectDerivedErrorNames(body, names), side, reporters)) {
                 context.report({ node, messageId: 'unpreserved', data: { name: referencedName } });
             }
         };
@@ -282,6 +393,85 @@ const createSwallowedErrorRule = () => ({
                 }
 
                 reportHandler(handler, handler.params, handler.body);
+            },
+        };
+    },
+});
+
+const boundaryTagPattern = /(^|\s)@boundary(\s|$)/;
+
+/**
+ * Is this `unknown` inside a function whose return type is a type predicate?
+ *
+ * Narrowing an untrusted value is the entire job of a guard, so `(value: unknown):
+ * value is DomainField` is the correct signature. Any narrower input type would
+ * defeat the guard it belongs to.
+ */
+const isWithinTypeGuardSignature = (ancestors) =>
+    ancestors.some(({ node }) => {
+        const returnType = node?.returnType?.typeAnnotation;
+        return returnType?.type === 'TSTypePredicate';
+    });
+
+const isWithinCatchParameter = (ancestors) =>
+    ancestors.some(({ node, childKey }) => node?.type === 'CatchClause' && childKey === 'param');
+
+const createNoLooseUnknownRule = () => ({
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Disallow `unknown` except where a value genuinely crosses a trust boundary.',
+        },
+        messages: {
+            looseUnknown:
+                '`unknown` hides a contract that should be typed. Define the explicit type, or, when the value really does arrive from outside (a parsed response, a provider payload, a caught error), document it with a `@boundary` comment saying where it comes from.',
+        },
+        schema: [],
+    },
+    create(context) {
+        const sourceCode = getSourceCode(context);
+
+        // A `@boundary` tag anywhere above the declaration marks a deliberate
+        // trust boundary. Requiring the tag rather than allowing `unknown`
+        // silently keeps the boundaries greppable and forces a written reason.
+        const hasBoundaryTag = (node) => {
+            if (!sourceCode) return false;
+
+            const comments = sourceCode.getCommentsBefore?.(node) || [];
+            if (comments.some((comment) => boundaryTagPattern.test(comment.value))) return true;
+
+            let current = node.parent;
+            let depth = 0;
+            while (current && depth < 6) {
+                const ancestorComments = sourceCode.getCommentsBefore?.(current) || [];
+                if (ancestorComments.some((comment) => boundaryTagPattern.test(comment.value))) return true;
+                current = current.parent;
+                depth += 1;
+            }
+
+            return false;
+        };
+
+        return {
+            TSUnknownKeyword(node) {
+                const ancestors = [];
+                let current = node.parent;
+                while (current) {
+                    ancestors.push({ childKey: null, node: current });
+                    current = current.parent;
+                }
+
+                // TypeScript itself types a catch binding as `unknown`, so banning
+                // it there bans the language's own contract.
+                if (node.parent?.type === 'TSTypeAnnotation' && node.parent.parent?.type === 'Identifier') {
+                    const owner = node.parent.parent.parent;
+                    if (owner?.type === 'CatchClause') return;
+                }
+                if (isWithinCatchParameter(ancestors)) return;
+                if (isWithinTypeGuardSignature(ancestors)) return;
+                if (hasBoundaryTag(node)) return;
+
+                context.report({ node, messageId: 'looseUnknown' });
             },
         };
     },
@@ -671,6 +861,7 @@ const createValidDocAnchorRule = () => ({
 
 const createProteumEslintConfig = ({
     docAnchors = 'warn',
+    errorReporters = defaultErrorReporters,
     excludeDocAnchors = [],
     includeDocAnchors = [],
     ignores = [],
@@ -700,6 +891,7 @@ const createProteumEslintConfig = ({
             proteum: {
                 rules: {
                     'no-app-import': createNoAppImportRule(),
+                    'no-loose-unknown': createNoLooseUnknownRule(),
                     'no-swallowed-caught-error': createSwallowedErrorRule(),
                     'require-doc-anchor': createRequireDocAnchorRule(),
                     'valid-doc-anchor': createValidDocAnchorRule(),
@@ -712,7 +904,7 @@ const createProteumEslintConfig = ({
         rules: {
             '@typescript-eslint/no-explicit-any': 'error',
             'proteum/no-app-import': 'error',
-            'proteum/no-swallowed-caught-error': 'error',
+            'proteum/no-swallowed-caught-error': ['error', { reporters: errorReporters }],
             // Missing anchors warn by default so adopting apps see the backlog
             // without a failing build; pass `docAnchors: 'error'` once backfilled.
             // Routes, controllers and service classes are covered automatically.
@@ -727,12 +919,12 @@ const createProteumEslintConfig = ({
             // already opted in, and a pointer to a deleted document is worse
             // than no pointer at all.
             'proteum/valid-doc-anchor': docAnchors === 'off' ? 'off' : 'error',
+            // Replaces the old bare `TSUnknownKeyword` selector. A selector has no
+            // context, so it could not tell an internal contract that should be
+            // typed from a value that genuinely arrives from outside.
+            'proteum/no-loose-unknown': 'error',
             'no-restricted-syntax': [
                 'error',
-                {
-                    selector: 'TSUnknownKeyword',
-                    message: 'Do not use `unknown`; define an explicit type instead.',
-                },
                 {
                     selector: createZodTypeFactorySelector('any'),
                     message: 'Do not use Zod `any()` schemas; define an explicit schema instead.',
