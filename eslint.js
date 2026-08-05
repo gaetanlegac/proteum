@@ -440,13 +440,14 @@ const createNoLooseUnknownRule = () => ({
             const comments = sourceCode.getCommentsBefore?.(node) || [];
             if (comments.some((comment) => boundaryTagPattern.test(comment.value))) return true;
 
+            // Walk to the enclosing declaration rather than a fixed few levels:
+            // a nested position such as `{ query(v?: readonly unknown[]): Promise<unknown> }`
+            // sits eight or more nodes below the parameter the tag documents.
             let current = node.parent;
-            let depth = 0;
-            while (current && depth < 6) {
+            while (current && current.type !== 'Program') {
                 const ancestorComments = sourceCode.getCommentsBefore?.(current) || [];
                 if (ancestorComments.some((comment) => boundaryTagPattern.test(comment.value))) return true;
                 current = current.parent;
-                depth += 1;
             }
 
             return false;
@@ -859,12 +860,20 @@ const createValidDocAnchorRule = () => ({
     },
 });
 
+const defaultTestFilePatterns = [
+    '**/*.test.{ts,tsx,mts,cts}',
+    '**/*.spec.{ts,tsx,mts,cts}',
+    '**/*.node-test.{ts,tsx,mts,cts}',
+    '**/tests/**/*.{ts,tsx,mts,cts}',
+];
+
 const createProteumEslintConfig = ({
     docAnchors = 'warn',
     errorReporters = defaultErrorReporters,
     excludeDocAnchors = [],
     includeDocAnchors = [],
     ignores = [],
+    testFiles = defaultTestFilePatterns,
 } = {}) => [
     {
         ignores: [...defaultIgnores, ...ignores],
@@ -936,8 +945,19 @@ const createProteumEslintConfig = ({
             ],
         },
     },
+    {
+        // A test fixture deliberately builds a shape the production types forbid,
+        // usually through `as unknown as X` or a partial mock. That is a test
+        // technique, not a trust boundary, so demanding a `@boundary` reason for
+        // each one would add noise without documenting anything real.
+        files: testFiles,
+        rules: {
+            'proteum/no-loose-unknown': 'off',
+        },
+    },
 ];
 
 module.exports = {
     createProteumEslintConfig,
+    defaultTestFilePatterns,
 };

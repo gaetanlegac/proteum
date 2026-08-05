@@ -59,6 +59,32 @@ test('an undocumented parse boundary is still reported', () => {
     assert.equal(count(messages, looseUnknownRuleId), 1);
 });
 
+test('test files may use unknown without a boundary reason', () => {
+    const fixture = `const STATUS_RULE = [{ filterId: 'status' }] as unknown as RadarRulesContract;`;
+
+    assert.equal(count(lint(fixture, 'server/example.ts'), looseUnknownRuleId), 1);
+    assert.equal(count(lint(fixture, 'server/example.test.ts'), looseUnknownRuleId), 0);
+    assert.equal(count(lint(fixture, 'src/Domains/PendingList.node-test.ts'), looseUnknownRuleId), 0);
+    assert.equal(count(lint(fixture, 'tests/unit/scope-builder.ts'), looseUnknownRuleId), 0);
+});
+
+test('the other rules still apply inside test files', () => {
+    const messages = lint(
+        `
+            export const run = async () => {
+                try {
+                    await load();
+                } catch (error) {
+                    console.error('load failed', error);
+                }
+            };
+        `,
+        'server/example.test.ts',
+    );
+
+    assert.equal(count(messages, swallowedRuleId), 1);
+});
+
 /*----------------------------------
 - no-swallowed-caught-error
 ----------------------------------*/
