@@ -160,6 +160,23 @@ test('docs check reports a feature pack that no code points at', () => {
     assert.deepEqual(orphans.map((finding) => finding.subject), ['docs/features/orphan']);
 });
 
+test('docs check lets a retired or non-code pack opt out of the orphan report', () => {
+    const root = createRoot();
+    writeFile(root, 'docs/features/search/README.md', '# Search\n');
+    writeFile(root, 'docs/features/pro-preview/README.md', '# Pro Preview\n\n> RETIRED 2026-07-07. Superseded.\n');
+    writeFile(root, 'docs/features/persona-journeys/README.md', '# Personas\n\ncode-owned: false\n');
+    writeFile(root, 'docs/features/still-orphaned/README.md', '# Orphan\n');
+    writeFile(
+        root,
+        'apps/product/server/controllers/search.ts',
+        '/**\n * @docs docs/features/search\n */\nexport default {};\n',
+    );
+
+    const orphans = kinds(buildDocsCheckReport(root), 'orphan-feature-pack');
+
+    assert.deepEqual(orphans.map((finding) => finding.subject), ['docs/features/still-orphaned']);
+});
+
 test('docs check ignores generated and vendored directories', () => {
     const root = createRoot();
     writeFile(root, 'docs/features/search/README.md', '# Search\n');

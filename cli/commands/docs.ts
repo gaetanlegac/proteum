@@ -130,6 +130,25 @@ const resolveAdrReference = (value: string, fromDirectory: string, root: string)
     );
 };
 
+const retiredPackPattern = /^\s*>?\s*RETIRED\b/im;
+const notCodeOwnedPattern = /^\s*>?\s*code-owned:\s*false\s*$/im;
+
+/**
+ * A pack opts out of the orphan report by saying so in its README, either with
+ * a `RETIRED` note or a `code-owned: false` line.
+ *
+ * Retirement records and intent documents describe decisions and audiences, not
+ * modules, so no source file will ever point at them. Reporting those forever
+ * trains a reader to ignore the whole list.
+ */
+const packOptsOutOfOrphanReport = (featuresDir: string, pack: string) => {
+    const readme = path.join(featuresDir, pack, 'README.md');
+    if (!fs.existsSync(readme)) return false;
+
+    const content = fs.readFileSync(readme, 'utf8');
+    return retiredPackPattern.test(content) || notCodeOwnedPattern.test(content);
+};
+
 const listFeaturePacks = (root: string) => {
     const featuresDir = path.join(root, 'docs', 'features');
     if (!fs.existsSync(featuresDir)) return [];
@@ -137,6 +156,7 @@ const listFeaturePacks = (root: string) => {
     return fs
         .readdirSync(featuresDir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
+        .filter((entry) => !packOptsOutOfOrphanReport(featuresDir, entry.name))
         .map((entry) => entry.name);
 };
 

@@ -541,6 +541,50 @@ test('proteum lint accepts an included file once it carries an anchor', () => {
     assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 0);
 });
 
+test('proteum lint exempts infrastructure paths listed in excludeDocAnchors', () => {
+    const { root } = createDocProject();
+    const options = { docAnchors: 'warn', excludeDocAnchors: ['server/services/Utils/**', 'server/routes/debug.ts'] };
+
+    const utilService = lint(
+        `export default class FetchService extends Service {}`,
+        path.join(root, 'server', 'services', 'Utils', 'Fetch', 'index.ts'),
+        options,
+    );
+    assert.equal(messagesFor(utilService, requireDocAnchorRuleId).length, 0);
+
+    const debugRoute = lint(
+        `export default defineServerRoutes(() => null);`,
+        path.join(root, 'server', 'routes', 'debug.ts'),
+        options,
+    );
+    assert.equal(messagesFor(debugRoute, requireDocAnchorRuleId).length, 0);
+
+    // A service outside the excluded paths is still required to anchor.
+    const covered = lint(
+        `export default class SearchService extends Service {}`,
+        path.join(root, 'server', 'services', 'Domains', 'search', 'index.ts'),
+        options,
+    );
+    assert.equal(messagesFor(covered, requireDocAnchorRuleId).length, 1);
+});
+
+test('proteum lint still validates anchors declared on an excluded file', () => {
+    const { root } = createDocProject();
+    const messages = lint(
+        `
+            /**
+             * @docs docs/features/deleted-feature
+             */
+            export default class FetchService extends Service {}
+        `,
+        path.join(root, 'server', 'services', 'Utils', 'Fetch', 'index.ts'),
+        { docAnchors: 'warn', excludeDocAnchors: ['server/services/Utils/**'] },
+    );
+
+    assert.equal(messagesFor(messages, requireDocAnchorRuleId).length, 0);
+    assert.equal(messagesFor(messages, validDocAnchorRuleId).length, 1);
+});
+
 test('proteum lint does not require a doc anchor on error routes', () => {
     const { root } = createDocProject();
     const messages = lint(

@@ -545,6 +545,7 @@ const createRequireDocAnchorRule = () => ({
                 type: 'object',
                 properties: {
                     definitions: { type: 'array', items: { type: 'string' } },
+                    exclude: { type: 'array', items: { type: 'string' } },
                     include: { type: 'array', items: { type: 'string' } },
                     requiredTags: { type: 'array', items: { enum: docAnchorTags } },
                     serviceBasePattern: { type: 'string' },
@@ -558,15 +559,22 @@ const createRequireDocAnchorRule = () => ({
         const definitions = options.definitions || defaultDocAnchorDefinitions;
         const requiredTags = options.requiredTags || ['docs'];
         const includes = options.include || [];
+        const excludes = options.exclude || [];
         const serviceBasePattern = new RegExp(options.serviceBasePattern || 'Service$');
         const filename = context.filename || context.getFilename?.() || '';
+
+        // Infrastructure carries no feature contract, so a project lists those
+        // paths here rather than anchoring them to a pack that does not exist.
+        // An excluded file may still declare anchors, and `valid-doc-anchor`
+        // keeps checking them.
+        const excluded = matchesIncludeGlob(filename, excludes);
 
         let reported = false;
 
         const reportMissing = (node, subject) => {
             // One report per file: a service class and an include glob can both
             // match, and repeating the same instruction adds no information.
-            if (reported) return;
+            if (reported || excluded) return;
 
             const anchors = collectFileDocAnchors(context);
             if (anchors.entries.length === 0) {
@@ -661,7 +669,12 @@ const createValidDocAnchorRule = () => ({
     },
 });
 
-const createProteumEslintConfig = ({ docAnchors = 'warn', includeDocAnchors = [], ignores = [] } = {}) => [
+const createProteumEslintConfig = ({
+    docAnchors = 'warn',
+    excludeDocAnchors = [],
+    includeDocAnchors = [],
+    ignores = [],
+} = {}) => [
     {
         ignores: [...defaultIgnores, ...ignores],
     },
@@ -706,7 +719,10 @@ const createProteumEslintConfig = ({ docAnchors = 'warn', includeDocAnchors = []
             // `includeDocAnchors` opts in extra paths, which is how a project
             // covers the feature-owning components without dragging in every
             // presentational primitive.
-            'proteum/require-doc-anchor': [docAnchors, { include: includeDocAnchors }],
+            'proteum/require-doc-anchor': [
+                docAnchors,
+                { exclude: excludeDocAnchors, include: includeDocAnchors },
+            ],
             // A stale anchor is always an error: it only fires on files that
             // already opted in, and a pointer to a deleted document is worse
             // than no pointer at all.
