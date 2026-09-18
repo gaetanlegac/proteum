@@ -11,6 +11,7 @@ import { type TServerRouter, TRouterContext } from '@server/services/router';
 import type { Layout, TRoute, TErrorRoute, TClientOrServerContext } from '@common/router';
 import PageResponse, { TFrontRenderer, TPageRenderContext } from '@common/router/response/page';
 import { getClientBuildManifest } from './clientManifest';
+import { buildMetaTags } from './metas';
 
 // Composants UI
 import App from '@client/app/component';
@@ -175,11 +176,7 @@ export default class ServerPage<TRouter extends TServerRouter = TServerRouter> e
             ...this.metas,
         };
 
-        for (const key in metas) {
-            const value = metas[key];
-            if (value === '') continue;
-            this.head.push({ $: 'meta', property: key, content: value });
-        }
+        this.head.push(...buildMetaTags(metas, this.head));
     }
 
     private buildJsonLd() {

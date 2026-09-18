@@ -10,6 +10,7 @@ import useContext from '@/client/context';
 // Specific
 import type ClientRouter from '..';
 import PageComponent from './Page';
+import PageLoading from './PageLoading';
 import ClientRequest from '../request';
 import { history, location, Update } from '../request/history';
 //import initTooltips from '@client/components/Donnees/Tooltip';
@@ -32,26 +33,6 @@ const withProfiler = <T,>(callback: (runtime: (typeof import('@client/dev/profil
     if (!__DEV__) return undefined as T | undefined;
     const profilerModule = require('@client/dev/profiler/runtime') as typeof import('@client/dev/profiler/runtime');
     return callback(profilerModule.profilerRuntime);
-};
-
-const PageLoading = ({
-    clientRouter,
-    loaderComponent: LoaderComponent,
-}: {
-    clientRouter?: ClientRouter;
-    loaderComponent?: React.ComponentType<{ isLoading: boolean }>;
-}) => {
-    const [isLoading, setLoading] = React.useState(false);
-
-    if (clientRouter) clientRouter.setLoading = setLoading;
-
-    return LoaderComponent ? (
-        <LoaderComponent isLoading={isLoading} />
-    ) : (
-        <div id="loading" class={isLoading ? 'display' : ''}>
-            <i class="spin" />
-        </div>
-    );
 };
 
 const scrollToElement = (selector: string) =>

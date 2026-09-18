@@ -66,12 +66,10 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                     <head>
                         {/* Format */}
                         <meta charSet="utf-8" />
-                        <meta content="IE=edge" httpEquiv="X-UA-Compatible" />
                         <meta name="viewport" content="width=device-width, initial-scale=1" />
 
                         {/* Mobile */}
                         <meta name="application-name" content={this.app.identity.web.title} />
-                        <meta name="apple-mobile-web-app-title" content={this.app.identity.web.title} />
                         <meta name="apple-mobile-web-app-title" content={this.app.identity.web.title} />
                         <meta content={this.app.identity.author.name} name="author" />
                         <meta name="theme-color" content={this.app.identity.maincolor} />
@@ -134,10 +132,7 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
 
                 {page.style.map((style) =>
                     'url' in style ? (
-                        <>
-                            <link rel="preload" href={style.url} as="style" />
-                            <link rel="stylesheet" type="text/css" href={style.url} />
-                        </>
+                        <link key={style.id} rel="stylesheet" type="text/css" href={style.url} />
                     ) : (
                         <>
                             <style id={style.id} dangerouslySetInnerHTML={{ __html: style.inline }} />
@@ -156,12 +151,9 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                 {styles.map((style) => {
                     const href = this.clientAssetUrl(style);
 
-                    return (
-                        <React.Fragment key={style}>
-                            <link rel="preload" href={href} as="style" />
-                            <link rel="stylesheet" type="text/css" href={href} />
-                        </React.Fragment>
-                    );
+                    // A stylesheet link in `<head>` is fetched at Highest priority on its own;
+                    // the preload that used to precede it was a duplicate request line.
+                    return <link key={style} rel="stylesheet" type="text/css" href={href} />;
                 })}
             </>
         );
@@ -175,12 +167,10 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                 {scripts.map((script) => {
                     const src = this.clientAssetUrl(script);
 
-                    return (
-                        <React.Fragment key={script}>
-                            <link rel="preload" href={src} as="script" />
-                            <script defer type="text/javascript" src={src} />
-                        </React.Fragment>
-                    );
+                    // No `<link rel="preload">` beside the tag: a `defer` script is already fetched
+                    // as soon as the parser meets it, at Low priority. The preload re-requested it
+                    // at High priority, so every script raced the render-critical stylesheets.
+                    return <script key={script} defer type="text/javascript" src={src} />;
                 })}
             </>
         );
@@ -226,12 +216,19 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
 
                 {this.clientScripts()}
 
+                {/* Page chunks are `defer` like the entry, unless the page asked for `async`
+                    (an analytics tag, for example). Without it they were parser-blocking in
+                    `<head>`, and `addChunks` runs after `renderToString`, so no page could set
+                    the attribute itself. Same rule as above: no preload beside the tag. */}
                 {page.scripts.map((script) =>
                     'url' in script ? (
-                        <>
-                            <link rel="preload" href={script.url} as="script" />
-                            <script type="text/javascript" src={script.url} {...(script.attrs || {})} />
-                        </>
+                        <script
+                            key={script.id}
+                            type="text/javascript"
+                            src={script.url}
+                            defer={!(script.attrs && script.attrs.async)}
+                            {...(script.attrs || {})}
+                        />
                     ) : (
                         <>
                             <script

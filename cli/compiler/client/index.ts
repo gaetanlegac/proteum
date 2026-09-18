@@ -11,6 +11,7 @@ import { rspack, type Configuration, type Module } from '@rspack/core';
 // Core
 import createCommonConfig, { TCompileMode, TCompileOutputTarget, regex } from '../common';
 import { createClientBundleAnalysisPlugins } from '../common/bundleAnalysis';
+import CssMinimizerPlugin from '../common/cssMinimizer';
 import { toRspackAliases } from '../common/rspackAliases';
 import { resolveUiSingletonAliases } from '../common/uiSingletons';
 import identityAssets from './identite';
@@ -348,9 +349,8 @@ export default function createCompiler(
                       removeAvailableModules: true,
                       minimizer: [
                           new rspack.SwcJsMinimizerRspackPlugin({}),
-                          new rspack.LightningCssMinimizerRspackPlugin({
-                              ...(lightningCssTargets ? { minimizerOptions: { targets: lightningCssTargets } } : {}),
-                          }),
+                          // Not `LightningCssMinimizerRspackPlugin`: see cssMinimizer.ts.
+                          new CssMinimizerPlugin(lightningCssTargets ? { targets: lightningCssTargets } : {}),
                       ],
                       nodeEnv: 'production',
                       sideEffects: true,
