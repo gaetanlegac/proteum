@@ -30,14 +30,36 @@ export type TDefaultJsonLdInput = {
 - HELPERS
 ----------------------------------*/
 
-const hasType = (node: TJsonLdNode, type: string): boolean =>
-    Array.isArray(node['@type']) ? node['@type'].includes(type) : node['@type'] === type;
+/**
+ * `WebPage` and the schema.org types that specialise it. A page that describes itself as an
+ * `AboutPage` or a `CollectionPage` has described its web page: the generic node beside it
+ * would be a second page for the same URL, exactly as beside a plain `WebPage`.
+ */
+const WEB_PAGE_TYPES: ReadonlySet<string> = new Set([
+    'WebPage',
+    'AboutPage',
+    'CheckoutPage',
+    'CollectionPage',
+    'ContactPage',
+    'FAQPage',
+    'ItemPage',
+    'MedicalWebPage',
+    'ProfilePage',
+    'QAPage',
+    'RealEstateListing',
+    'SearchResultsPage',
+]);
+
+const describesWebPage = (node: TJsonLdNode): boolean =>
+    (Array.isArray(node['@type']) ? node['@type'] : [node['@type']]).some(
+        (type) => typeof type === 'string' && WEB_PAGE_TYPES.has(type),
+    );
 
 /**
  * The publisher identity every page carries (`#organization`, `#website`) plus a generic
  * `WebPage` for pages that describe none themselves.
  *
- * A page that already pushed a `WebPage` keeps its own: a second node for the same URL
+ * A page that already pushed a `WebPage`, or one of its subtypes, keeps its own: a second node for the same URL
  * with another name and description reads as two contradictory pages to a consumer.
  * Empty `sameAs` and `potentialAction` arrays are left out for the same reason: they say
  * "no profiles" and "no actions" where the app said nothing. `identity.web.jsonld` can
@@ -78,7 +100,7 @@ export const buildDefaultJsonLd = ({
         },
     ];
 
-    if (!pageJsonLd.some((node) => hasType(node, 'WebPage'))) {
+    if (!pageJsonLd.some(describesWebPage)) {
         nodes.push({
             '@type': 'WebPage',
             '@id': url,

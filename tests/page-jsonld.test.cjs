@@ -19,7 +19,7 @@ const input = {
 };
 
 test('default JSON-LD adds a generic WebPage only when the page has none', () => {
-    const withoutPage = buildDefaultJsonLd({ ...input, pageJsonLd: [{ '@type': 'FAQPage' }] });
+    const withoutPage = buildDefaultJsonLd({ ...input, pageJsonLd: [{ '@type': 'BreadcrumbList' }] });
     assert.deepEqual(withoutPage.map((node) => node['@type']), ['Organization', 'WebSite', 'WebPage']);
     assert.equal(withoutPage[2]['@id'], 'https://example.test/pricing');
     assert.equal(withoutPage[2].name, 'Pricing');
@@ -32,6 +32,14 @@ test('default JSON-LD adds a generic WebPage only when the page has none', () =>
 
     const withTypedArray = buildDefaultJsonLd({ ...input, pageJsonLd: [{ '@type': ['WebPage', 'FAQPage'] }] });
     assert.deepEqual(withTypedArray.map((node) => node['@type']), ['Organization', 'WebSite']);
+
+    // Subtypes of WebPage count: an AboutPage or a CollectionPage has described the page.
+    for (const subtype of ['AboutPage', 'CollectionPage', 'FAQPage', 'ProfilePage']) {
+        const nodes = buildDefaultJsonLd({ ...input, pageJsonLd: [{ '@type': subtype }] });
+        assert.deepEqual(nodes.map((node) => node['@type']), ['Organization', 'WebSite'], subtype);
+    }
+    const unrelated = buildDefaultJsonLd({ ...input, pageJsonLd: [{ '@type': 'SoftwareApplication' }] });
+    assert.equal(unrelated.length, 3);
 });
 
 test('default JSON-LD emits no empty sameAs or potentialAction, and keeps identity additions', () => {
