@@ -3,26 +3,23 @@
 ----------------------------------*/
 
 /*----------------------------------
+- DEPENDENCIES
+----------------------------------*/
+
+import type { Thing } from 'schema-dts';
+import type { TApplicationIdentityConfig } from '@common/applicationConfig';
+
+/*----------------------------------
 - TYPES
 ----------------------------------*/
 
-type TJsonLdNode = { '@type'?: string | string[]; '@id'?: string; [key: string]: unknown };
-
-type TIdentity = {
-    name: string;
-    description: string;
-    locale: string;
-    author: { name: string; url: string };
-    web: { jsonld?: Record<string, unknown> };
-};
-
 export type TDefaultJsonLdInput = {
     /** The nodes the page pushed itself, before the defaults are added. */
-    pageJsonLd: readonly TJsonLdNode[];
-    url: string;
-    title: string;
-    description: string;
-    identity: TIdentity;
+    pageJsonLd: readonly Thing[];
+    url: string | undefined;
+    title: string | undefined;
+    description: string | undefined;
+    identity: TApplicationIdentityConfig;
     resolveUrl: (path: string) => string;
 };
 
@@ -50,10 +47,14 @@ const WEB_PAGE_TYPES: ReadonlySet<string> = new Set([
     'SearchResultsPage',
 ]);
 
-const describesWebPage = (node: TJsonLdNode): boolean =>
-    (Array.isArray(node['@type']) ? node['@type'] : [node['@type']]).some(
+const describesWebPage = (node: Thing): boolean => {
+    if (typeof node !== 'object' || node === null || !('@type' in node)) return false;
+
+    const declared: unknown = node['@type'];
+    return (Array.isArray(declared) ? declared : [declared]).some(
         (type) => typeof type === 'string' && WEB_PAGE_TYPES.has(type),
     );
+};
 
 /**
  * The publisher identity every page carries (`#organization`, `#website`) plus a generic
@@ -72,8 +73,8 @@ export const buildDefaultJsonLd = ({
     description,
     identity,
     resolveUrl,
-}: TDefaultJsonLdInput): TJsonLdNode[] => {
-    const nodes: TJsonLdNode[] = [
+}: TDefaultJsonLdInput): Thing[] => {
+    const nodes: Thing[] = [
         {
             '@type': 'Organization',
             '@id': resolveUrl('/#organization'),
