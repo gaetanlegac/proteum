@@ -12,6 +12,7 @@ import type { Layout, TRoute, TErrorRoute, TClientOrServerContext } from '@commo
 import PageResponse, { TFrontRenderer, TPageRenderContext } from '@common/router/response/page';
 import { getClientBuildManifest } from './clientManifest';
 import { buildMetaTags } from './metas';
+import { buildDefaultJsonLd } from './jsonld';
 
 // Composants UI
 import App from '@client/app/component';
@@ -181,44 +182,14 @@ export default class ServerPage<TRouter extends TServerRouter = TServerRouter> e
 
     private buildJsonLd() {
         this.jsonld.push(
-            {
-                '@type': 'Organization',
-                '@id': this.router.url('/#organization'),
-                name: this.app.identity.author.name,
-                url: this.app.identity.author.url,
-                logo: {
-                    '@type': 'ImageObject',
-                    '@id': this.router.url('/#logo'),
-                    url: this.router.url('/public/brand/1024.png'),
-                    width: '1024px',
-                    height: '1024px',
-                    caption: this.app.identity.name,
-                },
-                sameAs: [],
-            },
-            {
-                '@type': 'WebSite',
-                '@id': this.router.url('/#website'),
-                url: this.router.url('/'),
-                name: this.app.identity.name,
-                description: this.app.identity.description,
-                publisher: { '@id': this.router.url('/#organization') },
-                inLanguage: this.app.identity.locale,
-                potentialAction: [],
-
-                ...(this.app.identity.web.jsonld || {}),
-            },
-            {
-                '@type': 'WebPage',
-                '@id': this.url,
+            ...buildDefaultJsonLd({
+                pageJsonLd: this.jsonld,
                 url: this.url,
-
-                isPartOf: { '@id': this.router.url('/#website') },
-
-                name: this.title,
+                title: this.title,
                 description: this.description,
-                inLanguage: this.app.identity.locale,
-            },
+                identity: this.app.identity,
+                resolveUrl: (path) => this.router.url(path),
+            }),
         );
     }
 }
