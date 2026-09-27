@@ -123,6 +123,7 @@ export type TProteumManifest = {
         setup: {
             transpile?: string[];
             connect?: Record<string, { source?: string; urlInternal?: string }>;
+            agentInstructions?: boolean;
         };
     };
     conventions: {

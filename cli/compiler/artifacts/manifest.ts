@@ -331,6 +331,7 @@ export const writeCurrentProteumManifest = ({
                               ]),
                           )
                         : undefined,
+                ...(app.setup.agentInstructions === false ? { agentInstructions: false } : {}),
             },
         },
         conventions: {

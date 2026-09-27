@@ -31,5 +31,6 @@ for (const projectRoot of projectRoots) {
     }
 
     console.log(`[update-codex-agents] Syncing project Codex assets in ${projectRoot}`);
-    configureProjectAgentInstructions({ appRoot: projectRoot, coreRoot: proteumRoot });
+    const result = configureProjectAgentInstructions({ appRoot: projectRoot, coreRoot: proteumRoot });
+    if (result.disabled) console.warn(`[update-codex-agents] Skipped ${projectRoot}: agentInstructions is false.`);
 }

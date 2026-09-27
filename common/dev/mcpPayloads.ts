@@ -919,6 +919,15 @@ const createSelectedInstruction = (file: string, reason: string) => ({
     reason,
 });
 
+// This module also runs inside the bundled dev server, where the TypeScript config loader is not
+// available, so the opt-out is read from the config source text instead of evaluating it.
+const readsProteumManagedInstructions = (appRoot: string) => {
+    if (fs === undefined || path === undefined) return true;
+    const setupFilepath = path.join(appRoot, 'proteum.config.ts');
+    if (!fileExists(setupFilepath)) return true;
+    return !/\bagentInstructions\s*:\s*false\b/.test(fs.readFileSync(setupFilepath, 'utf8'));
+};
+
 export const resolveInstructionRouting = ({
     appRoot,
     query = '',
@@ -930,6 +939,26 @@ export const resolveInstructionRouting = ({
     const repoRoot = findLikelyRepoRoot(appRoot);
     const selected = new Map<string, ReturnType<typeof createSelectedInstruction>>();
     const readWhen: Array<{ file?: string; when: string }> = [];
+
+    // `agentInstructions: false`: the routed AGENTS.md copies no longer exist; route to the hand-owned CLAUDE.md.
+    if (!readsProteumManagedInstructions(appRoot)) {
+        const claudeFile = resolveDocumentFile({ appRoot, repoRoot, relativeFilepath: 'CLAUDE.md' });
+        if (claudeFile && fileExists(claudeFile)) {
+            selected.set(claudeFile, createSelectedInstruction(claudeFile, 'Project-owned agent instructions.'));
+        }
+        const selectedFiles = [...selected.values()];
+        return createMcpPayload({
+            summary: `${selectedFiles.length} instruction files selected for ${normalizedQuery || 'current app'}`,
+            data: {
+                query: normalizedQuery,
+                appRoot,
+                repoRoot,
+                selected: selectedFiles,
+                readWhen,
+                fullReadPolicy: fullInstructionReadPolicy,
+            },
+        });
+    }
     const addInstruction = (relativeFilepath: string, reason: string, preferAppRoot = true) => {
         if (path === undefined) return;
         const roots = preferAppRoot ? [appRoot, repoRoot] : [repoRoot, appRoot];

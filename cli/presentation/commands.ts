@@ -135,6 +135,7 @@ export const proteumCommands: Record<TProteumCommandName, TProteumCommandDoc> = 
             'Every generated `CLAUDE.md` is a sibling symlink pointing to `AGENTS.md`.',
             'Every managed instruction file contains a `# Proteum Instructions` section with the full embedded Proteum project instruction corpus.',
             'Existing content outside `# Proteum Instructions` is preserved. Directories and foreign symlinks are replaced only after confirmation.',
+            'An app with `agentInstructions: false` in `proteum.config.ts` owns its instruction files: configure refuses to run for it, `proteum dev` leaves them alone, and a monorepo root is managed only when no app opted out.',
         ],
         status: 'experimental',
     },

@@ -18,6 +18,7 @@ import {
     configureProjectAgentInstructions,
     findLikelyRepoRoot,
     isInsideDirectory,
+    isProjectAgentInstructionsEnabled,
     resolveCanonicalPath,
     type TConfigureMonorepoProjectAgentInstructionsResult,
     type TConfigureProjectAgentInstructionsResult,
@@ -143,6 +144,9 @@ const renderConfigureMonorepoResultSections = (result: TConfigureMonorepoProject
         appRoot: result.monorepoRoot,
     });
 
+const agentInstructionsDisabledMessage = (root: string) =>
+    `Agent instructions are hand-owned in ${root}: \`agentInstructions: false\` is set in proteum.config.ts, so \`proteum configure agents\` does nothing. Remove that setting to let Proteum manage them again.`;
+
 /*----------------------------------
 - COMMAND
 ----------------------------------*/
@@ -161,6 +165,8 @@ export const runConfigureAgentsWizard = async ({
     coreRoot?: string;
 } = {}) => {
     assertProteumAppRoot(appRoot);
+
+    if (!isProjectAgentInstructionsEnabled(appRoot)) throw new UsageError(agentInstructionsDisabledMessage(appRoot));
 
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
         throw new UsageError('`proteum configure agents` is interactive and requires a TTY.');
@@ -240,6 +246,10 @@ export const runConfigureAgentsMonorepoWizard = async ({
 }) => {
     if (appRoots.length === 0) throw new UsageError(`No Proteum app roots were found under ${monorepoRoot}.`);
     for (const appRoot of appRoots) assertProteumAppRoot(appRoot);
+
+    if (appRoots.every((appRoot) => !isProjectAgentInstructionsEnabled(appRoot))) {
+        throw new UsageError(agentInstructionsDisabledMessage(monorepoRoot));
+    }
 
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
         throw new UsageError('`proteum configure agents` is interactive and requires a TTY.');

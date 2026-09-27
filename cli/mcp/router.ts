@@ -295,12 +295,46 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
         return client;
     };
 
-    const closeClient = async (record: TMachineDevSessionRecord) => {
+    // Removes a client only if the cache still holds that same instance, so a failing call cannot
+    // close the fresh client that a parallel call just opened after a dev server restart.
+    const evictClient = async (record: TMachineDevSessionRecord, client: TDevMcpClient) => {
         const key = cacheKey(record);
-        const client = clients.get(key);
-        clients.delete(key);
-        if (client) await client.close().catch(() => undefined);
+        if (clients.get(key) === client) clients.delete(key);
+        await client.close().catch(() => undefined);
     };
+
+    /**
+     * Calls a tool on the app's dev MCP, retrying once with a fresh client when the cached one fails.
+     * A dev server restart drops its MCP sessions, and the cached client then gets "initialize the
+     * Proteum MCP session" on its next call. Only a cached client can be stale; a brand-new client
+     * failing means the app is down or booting, so it is not retried.
+     */
+    const callDevTool = async (record: TMachineDevSessionRecord, request: { arguments: Record<string, unknown>; name: string }) => {
+        const cached = clients.get(cacheKey(record));
+        const client = cached || (await getClient(record));
+
+        try {
+            return await client.callTool(request);
+        } catch (error) {
+            await evictClient(record, client);
+            if (!cached) throw error;
+
+            const freshClient = await getClient(record);
+            try {
+                return await freshClient.callTool(request);
+            } catch (retryError) {
+                await evictClient(record, freshClient);
+                throw retryError;
+            }
+        }
+    };
+
+    const devMcpUnreachableResult = (record: TMachineDevSessionRecord, error: unknown) =>
+        errorToolResult(`Could not reach Proteum dev MCP for ${record.projectId}.`, {
+            error: error instanceof Error ? error.message : String(error),
+            mcpUrl: record.mcpUrl,
+            projectId: record.projectId,
+        });
 
     const closeAllClients = async () => {
         const cachedClients = [...clients.values()];
@@ -446,23 +480,18 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
         const resolution = await resolveProject(input.projectId);
         if (!resolution.record) return resolution.error;
 
+        let result: CallToolResult;
         try {
-            const client = await getClient(resolution.record);
-            const result = await client.callTool({
+            result = await callDevTool(resolution.record, {
                 arguments: stripProjectRouting(input),
                 name,
             });
-
-            if (name === 'runtime_status' || name === 'doctor') return augmentForwardedPayload(result, resolution.record);
-            return result;
         } catch (error) {
-            await closeClient(resolution.record);
-            return errorToolResult(`Could not reach Proteum dev MCP for ${resolution.record.projectId}.`, {
-                error: error instanceof Error ? error.message : String(error),
-                mcpUrl: resolution.record.mcpUrl,
-                projectId: resolution.record.projectId,
-            });
+            return devMcpUnreachableResult(resolution.record, error);
         }
+
+        if (name === 'runtime_status' || name === 'doctor') return augmentForwardedPayload(result, resolution.record);
+        return result;
     };
 
     const createOfflineWorkflowStartResult = async (offline: TOfflineProject, input: Record<string, unknown>) => {
@@ -572,13 +601,18 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
             return jsonToolResult(createWorktreeBootstrapMcpBlockResponse(bootstrapStatus, compactProject(record)), true);
         }
 
+        let result: CallToolResult;
         try {
-            const client = await getClient(record);
-            const result = await client.callTool({
+            result = await callDevTool(record, {
                 arguments: stripProjectRouting(input),
                 name: 'workflow_start',
             });
+        } catch (error) {
+            return devMcpUnreachableResult(record, error);
+        }
 
+        // Payload and preflight failures are not connection failures: they must not evict a healthy client.
+        try {
             if (result.content[0]?.type !== 'text') return result;
 
             const payload = JSON.parse(result.content[0].text);
@@ -620,8 +654,7 @@ export const createProteumMachineMcpServer = ({ createDevMcpClient, version }: T
                 nextActions: dedupeNextActions([...preflight.nextActions, ...(routedNextActions || [])]),
             });
         } catch (error) {
-            await closeClient(record);
-            return errorToolResult(`Could not reach Proteum dev MCP for ${record.projectId}.`, {
+            return errorToolResult(`Could not read the workflow_start payload from ${record.projectId}.`, {
                 error: error instanceof Error ? error.message : String(error),
                 mcpUrl: record.mcpUrl,
                 projectId: record.projectId,

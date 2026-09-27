@@ -5,6 +5,7 @@
 // Npm
 import fs from 'fs-extra';
 import path from 'path';
+import { loadApplicationSetupConfig, resolveSetupConfigFilepath } from '../../common/applicationConfigLoader';
 import { logVerbose } from '../runtime/verbose';
 import { createStartDevCommand, findProteumAppRootsUnder, readProteumAppRootSummary } from './appRoots';
 
@@ -55,6 +56,8 @@ type TEnsureInstructionFilesResult = {
 
 export type TConfigureProjectAgentInstructionsResult = {
     appRoot: string;
+    /** True when `agentInstructions: false` made Proteum leave every instruction file alone. */
+    disabled?: boolean;
     blocked: string[];
     created: string[];
     monorepoRoot?: string;
@@ -142,6 +145,25 @@ const projectInstructionGitignoreBlockEnd = '# End Proteum-managed instruction f
 - PUBLIC API
 ----------------------------------*/
 
+/**
+ * Whether Proteum manages the agent instruction files of an app.
+ * An app opts out with `agentInstructions: false` in `proteum.config.ts` when it owns
+ * its instructions by hand; without a readable config the historical default (managed) applies.
+ */
+export function isProjectAgentInstructionsEnabled(appRoot: string) {
+    if (!fs.existsSync(resolveSetupConfigFilepath(appRoot))) return true;
+
+    return loadApplicationSetupConfig(appRoot).agentInstructions !== false;
+}
+
+/**
+ * Monorepo root files are shared by every app, so Proteum only writes them when no app opted out:
+ * one hand-owned app is enough to make the shared root hand-owned too.
+ */
+export function isMonorepoAgentInstructionsEnabled(monorepoRoot: string) {
+    return findProteumAppRootsUnder(monorepoRoot).every((appRoot) => isProjectAgentInstructionsEnabled(appRoot));
+}
+
 export function configureProjectAgentInstructions({
     appRoot,
     coreRoot,
@@ -170,6 +192,19 @@ export function configureProjectAgentInstructions({
         updated: [],
         updatedGitignores: [],
     };
+    const manageAppInstructions = includeAppInstructions && isProjectAgentInstructionsEnabled(normalizedAppRoot);
+    const manageRootInstructions =
+        includeRootInstructions &&
+        mode === 'monorepo' &&
+        normalizedMonorepoRoot !== undefined &&
+        isMonorepoAgentInstructionsEnabled(normalizedMonorepoRoot);
+
+    // Return before rendering or the dry-run preview: both touch the file system (the preview creates test folders).
+    if (!manageAppInstructions && !manageRootInstructions) {
+        result.disabled = true;
+        return result;
+    }
+
     const appEmbeddedInstructions = renderEmbeddedProjectInstructions({
         appRoot: normalizedAppRoot,
         coreRoot,
@@ -177,7 +212,7 @@ export function configureProjectAgentInstructions({
         monorepoRoot: normalizedMonorepoRoot,
     });
     const rootEmbeddedInstructions =
-        mode === 'monorepo'
+        mode === 'monorepo' && normalizedMonorepoRoot
             ? renderEmbeddedProjectInstructions({
                   appRoot: normalizedAppRoot,
                   coreRoot,
@@ -188,7 +223,7 @@ export function configureProjectAgentInstructions({
               })
             : appEmbeddedInstructions;
 
-    if (includeRootInstructions && mode === 'monorepo' && normalizedMonorepoRoot) {
+    if (manageRootInstructions && normalizedMonorepoRoot) {
         result.monorepoRoot = normalizedMonorepoRoot;
 
         const rootInstructions = getRootAgentInstructionDefinitions();
@@ -209,7 +244,7 @@ export function configureProjectAgentInstructions({
             result.updatedGitignores.push(path.join(normalizedMonorepoRoot, '.gitignore'));
     }
 
-    if (includeAppInstructions) {
+    if (manageAppInstructions) {
         const appInstructions = getAppAgentInstructionDefinitions({ mode });
         const appFiles = ensureInstructionFiles(
             normalizedAppRoot,

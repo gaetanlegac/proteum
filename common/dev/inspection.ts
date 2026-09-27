@@ -780,6 +780,28 @@ const resolveGuidance = ({
     manifest: TProteumManifest;
     ownerFilepath?: string;
 }) => {
+    // `agentInstructions: false`: the project owns one hand-written CLAUDE.md and deleted the routed
+    // copies, so every guidance slot points at it instead of Proteum's bundled fallbacks.
+    if (manifest.app.setup.agentInstructions === false) {
+        const claudeInstructions = resolveGuidanceFile({
+            appRoot: manifest.app.root,
+            fallbackFilepath: joinPath(manifest.app.root, 'CLAUDE.md'),
+            relativePath: 'CLAUDE.md',
+        }).filepath;
+
+        return {
+            guidance: {
+                agents: claudeInstructions,
+                documentation: claudeInstructions,
+                diagnostics: claudeInstructions,
+                optimizations: claudeInstructions,
+                codingStyle: claudeInstructions,
+                areaAgents: [],
+            } satisfies TOrientGuidance,
+            warnings: [] as string[],
+        };
+    }
+
     const fallbackRoot = joinPath(manifest.app.coreRoot, 'agents', 'project');
     const warnings: string[] = [];
     const agents = resolveGuidanceFile({

@@ -769,6 +769,100 @@ test('machine MCP router forwards app tools without leaking projectId', async (t
     assert.equal(closeCount, 1);
 });
 
+const setupReconnectRouter = async (t, { failFreshClient }) => {
+    const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+    process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-reconnect-'));
+    t.onTestFinished(() => {
+        if (previousRegistryDir === undefined) delete process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
+        else process.env.PROTEUM_MACHINE_DEV_SESSION_DIR = previousRegistryDir;
+    });
+
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-reconnect-app-'));
+    const machineRecord = await writeMachineDevSessionRecord({
+        ...createDevSessionRecord({
+            appRoot,
+            port: 3104,
+            sessionFilePath: path.join(appRoot, 'var/run/proteum/dev/3104.json'),
+        }),
+        publicUrl: 'http://localhost:3104',
+        state: 'ready',
+    });
+    const staleSessionError = new Error(
+        'Streamable HTTP error: Error POSTing to endpoint: Bad Request: initialize the Proteum MCP session before sending tool or resource requests.',
+    );
+    const createdClients = [];
+    const server = createProteumMachineMcpServer({
+        createDevMcpClient: async () => {
+            const clientIndex = createdClients.length + 1;
+            const devClient = {
+                calls: 0,
+                closeCount: 0,
+                callTool: async () => {
+                    devClient.calls += 1;
+                    // Client 1 answers once, then the dev server restarts and forgets its session.
+                    if (clientIndex === 1 && devClient.calls > 1) throw staleSessionError;
+                    if (clientIndex > 1 && failFreshClient) throw staleSessionError;
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: JSON.stringify({ ok: true, format: 'proteum-mcp-v1', summary: `client ${clientIndex}`, data: {} }),
+                            },
+                        ],
+                    };
+                },
+                close: async () => {
+                    devClient.closeCount += 1;
+                },
+            };
+            createdClients.push(devClient);
+            return devClient;
+        },
+        version: 'test',
+    });
+    const client = new Client({ name: 'machine-mcp-reconnect-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const callLogs = async () =>
+        await client.callTool({ name: 'logs_tail', arguments: { projectId: machineRecord.projectId } });
+
+    return { callLogs, client, createdClients, server };
+};
+
+test('machine MCP router reconnects once when a dev server restart invalidated the cached session', async (t) => {
+    const { callLogs, client, createdClients, server } = await setupReconnectRouter(t, { failFreshClient: false });
+
+    const first = await callLogs();
+    const second = await callLogs();
+
+    assert.match(first.content[0].text, /client 1/);
+    assert.equal(second.isError, undefined);
+    assert.match(second.content[0].text, /client 2/);
+    assert.equal(createdClients.length, 2);
+    assert.equal(createdClients[0].closeCount, 1);
+
+    await client.close();
+    await server.close();
+});
+
+test('machine MCP router retries a stale session exactly once before reporting the dev MCP unreachable', async (t) => {
+    const { callLogs, client, createdClients, server } = await setupReconnectRouter(t, { failFreshClient: true });
+
+    await callLogs();
+    const second = await callLogs();
+
+    assert.equal(second.isError, true);
+    assert.match(second.content[0].text, /Could not reach Proteum dev MCP/);
+    assert.equal(createdClients.length, 2);
+    assert.equal(createdClients[1].closeCount, 1);
+
+    await client.close();
+    await server.close();
+});
+
 test('machine MCP router resolves projects by cwd and bootstraps workflow without duplicate discovery', async (t) => {
     const previousRegistryDir = process.env.PROTEUM_MACHINE_DEV_SESSION_DIR;
     const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-machine-workflow-router-'));

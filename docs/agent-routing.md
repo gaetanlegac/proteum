@@ -138,3 +138,7 @@ The result confirms the intended routing:
 - use `workflow_start` to collapse project resolution, fresh-copy readiness, runtime status, instruction previews, owner summary, and first next actions into one read
 - use machine MCP with `projectId` for repeated runtime reads against an already running app
 - use `instructions_resolve` to refresh routing instead of rereading full instruction files
+
+## Hand-Owned Instructions
+
+A project that writes its own agent instructions sets `agentInstructions: false` in each app's `proteum.config.ts`. Proteum then never writes `AGENTS.md`, `CLAUDE.md` or the routed instruction copies for that app: `proteum dev` skips the sync, `proteum configure agents` refuses to run, and a monorepo root is managed only when no app opted out. MCP `workflow_start` and `instructions_resolve` route such apps to their `CLAUDE.md`, and orientation guidance points there instead of Proteum's bundled fallbacks.

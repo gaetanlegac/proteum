@@ -11,6 +11,7 @@ require('ts-node/register/transpile-only');
 const {
     configureMonorepoProjectAgentInstructions,
     configureProjectAgentInstructions,
+    isProjectAgentInstructionsEnabled,
     resolveProjectAgentMonorepoRoot,
 } = require('../cli/utils/agents.ts');
 
@@ -580,4 +581,65 @@ test('configure reports blocked paths unless overwrite is allowed', () => {
     assert.equal(result.overwritten.some((entry) => entry.endsWith('/CODING_STYLE.md')), true);
     assert.equal(fs.lstatSync(blockedPath).isFile(), true);
     assert.match(fs.readFileSync(blockedPath, 'utf8'), /## Source: CODING_STYLE\.md/);
+});
+
+const createSetupAppFixture = (appRoot, setupConfig = 'export default {};\n') => {
+    fs.mkdirSync(path.join(appRoot, 'client'), { recursive: true });
+    fs.mkdirSync(path.join(appRoot, 'server'), { recursive: true });
+    writeFile(path.join(appRoot, 'package.json'), '{"name":"fixture"}\n');
+    writeFile(path.join(appRoot, 'identity.config.ts'), 'export default {};\n');
+    writeFile(path.join(appRoot, 'proteum.config.ts'), setupConfig);
+};
+
+test('agentInstructions defaults to managed and reads the opt-out from proteum.config.ts', () => {
+    const managedRoot = makeTempRoot();
+    const optedOutRoot = makeTempRoot();
+    const invalidRoot = makeTempRoot();
+
+    createSetupAppFixture(managedRoot);
+    createSetupAppFixture(optedOutRoot, 'export default { agentInstructions: false };\n');
+    createSetupAppFixture(invalidRoot, "export default { agentInstructions: 'no' };\n");
+
+    assert.equal(isProjectAgentInstructionsEnabled(makeTempRoot()), true);
+    assert.equal(isProjectAgentInstructionsEnabled(managedRoot), true);
+    assert.equal(isProjectAgentInstructionsEnabled(optedOutRoot), false);
+    assert.throws(() => isProjectAgentInstructionsEnabled(invalidRoot), /"agentInstructions" must be a boolean/);
+});
+
+test('an opted-out standalone app keeps its hand-owned instruction files untouched', () => {
+    const coreRoot = createCoreFixture();
+    const appRoot = makeTempRoot();
+
+    createSetupAppFixture(appRoot, 'export default { agentInstructions: false };\n');
+    writeFile(path.join(appRoot, 'CLAUDE.md'), '# Hand-owned\n');
+
+    const preview = configureProjectAgentInstructions({ appRoot, coreRoot, dryRun: true });
+    const result = configureProjectAgentInstructions({ appRoot, coreRoot });
+
+    assert.equal(preview.disabled, true);
+    assert.equal(result.disabled, true);
+    assert.deepEqual([result.created, result.updated, result.blocked], [[], [], []]);
+    assert.equal(pathEntryExists(path.join(appRoot, 'AGENTS.md')), false);
+    assert.equal(pathEntryExists(path.join(appRoot, 'tests')), false);
+    assert.equal(fs.readFileSync(path.join(appRoot, 'CLAUDE.md'), 'utf8'), '# Hand-owned\n');
+});
+
+test('one opted-out app makes the shared monorepo root hand-owned', () => {
+    const coreRoot = createCoreFixture();
+    const monorepoRoot = makeTempRoot();
+    const productRoot = path.join(monorepoRoot, 'apps', 'product');
+    const websiteRoot = path.join(monorepoRoot, 'apps', 'website');
+
+    fs.mkdirSync(path.join(monorepoRoot, '.git'));
+    createSetupAppFixture(productRoot, 'export default { agentInstructions: false };\n');
+    createSetupAppFixture(websiteRoot);
+
+    const productResult = configureProjectAgentInstructions({ appRoot: productRoot, coreRoot, monorepoRoot });
+    const websiteResult = configureProjectAgentInstructions({ appRoot: websiteRoot, coreRoot, monorepoRoot });
+
+    assert.equal(productResult.disabled, true);
+    assert.equal(websiteResult.disabled, undefined);
+    assert.equal(pathEntryExists(path.join(monorepoRoot, 'AGENTS.md')), false);
+    assert.equal(pathEntryExists(path.join(productRoot, 'AGENTS.md')), false);
+    assert.equal(pathEntryExists(path.join(websiteRoot, 'AGENTS.md')), true);
 });

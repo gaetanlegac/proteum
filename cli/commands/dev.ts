@@ -199,6 +199,9 @@ const ensureProjectAgentInstructions = async () => {
         dryRun: true,
         monorepoRoot,
     });
+    // `agentInstructions: false`: the project owns its instruction files, so dev must not rewrite them.
+    if (preview.disabled) return;
+
     const overwriteBlockedPaths = await promptBlockedAgentInstructionOverwrites(preview.blocked);
 
     const result = configureProjectAgentInstructions({

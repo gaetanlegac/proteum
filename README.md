@@ -206,7 +206,7 @@ An agent — or you — can ask the framework directly:
 
 - **One MCP entry point.** `proteum mcp` runs a machine-scope router; `proteum dev` exposes each app at `/__proteum/mcp`. An agent calls `workflow_start`, gets a stable `projectId`, and routes every follow-up read to the right app.
 - **Token-efficient output.** Diagnostics default to compact `proteum-agent-v1` JSON — decision-ready summaries first, raw detail only behind `--full`, `--manifest`, or `--events`.
-- **Generated instruction files.** `proteum configure agents` writes managed `AGENTS.md` / `CLAUDE.md` instruction routers, kept in sync on every `proteum dev` start.
+- **Generated instruction files.** `proteum configure agents` writes managed `AGENTS.md` / `CLAUDE.md` instruction routers, kept in sync on every `proteum dev` start. Projects that write their own instructions set `agentInstructions: false` in `proteum.config.ts` and Proteum leaves them alone.
 - **Auth without UI automation.** `proteum session <email> --role ADMIN` mints a dev session (token + Playwright-ready cookie) so agents and E2E suites skip the login flow.
 
 > Full agent contract: [docs/mcp.md](docs/mcp.md), [docs/diagnostics.md](docs/diagnostics.md), and [docs/agent-routing.md](docs/agent-routing.md).

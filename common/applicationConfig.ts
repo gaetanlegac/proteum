@@ -30,6 +30,11 @@ export type TApplicationIdentityConfig = {
 export type TApplicationSetupConfig = {
     transpile?: string[];
     connect?: TConnectedProjectsConfig;
+    /**
+     * Set to `false` when the project owns its agent instruction files by hand.
+     * Proteum then never writes AGENTS.md, CLAUDE.md or the routed instruction copies.
+     */
+    agentInstructions?: boolean;
 };
 
 export type TVerificationCheckScope = 'targeted' | 'area' | 'full' | 'static';
@@ -317,9 +322,14 @@ export const normalizeApplicationSetupConfig = (
         throw new Error(`Invalid setup config in ${filepath}. Use "transpile" instead of "transpileModules".`);
     }
 
+    if (value.agentInstructions !== undefined && typeof value.agentInstructions !== 'boolean') {
+        throw new Error(`Invalid setup config in ${filepath}. "agentInstructions" must be a boolean.`);
+    }
+
     return {
         transpile: normalizeTranspileConfig(value.transpile),
         connect: normalizeConnectedProjectsConfig(value.connect),
+        ...(value.agentInstructions === undefined ? {} : { agentInstructions: value.agentInstructions }),
     };
 };
 
