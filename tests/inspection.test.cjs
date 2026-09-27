@@ -6,7 +6,7 @@ process.env.TS_NODE_PROJECT = path.join(coreRoot, 'cli', 'tsconfig.json');
 process.env.TS_NODE_TRANSPILE_ONLY = '1';
 require('ts-node/register/transpile-only');
 
-const { explainOwner } = require('../common/dev/inspection.ts');
+const { buildOrientationResponse, explainOwner } = require('../common/dev/inspection.ts');
 
 const createRoute = (routePath, filepath) => ({
     chunkFilepath: filepath,
@@ -63,4 +63,22 @@ test('root owner lookup returns only the literal root route when present', () =>
 
     assert.equal(matches.length, 1);
     assert.equal(matches[0].label, '/');
+});
+
+test('orientation guidance of an opted-out app points at its hand-owned instruction file', () => {
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-owned-guidance-'));
+    fs.mkdirSync(path.join(appRoot, '.git'));
+    fs.writeFileSync(path.join(appRoot, 'AGENTS.md'), '# Owned\n');
+    const manifest = createManifest([]);
+    manifest.app = { coreRoot, root: appRoot, identity: { identifier: 'OwnedApp', name: 'Owned App' }, setup: { agentInstructions: false } };
+
+    const agentsOnly = buildOrientationResponse(manifest, '/').guidance;
+    assert.equal(agentsOnly.agents, path.join(appRoot, 'AGENTS.md'));
+    assert.equal(agentsOnly.documentation, path.join(appRoot, 'AGENTS.md'));
+    assert.deepEqual(agentsOnly.areaAgents, []);
+
+    fs.writeFileSync(path.join(appRoot, 'CLAUDE.md'), '# Owned for Claude\n');
+    assert.equal(buildOrientationResponse(manifest, '/').guidance.agents, path.join(appRoot, 'CLAUDE.md'));
 });

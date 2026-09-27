@@ -156,6 +156,23 @@ const writeFreshCopyFixture = (appRoot, manifestOverrides = {}) => {
     writeFile(path.join(appRoot, '.proteum', 'manifest.json'), JSON.stringify(createManifest(appRoot, manifestOverrides), null, 2));
 };
 
+test('instruction routing sends an opted-out app to its hand-owned instruction file', () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-owned-'));
+
+    writeFile(path.join(appRoot, 'proteum.config.ts'), 'export default { agentInstructions: false };\n');
+    writeFile(path.join(appRoot, 'AGENTS.md'), '# Owned\n');
+    writeFile(path.join(appRoot, 'client', 'AGENTS.md'), '# Stale routed copy\n');
+
+    const agentsOnly = resolveInstructionRouting({ appRoot, query: 'client/pages/domain.tsx' });
+    assert.deepEqual(agentsOnly.data.selected.map((entry) => path.relative(appRoot, entry.file)), ['AGENTS.md']);
+    assert.deepEqual(agentsOnly.data.readWhen, []);
+
+    // Claude Code reads CLAUDE.md first when both exist, so routing follows it.
+    writeFile(path.join(appRoot, 'CLAUDE.md'), '# Owned for Claude\n');
+    const withClaude = resolveInstructionRouting({ appRoot, query: 'client/pages/domain.tsx' });
+    assert.deepEqual(withClaude.data.selected.map((entry) => path.relative(appRoot, entry.file)), ['CLAUDE.md']);
+});
+
 test('instruction routing returns compact selected files for a page query', () => {
     const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-mcp-app-'));
 

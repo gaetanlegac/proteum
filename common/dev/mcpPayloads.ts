@@ -940,12 +940,13 @@ export const resolveInstructionRouting = ({
     const selected = new Map<string, ReturnType<typeof createSelectedInstruction>>();
     const readWhen: Array<{ file?: string; when: string }> = [];
 
-    // `agentInstructions: false`: the routed AGENTS.md copies no longer exist; route to the hand-owned CLAUDE.md.
+    // `agentInstructions: false`: the routed copies no longer exist; route to the hand-owned file the
+    // agent actually loads (Claude Code reads CLAUDE.md when it exists and AGENTS.md otherwise).
     if (!readsProteumManagedInstructions(appRoot)) {
-        const claudeFile = resolveDocumentFile({ appRoot, repoRoot, relativeFilepath: 'CLAUDE.md' });
-        if (claudeFile && fileExists(claudeFile)) {
-            selected.set(claudeFile, createSelectedInstruction(claudeFile, 'Project-owned agent instructions.'));
-        }
+        const ownedFile = ['CLAUDE.md', 'AGENTS.md']
+            .map((relativeFilepath) => resolveDocumentFile({ appRoot, repoRoot, relativeFilepath }))
+            .find((filepath) => filepath !== undefined && fileExists(filepath));
+        if (ownedFile) selected.set(ownedFile, createSelectedInstruction(ownedFile, 'Project-owned agent instructions.'));
         const selectedFiles = [...selected.values()];
         return createMcpPayload({
             summary: `${selectedFiles.length} instruction files selected for ${normalizedQuery || 'current app'}`,
