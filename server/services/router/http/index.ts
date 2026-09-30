@@ -125,6 +125,12 @@ const createContentSecurityPolicy = (config: Config['csp']): TContentSecurityPol
 
 const connectedProjectBootRetryCount = 10;
 const connectedProjectBootRetryDelayMs = 5_000;
+/**
+ * How long `cleanup()` waits for in-flight responses before force-closing their sockets.
+ * Kept under the host's drain window (Railway `drainingSeconds: 20` on the Unique Domains
+ * services), so the process exits on its own terms instead of being killed mid-response.
+ */
+export const httpDrainDeadlineMs = 10_000;
 
 const wait = async (durationMs: number) =>
     await new Promise<void>((resolve) => {
@@ -588,8 +594,25 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         });
     }
 
+    /**
+     * Stop accepting connections and wait for in-flight responses before the process exits.
+     * `server/index.ts` calls `process.exit(0)` as soon as this resolves, so an unawaited
+     * `close()` cut every response still being written. The wait is bounded because a
+     * keep-alive or streaming client can hold a socket open indefinitely.
+     */
     public async cleanup() {
-        this.http.close();
+        await new Promise<void>((resolve) => {
+            const deadline = setTimeout(() => {
+                this.http.closeAllConnections();
+                resolve();
+            }, httpDrainDeadlineMs);
+            this.http.close(() => {
+                clearTimeout(deadline);
+                resolve();
+            });
+            // Idle keep-alive sockets would otherwise hold `close()` open until the deadline.
+            this.http.closeIdleConnections();
+        });
     }
 
     private registerDevTraceRoutes(routes: express.Express) {
