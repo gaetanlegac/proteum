@@ -7,7 +7,7 @@ import type { Request, Response, NextFunction } from 'express';
 
 // Core
 import type { TAnyRouter, TRouterContext, TRouteHttpMethod } from '@server/services/router';
-import type { TFrontRenderer, TPageDataProvider } from './response/page';
+import type { TDeferredFrontRenderer, TFrontRenderer, TPageDataProvider, TPageRenderer } from './response/page';
 import type { TRouteOptions } from '.';
 
 /*----------------------------------
@@ -27,7 +27,7 @@ export type TPageRouteDefinition<TProvidedData extends {} = {}> = {
     path: string;
     options: Partial<TRouteOptions>;
     data: TPageDataProvider<TProvidedData> | null;
-    render: TFrontRenderer<TProvidedData>;
+    render: TPageRenderer<TProvidedData>;
 };
 
 export type TErrorRouteDefinition = {
@@ -75,18 +75,36 @@ export type TRouteDefinitionRegistrar = {
 - HELPERS
 ----------------------------------*/
 
-export const definePageRoute = <TProvidedData extends {} = {}>({
+// A page declaring `options.navigation: 'deferred'` renders with TDeferredFrontRenderer:
+//  every data key may be undefined, plus the `navigation` prop
+export function definePageRoute<TProvidedData extends {} = {}>(definition: {
+    path: string;
+    options: Partial<TRouteOptions> & { navigation: 'deferred' };
+    data: TPageDataProvider<TProvidedData> | null;
+    render: TDeferredFrontRenderer<TProvidedData>;
+}): TPageRouteDefinition<TProvidedData>;
+// The blocking overload refuses `navigation: 'deferred'`: a deferred page whose render does not fit the deferred
+//  renderer (an annotated props type) would otherwise fall through to it and type its data as always defined
+export function definePageRoute<TProvidedData extends {} = {}>(definition: {
+    path: string;
+    options: Omit<Partial<TRouteOptions>, 'navigation'> & { navigation?: 'blocking' };
+    data: TPageDataProvider<TProvidedData> | null;
+    render: TFrontRenderer<TProvidedData>;
+}): TPageRouteDefinition<TProvidedData>;
+export function definePageRoute<TProvidedData extends {} = {}>({
     path,
     options,
     data,
     render,
-}: Omit<TPageRouteDefinition<TProvidedData>, 'kind'>): TPageRouteDefinition<TProvidedData> => ({
-    kind: 'page',
-    path,
-    options,
-    data,
-    render,
-});
+}: Omit<TPageRouteDefinition<TProvidedData>, 'kind'>): TPageRouteDefinition<TProvidedData> {
+    return {
+        kind: 'page',
+        path,
+        options,
+        data,
+        render,
+    };
+}
 
 export const defineErrorRoute = ({
     code,

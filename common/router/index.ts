@@ -115,6 +115,8 @@ export type TRouteOptions = {
     whenStatic?: boolean; // If true, the route is only executed even if the page is cached
     canonicalParams?: string[]; // For SEO + unique ID for static cache
     layout?: false | string; // The nale of the layout
+    // Client navigation: 'deferred' swaps the page in before its data when the router runs in deferred mode
+    navigation?: 'deferred' | 'blocking';
 
     // To cleanup
     TESTING?: boolean;

@@ -28,7 +28,8 @@ const {
     schema,
 } = require('../server/app/controller/index.ts');
 const Service = require('../server/app/service/index.ts').default;
-const { expressHandler, registerRouteDefinition } = require('../common/router/definitions.ts');
+const { definePageRoute, expressHandler, registerRouteDefinition } = require('../common/router/definitions.ts');
+const { validatePageDataResult } = require('../common/router/pageData.ts');
 const { parseProteumEnvConfig } = require('../common/env/proteumEnv.ts');
 
 const createTempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-definition-contracts-'));
@@ -151,6 +152,49 @@ export default definePageRoute({
 
     assert.equal(definition.path, '/feed');
     assert.deepEqual(definition.normalizedOptionKeys, ['auth', 'authTracking']);
+});
+
+test('route indexer accepts the navigation page option', () => {
+    const root = createTempDir();
+    const filepath = path.join(root, 'client/pages/radars.tsx');
+
+    writeFile(
+        filepath,
+        `import { definePageRoute } from '@common/router/definitions';
+
+export default definePageRoute({
+    path: '/radars',
+    options: { auth: true, navigation: 'deferred' },
+    data: ({ Radars }) => ({ radars: Radars.list() }),
+    render: ({ radars, navigation }) => null,
+});
+`,
+    );
+
+    const [definition] = indexRouteDefinitions({ side: 'client', sourceFilepath: filepath });
+
+    assert.deepEqual(definition.normalizedOptionKeys, ['auth', 'navigation']);
+    assert.deepEqual(definition.invalidOptionKeys, []);
+});
+
+test('definePageRoute keeps the navigation option and page data keeps "navigation" for blocking pages only', () => {
+    const render = () => null;
+    const definition = definePageRoute({ path: '/radars', options: { navigation: 'deferred' }, data: () => ({}), render });
+
+    assert.equal(definition.kind, 'page');
+    assert.equal(definition.options.navigation, 'deferred');
+    assert.equal(definition.render, render);
+
+    const route = (options) => ({ path: '/radars', options: { filepath: 'client/pages/radars.tsx', ...options } });
+    const data = { navigation: { menu: [] }, rows: [] };
+
+    // Blocking pages already return a "navigation" data key
+    assert.equal(validatePageDataResult(route({}), data), data);
+    assert.equal(validatePageDataResult(route({ navigation: 'blocking' }), data), data);
+    assert.throws(() => validatePageDataResult(route({ navigation: 'deferred' }), data), /cannot return key "navigation"/);
+    assert.equal(validatePageDataResult(route({ navigation: 'deferred' }), { rows: [] }).rows.length, 0);
+    // Other route option keys stay reserved
+    assert.throws(() => validatePageDataResult(route({}), { auth: true }), /reserved key "auth"/);
 });
 
 test('router port override updates absolute runtime URLs', () => {

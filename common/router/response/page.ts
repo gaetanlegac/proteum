@@ -10,7 +10,7 @@ import type { Thing } from 'schema-dts';
 import type { ClientContext } from '@/client/context';
 import { ClientOrServerRouter, TErrorRoute, TPageErrorRoute, TPageRoute, TRoute, TRouteOptions } from '@common/router';
 import type { TFetcher, TFetcherList } from '@common/router/request/api';
-import { validatePageDataResult } from '@common/router/pageData';
+import { validateDeferredDataKeys, validatePageDataResult } from '@common/router/pageData';
 
 /*----------------------------------
 - TYPES
@@ -61,6 +61,65 @@ export type TFrontRenderer<
         TAdditionnalData & { context: TPageRenderContext; data: { [key: string]: PrimitiveValue } },
 ) => VNode<any> | null;
 
+// Navigation state of a page that declares navigation: 'deferred'.
+// `since` is the Date.now() timestamp of the last status change; `stale` means the previous data is still on screen.
+// `reloading` means the data step runs again for a navigation whose data already reached the screen (api.reload,
+//  or retry() after ready): the stale data is this page's own, never a previous page's under the new URL.
+type TPageNavigationBase = { since: number; retry: () => void };
+
+export type TPageNavigation =
+    | (TPageNavigationBase & { status: 'ready'; pending: false; stale: false; reloading: false; error: null })
+    | (TPageNavigationBase & { status: 'pending'; pending: true; stale: boolean; reloading: boolean; error: null })
+    | (TPageNavigationBase & { status: 'error'; pending: false; stale: boolean; reloading: boolean; error: Error });
+
+export type TPageNavigationState =
+    | { status: 'ready' }
+    | { status: 'pending'; stale: boolean; reloading?: boolean }
+    | { status: 'error'; stale: boolean; reloading?: boolean; error: Error };
+
+export const createPageNavigation = (state: TPageNavigationState, retry: () => void = () => {}): TPageNavigation => {
+    const base = { since: Date.now(), retry };
+
+    if (state.status === 'ready')
+        return { ...base, status: 'ready', pending: false, stale: false, reloading: false, error: null };
+    if (state.status === 'pending')
+        return {
+            ...base,
+            status: 'pending',
+            pending: true,
+            stale: state.stale,
+            reloading: state.reloading === true,
+            error: null,
+        };
+    return {
+        ...base,
+        status: 'error',
+        pending: false,
+        stale: state.stale,
+        reloading: state.reloading === true,
+        error: state.error,
+    };
+};
+
+// Page data as a deferred page sees it: every key is undefined until the navigation is ready
+export type TDeferredPageData<TProvidedData extends {} = {}> = {
+    [Property in keyof TResolvedPageData<TProvidedData>]: TResolvedPageData<TProvidedData>[Property] | undefined;
+};
+
+// The renderer of a page that declares navigation: 'deferred'
+export type TDeferredFrontRenderer<TProvidedData extends {} = {}> = (
+    context: TPageRenderContext &
+        TDeferredPageData<TProvidedData> & {
+            context: TPageRenderContext;
+            data: { [key: string]: PrimitiveValue };
+            navigation: TPageNavigation;
+        },
+) => VNode<any> | null;
+
+export type TPageRenderer<TProvidedData extends {} = {}> =
+    | TFrontRenderer<TProvidedData>
+    | TDeferredFrontRenderer<TProvidedData>;
+
 // Script or CSS resource
 export type TPageResource = { id: string; attrs?: TObjetDonnees } & (
     | { inline: string }
@@ -100,10 +159,11 @@ export default abstract class PageResponse<
     // Data
     public fetchers: TFetcherList = {};
     public data: TObjetDonnees = {};
+    public navigation: TPageNavigation = createPageNavigation({ status: 'ready' });
 
     public constructor(
         public route: TRouteLike,
-        public renderer: TFrontRenderer,
+        public renderer: TPageRenderer,
         public context: TContext,
     ) {
         this.chunkId = context.route.options.id;
@@ -129,23 +189,29 @@ export default abstract class PageResponse<
         return data as TFetcherList;
     }
 
-    public async fetchData() {
+    // Runs the page and layout data providers without fetching anything
+    public prepareFetchers() {
         this.fetchers = this.createFetchers();
         this.bodyId = this.route.options.bodyId;
 
-        // Fetch layout data
+        // Layout data
         if (this.layout?.data) {
             const layoutContext = {
                 ...this.context,
                 data: this.context.request.data,
             } as unknown as Parameters<typeof this.layout.data>[0];
             const fetchers = this.layout.data(layoutContext);
+            validateDeferredDataKeys(this.route, fetchers, 'Layout data');
             this.fetchers = { ...this.fetchers, ...fetchers };
         }
 
-        // Fetch page data
-        debug && console.log(`[router][page] Fetching api data:` + Object.keys(this.fetchers));
-        this.data = await this.context.request.api.fetchSync(this.fetchers, this.data);
+        return this.fetchers;
+    }
+
+    // Pass the fetchers of an earlier prepareFetchers() call to skip running the providers again
+    public async fetchData(fetchers: TFetcherList = this.prepareFetchers()) {
+        debug && console.log(`[router][page] Fetching api data:` + Object.keys(fetchers));
+        this.data = await this.context.request.api.fetchSync(fetchers, this.data);
 
         return this.data;
     }

@@ -9,7 +9,7 @@ import renderToString from 'preact-render-to-string';
 // Core
 import { type TServerRouter, TRouterContext } from '@server/services/router';
 import type { Layout, TRoute, TErrorRoute, TClientOrServerContext } from '@common/router';
-import PageResponse, { TFrontRenderer, TPageRenderContext } from '@common/router/response/page';
+import PageResponse, { TPageRenderContext, TPageRenderer } from '@common/router/response/page';
 import { getClientBuildManifest } from './clientManifest';
 import { buildMetaTags } from './metas';
 import { buildDefaultJsonLd } from './jsonld';
@@ -41,7 +41,7 @@ export default class ServerPage<TRouter extends TServerRouter = TServerRouter> e
 
     public constructor(
         public route: TRoute | TErrorRoute,
-        public renderer: TFrontRenderer,
+        public renderer: TPageRenderer,
         context: TRouterContext<TRouter>,
         public layout?: Layout,
     ) {

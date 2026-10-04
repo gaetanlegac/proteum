@@ -112,7 +112,12 @@ export default class ClientPageResponse<
         if (existingContext === undefined) {
             this.request.router.context = newContext;
         } else {
+            // The page on screen stays the context's page until a navigation commits (the router's commit port
+            //  sets it): this response may belong to a navigation that never does (superseded, failed), and
+            //  api.set and api.reload read the page from the context.
+            const pageOnScreen = existingContext.page;
             Object.assign(existingContext, newContext);
+            existingContext.page = pageOnScreen;
         }
 
         return newContext;

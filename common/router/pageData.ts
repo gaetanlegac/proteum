@@ -18,18 +18,23 @@ export const routeOptionKeys = [
     'whenStatic',
     'canonicalParams',
     'layout',
+    'navigation',
     'TESTING',
     'logging',
 ] as const satisfies (keyof TRouteOptions)[];
 
 export const reservedRouteOptionKeys = ['id', 'filepath', 'sourceLocation', 'data'] as const;
 
+// `navigation` stays a legal data key on blocking pages, where apps already return one.
+// A deferred page reserves it for its navigation render prop (see validateDeferredDataKeys).
+const dataReservedRouteOptionKeys = routeOptionKeys.filter((key) => key !== 'navigation');
+
 const routeOptionKeysSet = new Set<string>(routeOptionKeys);
 const reservedRouteOptionKeysSet = new Set<string>(reservedRouteOptionKeys);
 const reservedPageDataKeys = new Set<string>([
-    ...routeOptionKeys,
+    ...dataReservedRouteOptionKeys,
     ...reservedRouteOptionKeys,
-    ...routeOptionKeys.map((key) => `_${key}`),
+    ...dataReservedRouteOptionKeys.map((key) => `_${key}`),
     ...reservedRouteOptionKeys.map((key) => `_${key}`),
 ]);
 
@@ -51,6 +56,17 @@ export const getRouteOptionKey = (key: string) => {
     return routeOptionKeysSet.has(key) ? (key as keyof TRouteOptions) : null;
 };
 
+// Page and layout data both reach the render props, where a deferred page reads `navigation`
+export const validateDeferredDataKeys = (route: TAnyRoute, result: object, source: string) => {
+    if (route.options.navigation !== 'deferred' || !result || !('navigation' in result)) return;
+
+    throw new Error(
+        `${source} for ${formatRouteTarget(route)} in ${formatRouteSource(route)} ` +
+            `cannot return key "navigation": a page declaring navigation: 'deferred' receives its ` +
+            `navigation state under that render prop. Rename the data key.`,
+    );
+};
+
 export const validatePageDataResult = (route: TAnyRoute, result: unknown) => {
     if (!result || typeof result !== 'object' || Array.isArray(result)) {
         throw new Error(
@@ -58,6 +74,8 @@ export const validatePageDataResult = (route: TAnyRoute, result: unknown) => {
                 `If the page has no data loader, set data to null.`,
         );
     }
+
+    validateDeferredDataKeys(route, result, 'definePageRoute data');
 
     for (const key of Object.keys(result)) {
         if (!reservedPageDataKeys.has(key)) continue;

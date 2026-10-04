@@ -252,6 +252,8 @@ export default defineController({
 - Controller fetchers and promises returned from `data` resolve before render.
 - `render` consumes resolved page data and uses generated controller methods from render args or `@/client/context`.
 - Use `api.reload(...)` or `api.set(...)` only when intentionally mutating active page data state.
+- Client navigation is blocking by default: data first, then the swap. A page swaps in before its data only when the router config sets `navigation: { mode: 'deferred' }`, the page sets `options.navigation: 'deferred'`, and it has a `data` loader. Its render then receives every data key as possibly `undefined` plus a `navigation` prop (`status` `ready`, `pending` or `error`, `stale`, `reloading`, `error`, `since`, `retry()`), must render the pending and error states, and cannot return a data key named `navigation`. Contract: `node_modules/proteum/docs/client-navigation.md`.
+- Run page-view analytics and anything that needs the page data on screen on the `page.ready` router hook, not `page.changed`. It fires once per navigation, when the data is first on screen (on a deferred page that includes a `retry()` recovering a failed first data step), never for later retries or reloads. Read the URL from the request it passes, not `window.location`. The router resets `document.body` classes before both hooks: an app re-adds its own in both.
 - Error pages use `defineErrorRoute({ code, options, render })` in `client/pages/_messages/**`.
 - Prefer `proteum create page ...` for new page boilerplate, then review the explicit route path, options object, and data payload.
 

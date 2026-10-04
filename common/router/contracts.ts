@@ -3,7 +3,7 @@
 ----------------------------------*/
 
 // Core
-import type { TFrontRenderer, TPageDataProvider } from './response/page';
+import type { TPageDataProvider, TPageRenderer } from './response/page';
 import type { TRouteOptions } from '.';
 
 /*----------------------------------
@@ -16,7 +16,7 @@ export type TRegisterPageArgs<TProvidedData extends {} = {}, TPageOptions extend
         path: string,
         options: Partial<TPageOptions>,
         data: TPageDataProvider<TProvidedData> | null,
-        renderer: TFrontRenderer<TProvidedData>,
+        renderer: TPageRenderer<TProvidedData>,
     ];
 
 // Serialized SSR route description exchanged between build output and runtime.

@@ -2,6 +2,9 @@
 - DEPENDANCES
 ----------------------------------*/
 
+// Npm
+import safeStringify from 'fast-safe-stringify';
+
 // Core
 import type ClientApplication from '@client/app';
 import { buildConnectedProjectProxyPath } from '@common/connectedProjects';
@@ -43,6 +46,19 @@ const isFileValue = (value: unknown): value is Blob =>
 
 const isFileListValue = (value: unknown): value is FileList =>
     typeof FileList !== 'undefined' && typeof value === 'object' && value instanceof FileList;
+
+// Same rule as the server: an api fetcher names the endpoint it calls
+const isApiFetcher = (value: unknown): value is TFetcher =>
+    typeof value === 'object' && value !== null && 'method' in value && 'path' in value;
+
+const isThenable = (value: unknown): value is PromiseLike<unknown> =>
+    typeof value === 'object' && value !== null && typeof (value as PromiseLike<unknown>).then === 'function';
+
+// Locally resolved data goes through JSON like SSR data and /api responses (Date to string, no undefined keys)
+const toPageData = (value: unknown): { value: unknown } | undefined => {
+    const json = safeStringify(value);
+    return json === undefined ? undefined : { value: JSON.parse(json) };
+};
 
 const containsFileValue = (value: unknown): boolean => {
     if (isFileValue(value) || isFileListValue(value)) return true;
@@ -104,6 +120,9 @@ export default class ApiClient implements ApiClientService {
         page.data = nextData;
 
         debug && console.log('[api] Reload data', ids, params, page.fetchers);
+
+        // A deferred page reloads through its navigation: pending state, then the data step again
+        if (page.isDeferred()) return page.navigationRetry();
 
         page.fetchData()
             .then((data: TObjetDonnees) => {
@@ -199,86 +218,115 @@ export default class ApiClient implements ApiClientService {
     }
 
     public async fetchSync(fetchers: TFetcherList, alreadyLoadedData: {}): Promise<TObjetDonnees> {
-        // Pick the fetchers where the data is needed
-        const fetchersToRun: TFetcherList = {};
-        let fetchersCount: number = 0;
+        // Only api fetchers go to the server, in one POST /api batch. Other promises resolve here,
+        // and plain values are page data as they are: sending them would only echo them back.
+        const batch: TFetcherList = {};
+        const local: TObjetDonnees = {};
+        const localPromises: Promise<void>[] = [];
+        const setLocal = (fetcherId: string, value: unknown) => {
+            const data = toPageData(value);
+            if (data) local[fetcherId] = data.value;
+        };
         // The fetcher can be undefined
-        for (const fetcherId in fetchers)
-            if (!(fetcherId in alreadyLoadedData) && fetchers[fetcherId]) {
-                fetchersToRun[fetcherId] = fetchers[fetcherId];
-                fetchersCount++;
-            }
+        for (const fetcherId in fetchers) {
+            const entry = fetchers[fetcherId];
+            if (fetcherId in alreadyLoadedData || !entry) continue;
 
-        // Fetch all the api data thanks to one http request
-        const fetchedData =
-            fetchersCount === 0
-                ? {}
-                : await (async () => {
-                      const pendingTrace = withProfiler((runtime) =>
-                          runtime.startTrace('navigation-data', {
-                              fetcherIds: Object.keys(fetchersToRun),
-                              label: 'Navigation data',
-                              method: 'POST',
-                              path: '/api',
-                          }),
-                      );
-
-                      try {
-                          const result = await this.executeDetailed<TObjetDonnees>(
-                              'client-navigation',
-                              'POST',
-                              '/api',
-                              ({ fetchers: fetchersToRun } as unknown) as TPostData,
-                          );
-                          const profilerModule = getProfilerModule();
-                          const traceRequestId = profilerModule?.readProfilerTraceRequestId(result.response);
-
-                          if (pendingTrace && traceRequestId) {
-                              await profilerModule?.profilerRuntime.attachTraceByRequestId(
-                                  pendingTrace.sessionId,
-                                  pendingTrace.traceId,
-                                  traceRequestId,
-                              );
-                          } else if (pendingTrace) {
-                              withProfiler((runtime) =>
-                                  runtime.completeTrace(pendingTrace.traceId, {
-                                      durationMs: result.durationMs,
-                                      status: 'completed',
-                                  }),
-                              );
-                          }
-
-                          const responseData: TObjetDonnees = {};
-                          for (const id in result.data) responseData[id] = result.data[id];
-                          return responseData;
-                      } catch (e) {
-                          const profilerModule = getProfilerModule();
-                          const errorResponse = (e as Error & { response?: Response }).response;
-                          const traceRequestId = errorResponse ? profilerModule?.readProfilerTraceRequestId(errorResponse) : undefined;
-                          if (pendingTrace && traceRequestId) {
-                              await profilerModule?.profilerRuntime.attachTraceByRequestId(
-                                  pendingTrace.sessionId,
-                                  pendingTrace.traceId,
-                                  traceRequestId,
-                              );
-                          }
-                          withProfiler((runtime) =>
-                              runtime.completeTrace(pendingTrace?.traceId, {
-                                  errorMessage: e instanceof Error ? e.message : String(e),
-                                  status: 'error',
-                              }),
-                          );
-
-                          // API Error hook
-                          this.app.handleError(e);
-
-                          throw e;
-                      }
-                  })();
+            if (isApiFetcher(entry)) batch[fetcherId] = entry;
+            else if (isThenable(entry))
+                localPromises.push(
+                    Promise.resolve(entry).then(
+                        (value) => setLocal(fetcherId, value),
+                        (error: unknown) => {
+                            // Surfaced like an /api failure
+                            this.app.handleError(error);
+                            throw error;
+                        },
+                    ),
+                );
+            else setLocal(fetcherId, entry);
+        }
 
         // Errors will be catched in the caller
+        const [fetchedData] = await Promise.all([
+            Object.keys(batch).length === 0 ? ({} as TObjetDonnees) : this.fetchBatch(batch),
+            ...localPromises,
+        ]);
 
-        return { ...alreadyLoadedData, ...fetchedData };
+        // Keep the order of the data provider keys
+        const data: TObjetDonnees = { ...alreadyLoadedData };
+        for (const fetcherId in fetchers) {
+            if (fetcherId in local) data[fetcherId] = local[fetcherId];
+            else if (fetcherId in fetchedData) data[fetcherId] = fetchedData[fetcherId];
+        }
+
+        return data;
+    }
+
+    // Fetch all the api data thanks to one http request
+    private async fetchBatch(fetchersToRun: TFetcherList): Promise<TObjetDonnees> {
+        const pendingTrace = withProfiler((runtime) =>
+            runtime.startTrace('navigation-data', {
+                fetcherIds: Object.keys(fetchersToRun),
+                label: 'Navigation data',
+                method: 'POST',
+                path: '/api',
+            }),
+        );
+
+        try {
+            const result = await this.executeDetailed<TObjetDonnees>(
+                'client-navigation',
+                'POST',
+                '/api',
+                ({ fetchers: fetchersToRun } as unknown) as TPostData,
+            );
+            const profilerModule = getProfilerModule();
+            const traceRequestId = profilerModule?.readProfilerTraceRequestId(result.response);
+
+            if (pendingTrace && traceRequestId) {
+                await profilerModule?.profilerRuntime.attachTraceByRequestId(
+                    pendingTrace.sessionId,
+                    pendingTrace.traceId,
+                    traceRequestId,
+                );
+            } else if (pendingTrace) {
+                withProfiler((runtime) =>
+                    runtime.completeTrace(pendingTrace.traceId, {
+                        durationMs: result.durationMs,
+                        status: 'completed',
+                    }),
+                );
+            }
+
+            const responseData: TObjetDonnees = {};
+            for (const id in result.data) responseData[id] = result.data[id];
+            return responseData;
+        } catch (e) {
+            const profilerModule = getProfilerModule();
+            const errorResponse = (e as Error & { response?: Response }).response;
+            const traceRequestId = errorResponse
+                ? profilerModule?.readProfilerTraceRequestId(errorResponse)
+                : undefined;
+            if (pendingTrace && traceRequestId) {
+                await profilerModule?.profilerRuntime.attachTraceByRequestId(
+                    pendingTrace.sessionId,
+                    pendingTrace.traceId,
+                    traceRequestId,
+                );
+            }
+            withProfiler((runtime) =>
+                runtime.completeTrace(pendingTrace?.traceId, {
+                    errorMessage: e instanceof Error ? e.message : String(e),
+                    status: 'error',
+                }),
+            );
+
+            // API Error hook
+            this.app.handleError(e);
+
+            throw e;
+        }
     }
 
     public configure = (...[method, path, data, options = {}]: TFetcherArgs) => {

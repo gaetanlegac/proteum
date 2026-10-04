@@ -275,6 +275,7 @@ my-app/
 
 | Topic | Guide |
 | --- | --- |
+| Client navigation (blocking, deferred, prefetch) | [docs/client-navigation.md](docs/client-navigation.md) |
 | Diagnostics & explainability | [docs/diagnostics.md](docs/diagnostics.md) |
 | Model Context Protocol (MCP) | [docs/mcp.md](docs/mcp.md) |
 | Request tracing & perf | [docs/request-tracing.md](docs/request-tracing.md) |

@@ -31,7 +31,7 @@ import type { TRegisterPageArgs, TSsrUnresolvedRoute } from '@common/router/cont
 import { getLayout } from '@common/router/layouts';
 import { getRegisterPageArgs, buildRegex } from '@common/router/register';
 import { TFetcherList } from '@common/router/request/api';
-import type { TFrontRenderer, TPageDataProvider } from '@common/router/response/page';
+import type { TFrontRenderer, TPageDataProvider, TPageRenderer } from '@common/router/response/page';
 
 import App from '@client/app/component';
 import type ClientApplication from '@client/app';
@@ -42,6 +42,7 @@ import ClientRequest, { isClientRequest } from './request';
 import { location, history } from './request/history';
 import ClientResponse, { type TRouterContext } from './response';
 import ClientPage from './response/page';
+import type { TNavigationMode } from './navigation';
 
 type AppPropsContext = Parameters<typeof App>[0]['context'];
 
@@ -55,6 +56,13 @@ import appRoutes from '@generated/client/routes';
 const debug = false;
 const LogPrefix = '[router]';
 const browserWindow = window as Window & { routes?: TSsrUnresolvedRoute[]; ssr?: TBasicSSrData };
+
+// Where requestIdleCallback is missing (Safari, iOS), the prefetch waits this long after hydration instead, so the
+//  page's own requests, images and fonts go first rather than ten chunk downloads
+const PREFETCH_IDLE_FALLBACK_MS = 2000;
+
+// The Network Information API, Chromium only and missing from the DOM typings
+type TNavigatorConnection = { connection?: { saveData?: boolean } };
 const withProfiler = <T,>(callback: (runtime: (typeof import('@client/dev/profiler/runtime'))['profilerRuntime']) => T) => {
     if (!__DEV__) return undefined as T | undefined;
     const profilerModule = require('@client/dev/profiler/runtime') as typeof import('@client/dev/profiler/runtime');
@@ -115,6 +123,8 @@ type TRouteLoader<
     TRouteModule<Route>
 >;
 
+type TLoadedRoute<TRouter extends TAnyClientRouter> = TClientPageRoute<TRouter> | TClientPageErrorRoute<TRouter>;
+
 export type TRoutesLoaders = { [chunkId: string]: TRouteLoader<TClientPageRoute | TClientPageErrorRoute> };
 
 /*----------------------------------
@@ -123,10 +133,16 @@ export type TRoutesLoaders = { [chunkId: string]: TRouteLoader<TClientPageRoute 
 
 export type THookCallback<TRouter extends TAnyClientRouter> = (request: ClientRequest<TRouter>) => void;
 
-type THookName = 'page.change' | 'page.changed' | 'page.rendered';
+// page.ready: the page shows its data. After hydration on the first load, then after every navigation
+//  (with the swap on a blocking page, when the data arrives on a deferred one).
+type THookName = 'page.change' | 'page.changed' | 'page.rendered' | 'page.ready';
 
 type Config = {
     preload: string[]; // List of globs
+    // Route paths whose chunks load at idle after the first render
+    prefetch?: string[];
+    // 'deferred' lets pages declaring navigation: 'deferred' swap in before their data. Default 'blocking'.
+    navigation?: { mode: TNavigationMode };
     context: (context: {}, router: TAnyClientRouter) => any;
 };
 
@@ -191,6 +207,11 @@ export default class ClientRouter<
     public routes: Array<TClientPageRoute<ClientRouter<TApplication, TConfig>> | TUnresolvedNormalRoute> = [];
     public errors: {
         [code: number]: TClientPageErrorRoute<ClientRouter<TApplication, TConfig>> | TUnresolvedErrorRoute;
+    } = {};
+
+    // One load per chunk: a navigation joins a prefetch already in flight
+    private routeLoads: {
+        [chunk: string]: Promise<TLoadedRoute<ClientRouter<TApplication, TConfig>>> | undefined;
     } = {};
 
     public async registerRoutes() {
@@ -265,7 +286,7 @@ export default class ClientRouter<
         path: string,
         options: Partial<TRouteOptions>,
         data: TPageDataProvider<TProvidedData> | null,
-        renderer: TFrontRenderer<TProvidedData>,
+        renderer: TPageRenderer<TProvidedData>,
     ): TClientPageRoute<this>;
 
     protected page(...args: TRegisterPageArgs<any, TRouteOptions>): TClientPageRoute<this> {
@@ -316,7 +337,8 @@ export default class ClientRouter<
     /*----------------------------------
     - RESOLUTION
     ----------------------------------*/
-    public async resolve(request: ClientRequest<this>): Promise<ClientPage<this>> {
+    // `isCurrent`: the caller's navigation is still the latest. Null when it is not anymore once the chunk loaded.
+    public async resolve(request: ClientRequest<this>, isCurrent?: () => boolean): Promise<ClientPage<this> | null> {
         debug && console.log(LogPrefix, 'Resolving request', request.path, Object.keys(request.data));
 
         for (let iRoute = 0; iRoute < this.routes.length; iRoute++) {
@@ -335,14 +357,14 @@ export default class ClientRouter<
                     routeLabel: request.path,
                 }),
             );
-            const page = await this.createResponse(route, request);
+            const page = await this.createResponse(route, request, {}, isCurrent);
 
             return page;
         }
 
         const notFoundRoute = this.errors[404];
         withProfiler((runtime) => runtime.completeResolveStep({ routeLabel: '404' }));
-        return await this.createResponse(notFoundRoute, request, { error: new Error('Page not found') });
+        return await this.createResponse(notFoundRoute, request, { error: new Error('Page not found') }, isCurrent);
     }
 
     private async load(route: TUnresolvedNormalRoute): Promise<TClientPageRoute<this>>;
@@ -355,15 +377,12 @@ export default class ClientRouter<
         debug && console.log(`Fetching route ${route.chunk} ...`, route);
         const stepId = withProfiler((runtime) => runtime.startChunkStep(route.chunk));
         try {
-            const loaded = await route.load();
-            const fetched = loaded.__register(this.app);
+            const fetched = await this.loadRoute(route);
 
             debug && console.log(`Route fetched: ${route.chunk}`, fetched);
             withProfiler((runtime) => runtime.finishStep(stepId));
 
-            if ('code' in route) return fetched as TClientPageErrorRoute<this>;
-
-            return { ...(fetched as TClientPageRoute<this>), regex: route.regex, keys: route.keys };
+            return fetched;
         } catch (e) {
             withProfiler((runtime) =>
                 runtime.finishStep(stepId, 'error', e instanceof Error ? e.message : String(e)),
@@ -374,6 +393,67 @@ export default class ClientRouter<
             } catch (error) {}
             throw new Error('A new version of the website is available. Please refresh the page.');
         }
+    }
+
+    private loadRoute(route: TUnresolvedNormalRoute | TUnresolvedErrorRoute): Promise<TLoadedRoute<this>> {
+        const pending = this.routeLoads[route.chunk];
+        if (pending) return pending;
+
+        const load = route
+            .load()
+            .then((loaded) => {
+                const fetched = loaded.__register(this.app);
+                if ('code' in route) return fetched as TClientPageErrorRoute<this>;
+
+                return { ...(fetched as TClientPageRoute<this>), regex: route.regex, keys: route.keys };
+            })
+            .finally(() => {
+                delete this.routeLoads[route.chunk];
+            });
+
+        this.routeLoads[route.chunk] = load;
+        return load;
+    }
+
+    /*----------------------------------
+    - PREFETCH
+    ----------------------------------*/
+
+    // Loads the route chunk of a path ahead of the navigation. Best effort: a failure is left to the navigation.
+    public async prefetch(path: string) {
+        const pathname = path.split(/[?#]/)[0];
+        const route = this.routes.find(
+            (candidate) =>
+                candidate !== undefined &&
+                'regex' in candidate &&
+                candidate.regex instanceof RegExp &&
+                candidate.regex.test(pathname),
+        );
+        if (route === undefined || !('load' in route)) return;
+
+        try {
+            const loaded = await this.loadRoute(route);
+            if ('load' in this.routes[route.index]) this.routes[route.index] = loaded as TClientPageRoute<this>;
+        } catch (error) {
+            debug && console.warn(LogPrefix, `Unable to prefetch ${path}`, error);
+        }
+    }
+
+    private prefetchAtIdle() {
+        const paths = this.config.prefetch || [];
+        if (paths.length === 0) return;
+
+        // Data saver: the visitor asked for fewer bytes, and a prefetched chunk is bytes they may never use
+        const { connection } = window.navigator as Navigator & TNavigatorConnection;
+        if (connection?.saveData === true) return;
+
+        const whenIdle =
+            window.requestIdleCallback ||
+            ((callback: () => void) => window.setTimeout(callback, PREFETCH_IDLE_FALLBACK_MS));
+        whenIdle(() => {
+            // One chunk at a time, so prefetching never competes with itself
+            void paths.reduce<Promise<void>>((chain, path) => chain.then(() => this.prefetch(path)), Promise.resolve());
+        });
     }
 
     public set(data: TObjetDonnees) {
@@ -415,14 +495,27 @@ export default class ClientRouter<
             withProfiler((runtime) => runtime.markInitialHydrated({ chunkId: response.chunkId, title: response.title }));
 
             this.runHook('page.rendered', request);
+            this.prefetchAtIdle();
         });
     }
 
+    private createResponse(
+        route: TUnresolvedRoute | TClientPageErrorRoute<this> | TClientPageRoute<this>,
+        request: ClientRequest<this>,
+        pageData?: {},
+    ): Promise<ClientPage<this>>;
+    private createResponse(
+        route: TUnresolvedRoute | TClientPageErrorRoute<this> | TClientPageRoute<this>,
+        request: ClientRequest<this>,
+        pageData: {},
+        isCurrent: (() => boolean) | undefined,
+    ): Promise<ClientPage<this> | null>;
     private async createResponse(
         route: TUnresolvedRoute | TClientPageErrorRoute<this> | TClientPageRoute<this>,
         request: ClientRequest<this>,
         pageData: {} = {},
-    ): Promise<ClientPage<this>> {
+        isCurrent?: () => boolean,
+    ): Promise<ClientPage<this> | null> {
         // Load the route if not done before
         if ('load' in route) {
             if ('code' in route) {
@@ -434,6 +527,9 @@ export default class ClientRouter<
                 this.routes[route.index] = loadedRoute;
                 route = loadedRoute;
             }
+
+            // A newer navigation started during the load: building the response would overwrite its context
+            if (isCurrent && !isCurrent()) return null;
         }
 
         // Run controller
@@ -442,7 +538,7 @@ export default class ClientRouter<
             const response = new ClientResponse<this, ClientPage<this>>(request, route);
             return await response.runController(pageData);
         } catch (error) {
-            return await this.createErrorResponse(error, request);
+            return await this.createErrorResponse(error, request, {}, isCurrent);
         }
     }
 
@@ -450,7 +546,8 @@ export default class ClientRouter<
         e: any,
         request: ClientRequest<this>,
         pageData: {} = {},
-    ): Promise<ClientPage<this>> {
+        isCurrent?: () => boolean,
+    ): Promise<ClientPage<this> | null> {
         const code = 'http' in e ? e.http : 500;
         console.log(`Loading error page ` + code);
         let route = this.errors[code];
@@ -464,7 +561,11 @@ export default class ClientRouter<
         }
 
         // Load if not done before
-        if ('load' in route) route = this.errors[code] = await this.load(route);
+        if ('load' in route) {
+            route = this.errors[code] = await this.load(route);
+            // Same guard as createResponse: a newer navigation owns the router context now
+            if (isCurrent && !isCurrent()) return null;
+        }
 
         const response = new ClientResponse<this, ClientPage<this>>(request, route);
         return await response.runController(pageData);
@@ -473,32 +574,22 @@ export default class ClientRouter<
     /*----------------------------------
     - HOOKS
     ----------------------------------*/
-    private hooks: { [hookname in THookName]?: (THookCallback<this> | null)[] } = {};
+    private hooks: { [hookname in THookName]?: THookCallback<this>[] } = {};
 
     public on(hookName: THookName, callback: THookCallback<this>) {
         debug && console.info(LogPrefix, `Register hook ${hookName}`);
 
-        let cbIndex: number;
-        let callbacks = this.hooks[hookName];
-        if (!callbacks) {
-            cbIndex = 0;
-            callbacks = this.hooks[hookName] = [callback];
-        } else {
-            cbIndex = callbacks.length;
-            callbacks.push(callback);
-        }
+        this.hooks[hookName] = [...(this.hooks[hookName] || []), callback];
 
-        // Listener remover
+        // Listener remover: by reference, since an index shifts once an earlier listener is removed
         return () => {
-            debug && console.info(LogPrefix, `De-register hook ${hookName} (index ${cbIndex})`);
-            this.hooks[hookName] = this.hooks[hookName]?.filter((_, index) => index !== cbIndex);
+            debug && console.info(LogPrefix, `De-register hook ${hookName}`);
+            this.hooks[hookName] = this.hooks[hookName]?.filter((registered) => registered !== callback);
         };
     }
 
     public runHook(hookName: THookName, request: ClientRequest<this>) {
         const callbacks = this.hooks[hookName];
-        if (callbacks)
-            // callback can be null since we use delete to unregister
-            for (const callback of callbacks) callback && callback(request);
+        if (callbacks) for (const callback of callbacks) callback(request);
     }
 }
