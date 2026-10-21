@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { createRouter, restore } = require('./clientRouterHarness.cjs');
 const {
     STALE_BUILD_RELOAD_KEY,
+    clearStaleBuildReloads,
     isChunkLoadError,
     reloadOnceForStaleBuild,
 } = require('../client/app/staleBuild.ts');
@@ -15,7 +16,11 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const createStorage = () => {
     const values = new Map();
-    return { getItem: (key) => (values.has(key) ? values.get(key) : null), setItem: (key, value) => values.set(key, String(value)) };
+    return {
+        getItem: (key) => (values.has(key) ? values.get(key) : null),
+        setItem: (key, value) => values.set(key, String(value)),
+        removeItem: (key) => values.delete(key),
+    };
 };
 
 // What rspack's runtime rejects with when a deploy removed the chunk file
@@ -83,6 +88,42 @@ test('a stale build reloads once per build id, then leaves the error to the call
     assert.equal(reloads, 2);
 });
 
+test('two builds answering during a rollout reload once each, never in turn forever', () => {
+    const storage = createStorage();
+    let reloads = 0;
+    const options = { storage: () => storage, reload: () => reloads++ };
+
+    // Old build A, new HTML from B, a chunk served by A's instance, back to B...
+    for (const buildId of ['A', 'B', 'A', 'B', 'A']) reloadOnceForStaleBuild(buildId, options);
+
+    assert.equal(reloads, 2);
+    assert.equal(storage.getItem(STALE_BUILD_RELOAD_KEY), 'A,B');
+});
+
+test('a route chunk that loads gives the next missing chunk its reload again', () => {
+    const storage = createStorage();
+    let reloads = 0;
+    const options = { storage: () => storage, reload: () => reloads++ };
+
+    // A network blip spent the reload; the reloaded page then loaded its route chunk
+    assert.equal(reloadOnceForStaleBuild('100', options), true);
+    clearStaleBuildReloads(() => storage);
+    assert.equal(storage.getItem(STALE_BUILD_RELOAD_KEY), null);
+
+    // The real deploy later in the same tab, same running build
+    assert.equal(reloadOnceForStaleBuild('100', options), true);
+    assert.equal(reloads, 2);
+});
+
+test('offline, a failed chunk is the network, not a deploy: no reload and the guard stays free', () => {
+    const storage = createStorage();
+    let reloads = 0;
+
+    assert.equal(reloadOnceForStaleBuild('100', { storage: () => storage, reload: () => reloads++, isOnline: () => false }), false);
+    assert.equal(reloads, 0);
+    assert.equal(storage.getItem(STALE_BUILD_RELOAD_KEY), null);
+});
+
 test('no sessionStorage means no reload, so a blocked guard can never loop', () => {
     let reloads = 0;
     const blocked = () => {
@@ -142,6 +183,16 @@ test('the same build missing a chunk again surfaces the error and the update not
     });
     assert.equal(calls.reloads, 0);
     assert.equal(calls.updates, 1);
+});
+
+test('a route that loads clears the guard the previous reload left', async () => {
+    const storage = createStorage();
+    storage.setItem('proteum:stale-build-reload', '1761025500000');
+    const { router, route } = createFailingRouter(new Error('unused'), { storage });
+    route.load = () => Promise.resolve({ __register: () => ({ method: 'GET', path: '/domains', options: {}, controller: () => null }) });
+
+    await router['load'](route);
+    assert.equal(storage.getItem('proteum:stale-build-reload'), null);
 });
 
 test('a route module that fails for another reason keeps the update notice and never reloads', async () => {

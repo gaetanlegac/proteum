@@ -36,7 +36,7 @@ import type { TFrontRenderer, TPageDataProvider, TPageRenderer } from '@common/r
 import App from '@client/app/component';
 import type ClientApplication from '@client/app';
 import Service from '@client/app/service';
-import { isChunkLoadError, reloadOnceForStaleBuild } from '@client/app/staleBuild';
+import { clearStaleBuildReloads, isChunkLoadError, reloadOnceForStaleBuild } from '@client/app/staleBuild';
 
 // Specific
 import ClientRequest, { isClientRequest } from './request';
@@ -382,6 +382,8 @@ export default class ClientRouter<
 
             debug && console.log(`Route fetched: ${route.chunk}`, fetched);
             withProfiler((runtime) => runtime.finishStep(stepId));
+            // The running build is whole: a later missing chunk (the next deploy) gets its reload again
+            clearStaleBuildReloads();
 
             return fetched;
         } catch (e) {

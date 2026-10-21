@@ -69,9 +69,10 @@ type TPublicAssetResponse = {
     req?: TPublicAssetRequest;
 };
 
-// `name.<hex hash>.ext`: async chunks, and since 2.6.1 the production entry files and CSS too
+// `name.<hex hash>.ext`: async chunks, and since 2.6.1 the production entry files, CSS and fonts too
 // (cli/compiler/client/outputNames.ts), so every file the HTML names is served immutable.
-const hashedPublicAssetPattern = /(^|[-_.])[a-f0-9]{6,}(?=(\.[^.]+)+$)/i;
+// `<hex hash>-<width>.ext` is responsive-loader's default name for each image size: hashed as well.
+const hashedPublicAssetPattern = /(^|[-_.])[a-f0-9]{6,}(-\d+)?(?=(\.[^.]+)+$)/i;
 
 export const resolveHttpCacheConfig = (config?: THttpCacheConfig): TResolvedHttpCacheConfig => ({
     html: {

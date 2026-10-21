@@ -92,10 +92,14 @@ test('router cache config serves the hashed production entry files immutable', (
         'client.9abcdef0.css',
         'pages_domains_index.5860cf66.css',
         '7385.5860cf66.js',
+        // responsive-loader's `<hash>-<width>.ext`, and fonts since 2.6.1
+        '345657c085f4e24e-64.png',
+        '01437e1e65adfa92-1300.jpg',
+        'fonts/figtree-latin.1a2b3c4d.woff2',
     ])
         assert.equal(cacheControlFor(asset), 'public, max-age=31536000, immutable', asset);
 
     // A file without a hash stays revalidated: icons, fonts, and any app file served under its own name
-    for (const asset of ['runtime.js', 'client.css', 'pages_domains_index.css', '7385.js', 'app/favicon.ico'])
+    for (const asset of ['runtime.js', 'client.css', 'pages_domains_index.css', '7385.js', 'app/favicon.ico', 'og/master-1200x630.png', 'fonts/figtree-latin..woff2'])
         assert.equal(cacheControlFor(asset), 'public, max-age=0, must-revalidate', asset);
 });

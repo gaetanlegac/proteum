@@ -23,6 +23,8 @@ module.exports = (app: App, dev: boolean, client: boolean) => [
         test: /\.(woff(2)?|ttf|eot)(\?v=\d+\.\d+\.\d+)?$/,
         //loader: 'file-loader',
         type: 'asset/resource',
-        generator: { filename: 'fonts/[name].[ext]' },
+        // Hashed so the router serves fonts immutable. `[ext]` carries its own dot: the former
+        // `[name].[ext]` emitted `figtree-latin..woff2`, unhashed and revalidated on every load.
+        generator: { filename: 'fonts/[name].[contenthash:8][ext]' },
     },
 ];
