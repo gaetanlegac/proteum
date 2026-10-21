@@ -36,6 +36,7 @@ import type { TFrontRenderer, TPageDataProvider, TPageRenderer } from '@common/r
 import App from '@client/app/component';
 import type ClientApplication from '@client/app';
 import Service from '@client/app/service';
+import { isChunkLoadError, reloadOnceForStaleBuild } from '@client/app/staleBuild';
 
 // Specific
 import ClientRequest, { isClientRequest } from './request';
@@ -388,6 +389,13 @@ export default class ClientRouter<
                 runtime.finishStep(stepId, 'error', e instanceof Error ? e.message : String(e)),
             );
             console.error(`Failed to fetch the route ${route.chunk}`, e);
+
+            // A missing chunk means this page runs a build that a deploy replaced: one reload loads
+            // the new one. Settling would render the error page for a frame before the reload, so the
+            // navigation waits for the document to be replaced. See client/app/staleBuild.ts.
+            if (e instanceof Error && isChunkLoadError(e) && reloadOnceForStaleBuild(String(BUILD_ID)))
+                return new Promise<never>(() => {});
+
             try {
                 this.app.handleUpdate();
             } catch (error) {}
