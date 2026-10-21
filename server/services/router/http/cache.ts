@@ -69,6 +69,8 @@ type TPublicAssetResponse = {
     req?: TPublicAssetRequest;
 };
 
+// `name.<hex hash>.ext`: async chunks, and since 2.6.1 the production entry files and CSS too
+// (cli/compiler/client/outputNames.ts), so every file the HTML names is served immutable.
 const hashedPublicAssetPattern = /(^|[-_.])[a-f0-9]{6,}(?=(\.[^.]+)+$)/i;
 
 export const resolveHttpCacheConfig = (config?: THttpCacheConfig): TResolvedHttpCacheConfig => ({

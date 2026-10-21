@@ -1,0 +1,101 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+require('ts-node/register/transpile-only');
+
+const { rspack } = require('@rspack/core');
+const { getClientOutputNames } = require('../cli/compiler/client/outputNames');
+const { writeClientManifest } = require('../cli/compiler/common/clientManifest');
+const { defaultHttpCacheConfig, resolvePublicAssetCacheControl } = require('../server/services/router/http/cache');
+
+/*----------------------------------
+- HARNESS
+----------------------------------*/
+
+// A client shaped like a Proteum app: an entry with CSS, a runtime chunk and a lazy page chunk with its own CSS
+const writeFixture = (root) => {
+    const write = (file, content) => fs.writeFileSync(path.join(root, file), content);
+    write('index.js', "import './entry.css';\nimport(/* webpackChunkName: 'pages_domains' */ './page.js').then((page) => page.default());\n");
+    write('entry.css', 'body { color: #111; }\n');
+    write('page.js', "import './page.css';\nexport default () => document.body.setAttribute('data-page', 'domains');\n");
+    write('page.css', '.page { color: #222; }\n');
+};
+
+const compile = (root, dev) => {
+    const names = getClientOutputNames(dev);
+    const compiler = rspack({
+        mode: dev ? 'development' : 'production',
+        context: root,
+        target: 'web',
+        devtool: false,
+        entry: { client: './index.js' },
+        output: { path: path.join(root, 'public'), publicPath: '/public/', filename: names.entry, chunkFilename: names.chunk },
+        module: { rules: [{ test: /\.css$/, use: [rspack.CssExtractRspackPlugin.loader, require.resolve('css-loader')], type: 'javascript/auto' }] },
+        plugins: [new rspack.CssExtractRspackPlugin({ filename: names.css, chunkFilename: names.css })],
+        optimization: { runtimeChunk: { name: 'runtime' }, minimize: false },
+    });
+
+    return new Promise((resolve, reject) =>
+        compiler.run((error, stats) => {
+            compiler.close(() => {});
+            if (error) return reject(error);
+            if (stats.hasErrors()) return reject(new Error(stats.toString({ all: false, errors: true })));
+            resolve(writeClientManifest(stats, root));
+        }),
+    );
+};
+
+const cacheControlFor = (asset) =>
+    resolvePublicAssetCacheControl({
+        res: { req: { originalUrl: `/public/${asset}` } },
+        filePath: `/app/bin/public/${asset}`,
+        profile: 'prod',
+        cache: defaultHttpCacheConfig.publicAssets,
+    });
+
+let root;
+beforeAll(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-output-names-'));
+    writeFixture(root);
+});
+afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+
+/*----------------------------------
+- TESTS
+----------------------------------*/
+
+test('production names every client file with a content hash, entries included', async () => {
+    const manifest = await compile(root, false);
+    const entry = manifest.entries.client;
+    const page = manifest.chunks.pages_domains;
+
+    assert.deepEqual(entry.js.map((asset) => asset.replace(/\.[a-f0-9]{8}\.js$/, '.js')), ['runtime.js', 'client.js']);
+    assert.deepEqual(entry.css.map((asset) => asset.replace(/\.[a-f0-9]{8}\.css$/, '.css')), ['client.css']);
+    assert.match(page.css[0], /^pages_domains\.[a-f0-9]{8}\.css$/);
+    assert.match(page.js[0], /^\d+\.[a-f0-9]{8}\.js$/);
+
+    // Every file the HTML names is served immutable, so no browser or CDN keeps an old runtime past a deploy
+    for (const asset of [...entry.js, ...entry.css, ...page.js, ...page.css]) {
+        assert.equal(fs.existsSync(path.join(root, 'public', asset)), true, asset);
+        assert.equal(cacheControlFor(asset), 'public, max-age=31536000, immutable', asset);
+    }
+});
+
+test('a content change renames the file that changed and leaves the others alone', async () => {
+    const before = await compile(root, false);
+    fs.writeFileSync(path.join(root, 'page.css'), '.page { color: #333; }\n');
+    const after = await compile(root, false);
+
+    assert.notEqual(after.chunks.pages_domains.css[0], before.chunks.pages_domains.css[0]);
+    assert.deepEqual(after.entries.client.css, before.entries.client.css);
+});
+
+test('dev keeps the stable names HMR and the dev middleware rely on', async () => {
+    const manifest = await compile(root, true);
+
+    assert.deepEqual(manifest.entries.client.js, ['runtime.js', 'client.js']);
+    assert.deepEqual(manifest.entries.client.css, ['client.css']);
+    assert.deepEqual(manifest.chunks.pages_domains.css, ['pages_domains.css']);
+});

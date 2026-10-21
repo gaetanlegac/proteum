@@ -15,6 +15,7 @@ import CssMinimizerPlugin from '../common/cssMinimizer';
 import { toRspackAliases } from '../common/rspackAliases';
 import { resolveUiSingletonAliases } from '../common/uiSingletons';
 import identityAssets from './identite';
+import { getClientOutputNames } from './outputNames';
 import cli from '../..';
 import { logVerbose } from '../../runtime/verbose';
 
@@ -126,6 +127,8 @@ export default function createCompiler(
     const transpileModuleDirectories = app.transpileModuleDirectories;
     const lightningCssTargets = resolveLightningCssTargets(app);
     const hmrClientEntry = path.join(frameworkSourceRoot, 'client', 'dev', 'hmr.ts');
+    // Content-hashed in production, entries included: see outputNames.ts.
+    const outputNames = getClientOutputNames(dev);
 
     const commonConfig = createCommonConfig(app, 'client', mode, outputTarget);
 
@@ -172,7 +175,7 @@ export default function createCompiler(
         output: {
             pathinfo: dev,
             path: outputPath + '/public',
-            filename: '[name].js', // Output client.js
+            filename: outputNames.entry,
             assetModuleFilename: '[hash][ext]',
             environment: {
                 arrowFunction: true,
@@ -185,9 +188,9 @@ export default function createCompiler(
                 optionalChaining: true,
                 templateLiteral: true,
             },
-            cssFilename: '[name].css',
-            cssChunkFilename: '[name].css',
-            chunkFilename: dev ? '[name].js' : '[id].[contenthash:8].js',
+            cssFilename: outputNames.css,
+            cssChunkFilename: outputNames.css,
+            chunkFilename: outputNames.chunk,
         },
 
         resolve: {
@@ -290,7 +293,9 @@ export default function createCompiler(
                   ]),
 
             // Extract CSS in dev too so SSR emits the same stylesheet links as production.
-            new rspack.CssExtractRspackPlugin({}),
+            // The extract plugin names its files itself (its default is `[name].css`); `output.cssFilename`
+            // only applies to native CSS, so the hashed name is passed here.
+            new rspack.CssExtractRspackPlugin({ filename: outputNames.css, chunkFilename: outputNames.css }),
 
             ...createClientBundleAnalysisPlugins(app, outputTarget),
         ],

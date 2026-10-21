@@ -71,3 +71,31 @@ test('router cache config resolves granular public asset policies', () => {
         'dev-cache',
     );
 });
+
+test('router cache config serves the hashed production entry files immutable', () => {
+    const cache = resolveHttpCacheConfig();
+    const cacheControlFor = (asset) =>
+        resolvePublicAssetCacheControl({
+            res: { req: { originalUrl: `/public/${asset}` } },
+            filePath: `/app/bin/public/${asset}`,
+            profile: 'prod',
+            cache: cache.publicAssets,
+        });
+
+    // The names Proteum emits in production since entries carry a content hash
+    for (const asset of [
+        'runtime.1a2b3c4d.js',
+        'framework.0f9e8d7c.js',
+        'vendors.aabbccdd.js',
+        'client.12345678.js',
+        'client.12345678.js.map',
+        'client.9abcdef0.css',
+        'pages_domains_index.5860cf66.css',
+        '7385.5860cf66.js',
+    ])
+        assert.equal(cacheControlFor(asset), 'public, max-age=31536000, immutable', asset);
+
+    // A file without a hash stays revalidated: icons, fonts, and any app file served under its own name
+    for (const asset of ['runtime.js', 'client.css', 'pages_domains_index.css', '7385.js', 'app/favicon.ico'])
+        assert.equal(cacheControlFor(asset), 'public, max-age=0, must-revalidate', asset);
+});

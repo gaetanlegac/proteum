@@ -513,6 +513,10 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
                 },
             }),
             (req, res) => {
+                // Never cacheable: during a deploy an instance of the previous build can answer for a
+                // file the new build serves, and a CDN that kept that 404 broke every page naming the
+                // file until its TTL ran out (21 Oct 2026, a Cloudflare HIT on a chunk 404).
+                res.setHeader('Cache-Control', 'no-store');
                 res.status(404).send();
             },
         );
