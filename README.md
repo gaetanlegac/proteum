@@ -280,10 +280,12 @@ my-app/
 | Diagnostics & explainability | [docs/diagnostics.md](docs/diagnostics.md) |
 | Model Context Protocol (MCP) | [docs/mcp.md](docs/mcp.md) |
 | Request tracing & perf | [docs/request-tracing.md](docs/request-tracing.md) |
+| HTTP security headers & CSP | [docs/http-security-headers.md](docs/http-security-headers.md) |
 | Agent routing & token efficiency | [docs/agent-routing.md](docs/agent-routing.md) |
 | Dev commands | [docs/dev-commands.md](docs/dev-commands.md) |
 | Dev sessions | [docs/dev-sessions.md](docs/dev-sessions.md) |
 | Migrating to 2.5 | [docs/migration-2.5.md](docs/migration-2.5.md) |
+| Release history | [docs/HISTORY.md](docs/HISTORY.md) |
 
 ## 🧭 Philosophy
 

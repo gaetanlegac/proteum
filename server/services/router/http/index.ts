@@ -56,6 +56,11 @@ import {
     resolvePublicAssetCacheControl,
     type THttpCacheConfig,
 } from './cache';
+import {
+    buildContentSecurityPolicyHeaders,
+    createContentSecurityPolicyWriter,
+    type TCspConfig,
+} from './securityHeaders';
 
 /*----------------------------------
 - CONFIG
@@ -73,7 +78,8 @@ export type Config = {
     upload: {
         maxSize: string; // Expression package bytes
     };
-    csp: { default?: string[]; styles?: string[]; images?: string[]; scripts: string[] };
+    /** See docs/http-security-headers.md: applied to HTML answers, wherever they are served. */
+    csp: TCspConfig;
     cache?: THttpCacheConfig;
     cors?: CorsOptions;
     helmet?: Parameters<typeof helmet>[0];
@@ -82,9 +88,8 @@ export type Config = {
 export type Hooks = {};
 
 export { resolveHttpCacheConfig, type THttpCacheConfig } from './cache';
+export type { TCspConfig, TCspDirectives, TCspReportOnly } from './securityHeaders';
 
-type TContentSecurityPolicyOptions = NonNullable<Parameters<typeof helmet.contentSecurityPolicy>[0]>;
-type TContentSecurityPolicyDirectives = NonNullable<TContentSecurityPolicyOptions['directives']>;
 type TDevSessionAuthService = {
     config: {
         jwt: {
@@ -104,24 +109,6 @@ type TDevSessionResult =
           error: string;
           statusCode: number;
       };
-
-const createContentSecurityPolicy = (config: Config['csp']): TContentSecurityPolicyOptions => {
-    const directives: TContentSecurityPolicyDirectives = {
-        defaultSrc:
-            config.default && config.default.length > 0
-                ? [...config.default]
-                : helmet.contentSecurityPolicy.dangerouslyDisableDefaultSrc,
-        scriptSrc: ["'unsafe-inline'", "'self'", "'unsafe-eval'", ...config.scripts],
-    };
-
-    if (config.styles && config.styles.length > 0) directives.styleSrc = [...config.styles];
-    if (config.images && config.images.length > 0) directives.imgSrc = [...config.images];
-
-    return {
-        useDefaults: false,
-        directives,
-    };
-};
 
 const connectedProjectBootRetryCount = 10;
 const connectedProjectBootRetryDelayMs = 5_000;
@@ -452,9 +439,22 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
 
         // Config
         routes.set('trust proxy', 1); // Indique qu'on est sous le proxy apache
+        routes.disable('x-powered-by');
+
+        // Built once: a malformed policy fails the boot, never a response.
+        const writeContentSecurityPolicy = createContentSecurityPolicyWriter(
+            buildContentSecurityPolicyHeaders(this.config.csp),
+        );
+
+        // Base headers on every answer, `/api` included (docs/http-security-headers.md).
+        routes.use(helmet(this.config.helmet));
+
         /*----------------------------------
         - FAST PATH: API
         ----------------------------------*/
+
+        // HTML under /api (pages, their 404) gets the app policy like any other page.
+        routes.use(apiOnly(writeContentSecurityPolicy));
 
         // Keep /api requests off the heavier page middleware stack below.
         routes.use(apiOnly(hpp()));
@@ -472,9 +472,6 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         if (this.config.cors !== undefined) routes.use(apiOnly(cors(this.config.cors)));
         this.registerConnectedProjectRoutes(routes);
         routes.use(apiOnly(routeRequest));
-
-        // Diverses protections (dont le disable x-powered-by)
-        routes.use(helmet(this.config.helmet));
 
         /*----------------------------------
         - FICHIERS STATIQUES
@@ -574,7 +571,8 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
 
         if (this.config.cors !== undefined) routes.use(cors(this.config.cors));
 
-        routes.use(helmet.contentSecurityPolicy(createContentSecurityPolicy(this.config.csp)));
+        // Mounted after the static files so they keep helmet's headers byte for byte.
+        routes.use(writeContentSecurityPolicy);
 
         this.registerDevTraceRoutes(routes);
         routes.use(routeRequest);
