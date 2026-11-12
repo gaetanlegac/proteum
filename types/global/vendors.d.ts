@@ -68,6 +68,15 @@ declare module 'morgan' {
     export default morgan;
 }
 
+declare module 'on-headers' {
+    import type { ServerResponse } from 'http';
+
+    export default function onHeaders<TResponse extends ServerResponse>(
+        res: TResponse,
+        listener: (this: TResponse) => void,
+    ): void;
+}
+
 declare module 'object-hash' {
     export type ObjectHashOptions = {
         unorderedArrays?: boolean;
