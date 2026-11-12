@@ -78,7 +78,7 @@ export type Config = {
     upload: {
         maxSize: string; // Expression package bytes
     };
-    /** See docs/http-security-headers.md: applied to HTML answers, wherever they are served. */
+    /** See docs/http-security-headers.md: applied to HTML and script answers from the router, `/api` included. */
     csp: TCspConfig;
     cache?: THttpCacheConfig;
     cors?: CorsOptions;
@@ -453,7 +453,7 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         - FAST PATH: API
         ----------------------------------*/
 
-        // HTML under /api (pages, their 404) gets the app policy like any other page.
+        // HTML and scripts under /api (pages, their 404) get the app policy like any other page.
         routes.use(apiOnly(writeContentSecurityPolicy));
 
         // Keep /api requests off the heavier page middleware stack below.

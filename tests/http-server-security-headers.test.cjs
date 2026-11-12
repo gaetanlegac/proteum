@@ -61,7 +61,7 @@ const html = (title) => `<!doctype html><title>${title}</title>`;
 const renderedPages = new Map();
 
 /** Answers by path, the way the Proteum router answers: pages, JSON, its own 404 and error page. */
-const fakeRouterMiddleware = (req, res, next) => {
+const fakeRouterMiddleware = (req, res) => {
     switch (req.path) {
         case '/api':
         case '/api/x/y':
@@ -71,6 +71,15 @@ const fakeRouterMiddleware = (req, res, next) => {
             return res.json({ ok: true });
         case '/llms.txt':
             return res.type('text/plain').send('# llms');
+        case '/vendor/worker.js':
+        case '/api/vendor/worker.js':
+            // A worker served by a route, like the agenda map's: it runs under this answer's policy.
+            return res.type('text/javascript').send('self.onmessage = () => {};');
+        case '/page.xhtml':
+            return res.type('application/xhtml+xml').send(html('xhtml'));
+        case '/array-content-type':
+            res.setHeader('Content-Type', ['text/html; charset=utf-8']);
+            return res.end(html('array'));
         case '/api/own-policy':
         case '/own-policy':
             res.setHeader('Content-Security-Policy', "default-src 'none';script-src 'nonce-abc'");
@@ -94,9 +103,6 @@ const fakeRouterMiddleware = (req, res, next) => {
             } catch {
                 return res.status(500).send(html('error'));
             }
-        case '/api/crashes':
-            // An error that escapes to Express' final handler.
-            return next(new Error('escaped'));
         default:
             if (req.path.startsWith('/api/v1/')) return res.status(404).json({ error: 'Not found' });
             return res.status(404).send(html('not found'));
@@ -125,11 +131,20 @@ const startServer = async (config = {}) => {
     }
 
     const { port } = server.http.address();
-    return async (requestPath) => {
-        const response = await fetch(`http://127.0.0.1:${port}${requestPath}`, { redirect: 'manual' });
+    const request = async (requestPath, init = {}) => {
+        const response = await fetch(`http://127.0.0.1:${port}${requestPath}`, { redirect: 'manual', ...init });
         await response.arrayBuffer();
         return response;
     };
+    // fetch() adds `Cache-Control: no-cache` to a conditional request, which defeats the 304: plain http here.
+    request.revalidate = (requestPath, etag) =>
+        new Promise((resolve, reject) => {
+            http.get({ host: '127.0.0.1', port, path: requestPath, headers: { 'If-None-Match': etag } }, (res) => {
+                res.resume();
+                res.on('end', () => resolve({ status: res.statusCode, headers: new Headers(res.headers) }));
+            }).on('error', reject);
+        });
+    return request;
 };
 
 afterAll(async () => {
@@ -259,16 +274,67 @@ test('the server error page under /api carries the app policy', async () => {
     assert.equal(response.headers.get('content-security-policy'), legacyPolicy261);
     assertBaseHeaders(response, '/api/throws');
 
-    // An error that escapes the router keeps Express' own strict policy, and still no X-Powered-By.
+});
+
+test('an error that escapes the router to Express keeps its own strict policy', async () => {
+    const request = await startServer();
     const consoleError = console.error;
     console.error = () => undefined;
     try {
-        const escaped = await request('/api/crashes');
-        assert.equal(escaped.status, 500);
-        assert.equal(escaped.headers.get('content-security-policy'), "default-src 'none'");
-        assert.equal(escaped.headers.get('x-powered-by'), null);
+        // A malformed JSON body fails in the /api body parser, before the router runs.
+        const response = await request('/api/v1/x', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{not json',
+        });
+        assert.equal(response.status, 400);
+        assert.equal(response.headers.get('content-security-policy'), "default-src 'none'");
+        assertBaseHeaders(response, 'malformed JSON under /api');
     } finally {
         console.error = consoleError;
+    }
+});
+
+test('a 304 carries no policy, so the stored copy keeps the one its 200 came with', async () => {
+    const request = await startServer({
+        csp: { ...legacyCsp, reportOnly: { policy: { 'default-src': ["'self'"] } } },
+    });
+
+    for (const requestPath of ['/page', '/api', '/api/cached', '/vendor/worker.js', '/api/v1/x']) {
+        const first = await request(requestPath);
+        const etag = first.headers.get('etag');
+        assert.ok(etag, `${requestPath}: an ETag`);
+
+        const revalidated = await request.revalidate(requestPath, etag);
+        assert.equal(revalidated.status, 304, requestPath);
+        assert.equal(revalidated.headers.get('content-security-policy'), null, requestPath);
+        assert.equal(revalidated.headers.get('content-security-policy-report-only'), null, requestPath);
+        assertBaseHeaders(revalidated, `${requestPath} 304`);
+    }
+});
+
+test('a script served by a route carries the app policy, a static script keeps helmet\'s', async () => {
+    const request = await startServer({
+        csp: { ...legacyCsp, reportOnly: { policy: { 'default-src': ["'self'"] }, reportUri: '/csp-report' } },
+    });
+
+    for (const requestPath of ['/vendor/worker.js', '/api/vendor/worker.js']) {
+        const response = await request(requestPath);
+        assert.match(response.headers.get('content-type'), /^text\/javascript/);
+        assert.equal(response.headers.get('content-security-policy'), legacyPolicy261, requestPath);
+        assert.equal(response.headers.get('content-security-policy-report-only'), "default-src 'self';report-uri /csp-report", requestPath);
+        assertBaseHeaders(response, requestPath);
+    }
+
+    const staticScript = await request('/public/worker.js');
+    assert.equal(staticScript.headers.get('content-security-policy'), helmetDefaultPolicy);
+});
+
+test('XHTML and a Content-Type set as an array count as documents', async () => {
+    const request = await startServer();
+    for (const requestPath of ['/page.xhtml', '/array-content-type']) {
+        const response = await request(requestPath);
+        assert.equal(response.headers.get('content-security-policy'), legacyPolicy261, requestPath);
     }
 });
 
@@ -336,22 +402,51 @@ test('a malformed csp config fails the boot', async () => {
         [{ policy: { 'default-src': ["'self'"] }, directives: { 'object-src': ["'none'"] } }, /directives must be absent/],
         [{ ...legacyCsp, directives: { 'script-src': ['b.example.com'] } }, /legacy lists own/],
         [{ ...legacyCsp, directives: { 'default-src': ["'self'"] } }, /legacy lists own/],
-        [{ ...legacyCsp, directives: { frameAncestors: ["'self'"] } }, /invalid directive name "frameAncestors"/],
+        [{ ...legacyCsp, directives: { frameAncestors: ["'self'"] } }, /unknown directive name "frameAncestors"/],
+        [{ ...legacyCsp, directives: { 'frame-ancestor': ["'self'"] } }, /unknown directive name "frame-ancestor"/],
         [{ ...legacyCsp, directives: { 'frame-src': [] } }, /is empty/],
+        [{ ...legacyCsp, directives: { 'upgrade-insecure-requests': ['yes'] } }, /takes no value/],
+        [{ ...legacyCsp, directives: { 'frame-ancestors': ['self'] } }, /bare word "self"/],
+        [{ ...legacyCsp, directives: { 'object-src': ['none'] } }, /bare word "none"/],
+        [{ policy: { 'script-src': ["'self"] } }, /unbalanced single quotes/],
+        [{ policy: { 'script-src': ["''"] } }, /unbalanced single quotes/],
+        [{ ...legacyCsp, directives: { 'frame-ancestors': ['\u2019self\u2019'] } }, /printable ASCII/],
+        [{ ...legacyCsp, directives: { 'frame-src': ['a\u0000b'] } }, /printable ASCII/],
         [{ ...legacyCsp, directives: { 'frame-src': ['a.example.com;script-src *'] } }, /no whitespace/],
         [{ ...legacyCsp, directives: { 'frame-src': ['a.example.com b.example.com'] } }, /no whitespace/],
         [{ ...legacyCsp, directives: { 'frame-src': [''] } }, /non-empty source/],
         [{ ...legacyCsp, directives: { 'frame-src': 'a.example.com' } }, /must be an array/],
         [{ scripts: 'a.example.com' }, /csp\.scripts must be an array/],
+        [{ scripts: [42] }, /csp\.scripts\[0\] must be a string/],
+        [{ scripts: ['\u4f8b\u5b50.com'] }, /printable ASCII/],
+        [{ styles: ["'self'"] }, /csp\.scripts is required/],
+        [undefined, /csp must be an object/],
         [{ policy: {} }, /csp\.policy has no directive/],
         [{ ...legacyCsp, reportOnly: { policy: {} } }, /reportOnly\.policy has no directive/],
+        [{ ...legacyCsp, reportOnly: { reportUri: '/a' } }, /reportOnly\.policy must be an object/],
         [{ ...legacyCsp, reportOnly: { policy: { 'report-uri': ['/a'] }, reportUri: '/b' } }, /report-uri twice/],
         [{ ...legacyCsp, reportOnly: { policy: { 'default-src': ["'self'"] }, reportUri: '/a b' } }, /reportUri must be/],
+        [{ ...legacyCsp, reportOnly: { policy: { 'default-src': ["'self'"] }, reportUri: '' } }, /reportUri must be/],
     ];
 
     for (const [csp, message] of bootFailures) {
         assert.throws(() => buildContentSecurityPolicyHeaders(csp), message, JSON.stringify(csp));
     }
+
+    // Valid CSP the checks must not refuse.
+    assert.equal(
+        buildContentSecurityPolicyHeaders({
+            policy: {
+                'default-src': ["'self'"],
+                'trusted-types': [],
+                sandbox: ['allow-scripts'],
+                'require-trusted-types-for': ["'script'"],
+                'script-src': ["'self'", "'nonce-abc'", "'sha256-AbC+/=='", 'https:', 'wss://relay.example.com', '*.example.com'],
+                'report-uri': ['https://example.com/csp?app=web'],
+            },
+        }).policy,
+        "default-src 'self';trusted-types;sandbox allow-scripts;require-trusted-types-for 'script';script-src 'self' 'nonce-abc' 'sha256-AbC+/==' https: wss://relay.example.com *.example.com;report-uri https://example.com/csp?app=web",
+    );
 
     // Through the server itself: start() rejects before it listens.
     const app = { env: { name: 'server', profile: 'prod' }, on: () => undefined };
@@ -369,6 +464,8 @@ test('the legacy serializer matches helmet 4.6 for every legacy list combination
         { scripts: ['a.example.com'], default: ["'self'"] },
         { scripts: ['a.example.com'], default: [], styles: [], images: ["'self'"] },
         { scripts: ['a.example.com'], default: ["'self'", 'https:'], styles: ["'unsafe-inline'"], images: ['data:'] },
+        // 2.6 accepted several sources in one entry; helmet joined them with a space.
+        { scripts: ['a.example.com b.example.com'], styles: ["'self' 'unsafe-inline'"] },
     ];
 
     for (const csp of combos) {

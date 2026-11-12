@@ -11,10 +11,10 @@ import onHeaders from 'on-headers';
 ----------------------------------*/
 
 /** A Content-Security-Policy written by its real directive names, e.g. `{ 'frame-ancestors': ["'self'"] }`. */
-export type TCspDirectives = Record<string, string[]>;
+export type TCspDirectives = Readonly<Record<string, readonly string[]>>;
 
 export type TCspReportOnly = {
-    /** A complete policy, sent as `Content-Security-Policy-Report-Only` on HTML answers only. */
+    /** A complete policy, sent as `Content-Security-Policy-Report-Only` with the enforced one. */
     policy: TCspDirectives;
     /** Appended to the report-only policy as `report-uri`. */
     reportUri?: string;
@@ -22,10 +22,10 @@ export type TCspReportOnly = {
 
 /** The four historical lists. Proteum adds `'unsafe-inline' 'self' 'unsafe-eval'` to the scripts. */
 export type TCspLegacyConfig = {
-    default?: string[];
-    styles?: string[];
-    images?: string[];
-    scripts: string[];
+    default?: readonly string[];
+    styles?: readonly string[];
+    images?: readonly string[];
+    scripts: readonly string[];
     /** More enforced directives by their real names, appended after the four lists. */
     directives?: TCspDirectives;
     policy?: undefined;
@@ -46,11 +46,13 @@ export type TCspPolicyConfig = {
 export type TCspConfig = TCspLegacyConfig | TCspPolicyConfig;
 
 export type TContentSecurityPolicyHeaders = {
-    /** The enforced `Content-Security-Policy` value for HTML answers. */
+    /** The enforced `Content-Security-Policy` value for documents and scripts. */
     policy: string;
-    /** The `Content-Security-Policy-Report-Only` value for HTML answers, when configured. */
+    /** The `Content-Security-Policy-Report-Only` value for documents and scripts, when configured. */
     reportOnly?: string;
 };
+
+type TDirectiveEntries = Array<[string, string[]]>;
 
 /*----------------------------------
 - CONSTANTS
@@ -60,13 +62,61 @@ export const contentSecurityPolicyHeader = 'Content-Security-Policy';
 export const contentSecurityPolicyReportOnlyHeader = 'Content-Security-Policy-Report-Only';
 
 /** Directives the four legacy lists own, whether or not the list is filled. */
-const legacyDirectiveNames = ['default-src', 'script-src', 'style-src', 'img-src'] as const;
+const legacyDirectiveNames = new Set(['default-src', 'script-src', 'style-src', 'img-src']);
 const legacyListNames = ['default', 'styles', 'images', 'scripts'] as const;
-/** Directives that may carry no value at all. */
-const valuelessDirectiveNames = new Set(['upgrade-insecure-requests', 'block-all-mixed-content', 'sandbox']);
-const directiveNamePattern = /^[a-z]+(-[a-z]+)*$/;
-const invalidSourcePattern = /[\s;,]/;
-const htmlContentTypePattern = /^\s*text\/html\b/i;
+
+/** The CSP 3 directives a browser understands: any other name is a typo the browser would ignore. */
+const knownDirectiveNames = new Set([
+    'base-uri',
+    'block-all-mixed-content',
+    'child-src',
+    'connect-src',
+    'default-src',
+    'fenced-frame-src',
+    'font-src',
+    'form-action',
+    'frame-ancestors',
+    'frame-src',
+    'img-src',
+    'manifest-src',
+    'media-src',
+    'object-src',
+    'report-to',
+    'report-uri',
+    'require-trusted-types-for',
+    'sandbox',
+    'script-src',
+    'script-src-attr',
+    'script-src-elem',
+    'style-src',
+    'style-src-attr',
+    'style-src-elem',
+    'trusted-types',
+    'upgrade-insecure-requests',
+    'worker-src',
+]);
+/** Directives that take no value at all. */
+const valuelessDirectiveNames = new Set(['upgrade-insecure-requests', 'block-all-mixed-content']);
+/** Directives whose value list may be empty. */
+const optionalValueDirectiveNames = new Set(['sandbox', 'trusted-types']);
+/** Directives whose values are tokens or addresses, not sources. */
+const nonSourceDirectiveNames = new Set(['sandbox', 'report-uri', 'report-to']);
+/** Keywords that only mean something inside single quotes: bare, they name a host. */
+const quotedKeywords = new Set([
+    'self',
+    'none',
+    'unsafe-inline',
+    'unsafe-eval',
+    'unsafe-hashes',
+    'strict-dynamic',
+    'report-sample',
+    'wasm-unsafe-eval',
+]);
+/** Printable ASCII with no whitespace, `;` or `,`: anything else breaks the header or the directive list. */
+const headerTokenPattern = /^[\x21-\x2b\x2d-\x3a\x3c-\x7e]+$/;
+/** Documents, and the scripts a route serves (a worker runs under the policy of its own answer). */
+const policyContentTypePattern =
+    /^\s*(?:text\/html|application\/xhtml\+xml|(?:text|application)\/(?:x-)?(?:javascript|ecmascript))\s*(?:;|$)/i;
 
 /*----------------------------------
 - BUILD (boot time)
@@ -81,27 +131,59 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
 
 // @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
-const readSources = (label: string, value: unknown): string[] => {
+const readToken = (label: string, token: unknown): string => {
+    if (typeof token !== 'string' || !headerTokenPattern.test(token))
+        return fail(`${label} must be a non-empty source in printable ASCII with no whitespace, ";" or "," (got ${JSON.stringify(token)}).`);
+    return token;
+};
+
+/**
+ * A legacy list entry keeps its 2.6 meaning: helmet joined the entries with spaces, so an entry
+ * holding several space-separated sources still writes the same header.
+ */
+// @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
+const readLegacyList = (label: string, value: unknown): string[] => {
+    if (value === undefined) return [];
     if (!Array.isArray(value)) return fail(`${label} must be an array of sources.`);
 
-    return value.map((source, index) => {
-        if (typeof source !== 'string' || source === '' || invalidSourcePattern.test(source))
-            return fail(`${label}[${index}] must be a non-empty source with no whitespace, ";" or ",".`);
-        return source;
+    return value.flatMap((entry, index) => {
+        if (typeof entry !== 'string') return fail(`${label}[${index}] must be a string.`);
+        return entry
+            .split(/\s+/)
+            .filter((token) => token !== '')
+            .map((token) => readToken(`${label}[${index}]`, token));
     });
 };
 
 // @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
+const readSource = (label: string, directiveName: string, source: unknown): string => {
+    const token = readToken(label, source);
+    if (nonSourceDirectiveNames.has(directiveName)) return token;
+
+    if (quotedKeywords.has(token.toLowerCase()))
+        fail(`${label} is the bare word ${JSON.stringify(token)}, which names a host: write "'${token}'" with its single quotes.`);
+    const startsQuoted = token.startsWith("'");
+    const endsQuoted = token.endsWith("'");
+    if ((startsQuoted || endsQuoted) && !(startsQuoted && endsQuoted && token.length > 2 && !token.slice(1, -1).includes("'")))
+        fail(`${label} has unbalanced single quotes: ${JSON.stringify(token)}.`);
+
+    return token;
+};
+
 /** Validates a directive record and returns it as ordered `[name, sources]` entries. */
-const readDirectives = (label: string, value: unknown): Array<[string, string[]]> => {
+// @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
+const readDirectives = (label: string, value: unknown): TDirectiveEntries => {
     if (!isPlainRecord(value)) return fail(`${label} must be an object of directive name to sources.`);
 
     return Object.entries(value).map(([name, sources]) => {
-        if (!directiveNamePattern.test(name))
-            return fail(`${label} has an invalid directive name ${JSON.stringify(name)}: use the real lowercase name, e.g. "frame-ancestors".`);
+        if (!knownDirectiveNames.has(name))
+            return fail(`${label} has an unknown directive name ${JSON.stringify(name)}: use a real CSP directive name, lowercase, e.g. "frame-ancestors".`);
+        if (!Array.isArray(sources)) return fail(`${label}['${name}'] must be an array of sources.`);
 
-        const values = readSources(`${label}['${name}']`, sources);
-        if (values.length === 0 && !valuelessDirectiveNames.has(name))
+        const values = sources.map((source, index) => readSource(`${label}['${name}'][${index}]`, name, source));
+        if (valuelessDirectiveNames.has(name) && values.length > 0)
+            return fail(`${label}['${name}'] takes no value: write an empty array.`);
+        if (values.length === 0 && !valuelessDirectiveNames.has(name) && !optionalValueDirectiveNames.has(name))
             return fail(`${label}['${name}'] is empty: a directive needs at least one source.`);
 
         return [name, values];
@@ -109,25 +191,18 @@ const readDirectives = (label: string, value: unknown): Array<[string, string[]]
 };
 
 /** Serializes directives in helmet 4.6's exact format, so legacy headers stay byte for byte. */
-const serializeDirectives = (directives: Array<[string, string[]]>) =>
+const serializeDirectives = (directives: TDirectiveEntries) =>
     directives.map(([name, values]) => (values.length === 0 ? name : `${name} ${values.join(' ')}`)).join(';');
 
-const assertNoDuplicates = (label: string, directives: Array<[string, string[]]>) => {
-    const seen = new Set<string>();
-    for (const [name] of directives) {
-        if (seen.has(name)) fail(`${label} names ${JSON.stringify(name)} twice.`);
-        seen.add(name);
-    }
-};
-
 // @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
-const buildLegacyDirectives = (config: Record<string, unknown>): Array<[string, string[]]> => {
-    const defaults = config.default === undefined ? [] : readSources('csp.default', config.default);
-    const scripts = readSources('csp.scripts', config.scripts);
-    const styles = config.styles === undefined ? [] : readSources('csp.styles', config.styles);
-    const images = config.images === undefined ? [] : readSources('csp.images', config.images);
+const buildLegacyDirectives = (config: Record<string, unknown>): TDirectiveEntries => {
+    if (config.scripts === undefined) fail('csp.scripts is required with the list form (an empty array is fine), or write the whole policy in csp.policy.');
+    const defaults = readLegacyList('csp.default', config.default);
+    const scripts = readLegacyList('csp.scripts', config.scripts);
+    const styles = readLegacyList('csp.styles', config.styles);
+    const images = readLegacyList('csp.images', config.images);
 
-    const directives: Array<[string, string[]]> = [];
+    const directives: TDirectiveEntries = [];
     if (defaults.length > 0) directives.push(['default-src', defaults]);
     directives.push(['script-src', ["'unsafe-inline'", "'self'", "'unsafe-eval'", ...scripts]]);
     if (styles.length > 0) directives.push(['style-src', styles]);
@@ -136,7 +211,7 @@ const buildLegacyDirectives = (config: Record<string, unknown>): Array<[string, 
     if (config.directives !== undefined) {
         const extra = readDirectives('csp.directives', config.directives);
         for (const [name] of extra) {
-            if ((legacyDirectiveNames as readonly string[]).includes(name))
+            if (legacyDirectiveNames.has(name))
                 fail(`csp.directives names ${JSON.stringify(name)}, which the legacy lists own: use default, scripts, styles or images, or write the whole policy in csp.policy.`);
         }
         directives.push(...extra);
@@ -146,18 +221,17 @@ const buildLegacyDirectives = (config: Record<string, unknown>): Array<[string, 
 };
 
 // @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
-const buildReportOnlyDirectives = (value: unknown): Array<[string, string[]]> => {
+const buildReportOnlyDirectives = (value: unknown): TDirectiveEntries => {
     if (!isPlainRecord(value)) return fail('csp.reportOnly must be an object with a policy.');
 
     const directives = readDirectives('csp.reportOnly.policy', value.policy);
     if (directives.length === 0) fail('csp.reportOnly.policy has no directive.');
 
     if (value.reportUri !== undefined) {
-        if (typeof value.reportUri !== 'string' || value.reportUri === '' || invalidSourcePattern.test(value.reportUri))
-            fail('csp.reportOnly.reportUri must be a non-empty address with no whitespace, ";" or ",".');
+        const reportUri = readToken('csp.reportOnly.reportUri', value.reportUri);
         if (directives.some(([name]) => name === 'report-uri'))
             fail('csp.reportOnly sets report-uri twice: keep reportUri or the policy entry, not both.');
-        directives.push(['report-uri', [value.reportUri as string]]);
+        directives.push(['report-uri', [reportUri]]);
     }
 
     return directives;
@@ -172,7 +246,7 @@ export const buildContentSecurityPolicyHeaders = (cspConfig: TCspConfig): TConte
     const config: unknown = cspConfig;
     if (!isPlainRecord(config)) return fail('csp must be an object.');
 
-    let directives: Array<[string, string[]]>;
+    let directives: TDirectiveEntries;
     if (config.policy !== undefined) {
         const legacyFields = [...legacyListNames, 'directives'].filter((name) => config[name] !== undefined);
         if (legacyFields.length > 0)
@@ -183,15 +257,9 @@ export const buildContentSecurityPolicyHeaders = (cspConfig: TCspConfig): TConte
     } else {
         directives = buildLegacyDirectives(config);
     }
-    assertNoDuplicates('csp', directives);
 
     const headers: TContentSecurityPolicyHeaders = { policy: serializeDirectives(directives) };
-
-    if (config.reportOnly !== undefined) {
-        const reportOnly = buildReportOnlyDirectives(config.reportOnly);
-        assertNoDuplicates('csp.reportOnly.policy', reportOnly);
-        headers.reportOnly = serializeDirectives(reportOnly);
-    }
+    if (config.reportOnly !== undefined) headers.reportOnly = serializeDirectives(buildReportOnlyDirectives(config.reportOnly));
 
     return headers;
 };
@@ -204,11 +272,18 @@ const policyWriterInstalled = Symbol('proteum.policyWriterInstalled');
 
 type TPolicyWriterResponse = express.Response & { [policyWriterInstalled]?: true };
 
+const readContentType = (res: express.Response) => {
+    const value = res.getHeader('Content-Type');
+    if (Array.isArray(value)) return value[0];
+    return typeof value === 'string' ? value : undefined;
+};
+
 /**
- * Decides the policy by the final Content-Type, when the headers are about to be written.
+ * Decides the policy when the headers are about to be written, by the final status and Content-Type.
  * Mount it after helmet: the value helmet wrote at the start of the request is the baseline.
  * - a route wrote or removed its own policy: everything is left as it is;
- * - the answer is HTML: the app policy, plus the report-only policy when configured;
+ * - a 304: no policy at all, so the browser keeps the one its stored copy came with;
+ * - a document or a script: the app policy, plus the report-only policy when configured;
  * - anything else: helmet's value stays.
  */
 export const createContentSecurityPolicyWriter =
@@ -222,8 +297,14 @@ export const createContentSecurityPolicyWriter =
         onHeaders(res, function writeContentSecurityPolicy(this: express.Response) {
             if (this.getHeader(contentSecurityPolicyHeader) !== baseline) return;
 
-            const contentType = this.getHeader('Content-Type');
-            if (typeof contentType !== 'string' || !htmlContentTypePattern.test(contentType)) return;
+            // A 304 refreshes the stored copy's headers: helmet's default there would replace the page's policy.
+            if (this.statusCode === 304) {
+                this.removeHeader(contentSecurityPolicyHeader);
+                return;
+            }
+
+            const contentType = readContentType(this);
+            if (contentType === undefined || !policyContentTypePattern.test(contentType)) return;
 
             this.setHeader(contentSecurityPolicyHeader, headers.policy);
             if (headers.reportOnly !== undefined && !this.hasHeader(contentSecurityPolicyReportOnlyHeader))
