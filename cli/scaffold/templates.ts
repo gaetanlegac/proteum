@@ -218,7 +218,7 @@ export const routerBaseConfig = {
         upload: {
             maxSize: '10mb',
         },
-        // Content-Security-Policy for HTML pages and scripts: see Proteum's docs/http-security-headers.md.
+        // Content-Security-Policy for router answers (HTML only under /api): see Proteum's docs/http-security-headers.md.
         csp: {
             scripts: [],
         },

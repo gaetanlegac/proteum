@@ -1,6 +1,6 @@
 # HTTP Security Headers
 
-Proteum's HTTP server sends the same security headers on every answer, whatever the path, and picks the Content-Security-Policy by the kind of answer, at the moment the headers are written.
+Proteum's HTTP server sends the same security headers on every answer of its own stack, whatever the path, and picks the Content-Security-Policy by the path and, under `/api`, by the kind of answer at the moment the headers are written. Middleware an app mounts on the Express app before `HttpServer.start()` (a maintenance page, for example) answers before that stack and carries none of these headers, as in 2.6.
 
 Source: `server/services/router/http/index.ts` (`HttpServer.start()`) and `server/services/router/http/securityHeaders.ts`. Tests: `tests/http-server-security-headers.test.cjs`.
 
@@ -12,11 +12,13 @@ The rule in one sentence: outside `/api` no router answer changes its policy (ev
 |---|---|---|---|---|
 | Any answer from the router outside `/api` (pages, their 404, the error page, a cached static page, JSON, text, Markdown, feeds, a worker script a route serves) | yes | the app policy | the app's, when configured | absent |
 | HTML from the router under `/api` (pages, their 404, the error page, a cached static page) | yes | the app policy | the app's, when configured | absent |
-| Any other answer from the router under `/api` (JSON, Markdown, text, scripts, redirects) | yes | helmet's default policy | none | absent |
+| Any other answer from the router under `/api` (JSON, Markdown, text, scripts, the router's redirects) | yes | helmet's default policy | none | absent |
 | A 304 Not Modified from the router under `/api` | yes | none: the browser keeps the policy its stored copy came with | none | absent |
 | A route or controller that set its own `Content-Security-Policy` | yes | the route's own, untouched | none added | absent |
-| An error that escapes the router to Express (for example a malformed JSON body under `/api`) | yes | Express's own `default-src 'none'` | none | absent |
-| Static files (`/public/*`, `/robots.txt`, `/favicon.ico`), `/ping` | yes | helmet's default policy | none | absent |
+| A body-parser error under `/api`, before the router (for example a malformed JSON body) | yes | Express's own `default-src 'none'` | none | absent |
+| Static files (`/public/*`, `/robots.txt` and `/favicon.ico` when the file exists), `/ping` | yes | helmet's default policy | none | absent |
+
+When the app ships no `robots.txt` or `favicon.ico`, the request falls through to the router and its answer carries the app policy, as in 2.6. A redirect under `/api` that is typed `text/html` (one sent from the router's static page cache branch, or Express's `res.redirect` answered to a browser) counts as HTML and gets the app policy; the router's own redirects carry no `Content-Type` and keep helmet's default.
 
 "HTML" means a `Content-Type` of `text/html` or `application/xhtml+xml`. Outside `/api` the type does not matter, on purpose: a worker takes its policy from its own script's answer, so a worker served by a route (for example a map library's worker that fetches tiles from another host) must keep the app policy.
 
@@ -26,7 +28,7 @@ helmet's default policy is `default-src 'self';base-uri 'self';block-all-mixed-c
 
 How it is wired:
 
-- `x-powered-by` is disabled on the Express app, and `helmet(http.helmet)` is mounted once, at the very top, so every answer starts with the base headers and helmet's default policy.
+- `x-powered-by` is disabled on the Express app, and `helmet(http.helmet)` is mounted once, first in `start()`, so every answer of Proteum's stack starts with the base headers and helmet's default policy.
 - Under `/api`, a policy writer is mounted before the API fast path (the short middleware stack `/api` requests take, ahead of the static files). It runs when the headers are about to be written, so it knows the final status and `Content-Type`:
   - when the `Content-Security-Policy` value is no longer the one helmet wrote, a route chose its own: everything is left as it is;
   - when the status is 304: the policy header is removed, so the browser keeps the policy of the copy it stored (helmet's default there would replace a page's policy);
@@ -35,7 +37,9 @@ How it is wired:
 - Outside `/api`, after the static files and before the router, the app policy replaces helmet's default at the start of every request, as in 2.6. When a report-only policy is configured, it is added when the headers are written, if the answer still carries the app policy.
 - Static files are mounted before that, so they keep helmet's headers byte for byte, an `.html` or `.js` file under `/public` included.
 
-Rule: a route's own policy wins. A route or controller that sets `Content-Security-Policy` itself (for example a strict policy with a nonce) keeps it, under `/api` or anywhere else, and no report-only header is added to it.
+Rule: a route's own policy wins. A route or controller that sets `Content-Security-Policy` itself (for example a strict policy with a nonce) keeps it, under `/api` or anywhere else, and no report-only header is added to it. A route that sets its own report-only header keeps it too.
+
+The writers tell a route's own policy by its value, which leaves two edge cases no app has today: under `/api`, a route whose policy equals helmet's default byte for byte is treated as untouched, so an HTML answer gets the app policy; and with `http.helmet.contentSecurityPolicy: false`, a route under `/api` that removed the header gets the app policy back on HTML. Outside `/api`, a route whose policy equals the app policy byte for byte also gets the report-only header.
 
 ## Config
 
@@ -87,23 +91,24 @@ In dev, Proteum's client build uses eval source maps and its reload channel list
 
 Boot errors:
 
-- `csp` absent or not an object; the list form without `scripts`;
+- `csp` absent or not an object; the list form without `scripts`; a key `csp` or `csp.reportOnly` does not know (`reportonly`, `directive`, `reporturi`), which would otherwise boot and send nothing;
 - `policy` together with `scripts`, `styles`, `images`, `default` or `directives`;
 - `directives` naming `default-src`, `script-src`, `style-src` or `img-src` (the lists own them, filled or not);
 - a directive name that is not a CSP 3 directive (`frameAncestors` and `frame-ancestor` are refused, write `'frame-ancestors'`);
 - a directive with no source, except `upgrade-insecure-requests` and `block-all-mixed-content` (which take none and refuse any), `sandbox` and `trusted-types` (which may be empty);
-- a source that is not a string, is empty, or holds anything but printable ASCII with no whitespace, `;` or `,` (write international hosts in punycode);
+- a source that is not a string, is empty, or holds anything but printable ASCII with no whitespace, `;` or `,` (write international hosts in punycode; Latin-1 is refused too, though Node would send it, because browsers drop it);
 - in `directives`, `policy` and `reportOnly.policy`: a bare keyword (`self`, `none`, `unsafe-inline`, `unsafe-eval`, `unsafe-hashes`, `strict-dynamic`, `report-sample`, `wasm-unsafe-eval`) that would name a host, and a source with unbalanced single quotes;
 - an empty `policy`, a `reportOnly` without `policy` or with an empty one, a `reportUri` that is empty or not printable ASCII, and `reportUri` together with a `report-uri` entry in `reportOnly.policy`.
 
-The four lists keep their 2.6 leniency: an entry holding several sources separated by spaces still writes the same header, and bare keywords are not checked there.
+The four lists keep most of their 2.6 leniency: an entry holding several sources separated by spaces is kept exactly as written (each source is still checked), so it writes the same bytes; and bare keywords are not checked there. An empty entry (`''` or only spaces) is refused: 2.6 sent it as an empty source list, which blocks everything.
 
 ## Migration From 2.6
 
-Nothing to change to keep today's policy: the four lists produce the same header, byte for byte, and every router answer outside `/api` keeps it. What changes by itself:
+Nothing to change to keep today's policy: for every config the checks accept, the four lists produce the same header as 2.6, byte for byte, and every router answer outside `/api` keeps it. What changes by itself:
 
 - answers under `/api` now carry the base headers and no `X-Powered-By`; HTML there gets the app policy, other answers helmet's default policy (256 bytes on each API answer), and a 304 there carries none;
 - connected-project answers (`/api/__proteum/connected/*`) are under `/api` and follow the same rule;
-- a list entry with a character Node cannot put in a header (a typographic quote, a non-ASCII host) now stops the boot instead of failing each response.
+- in the four lists, these entries booted in 2.6 and now stop the boot: an entry that is not a string (`undefined`, `null`, a number); an empty entry; any character outside printable ASCII (a typographic quote, a non-ASCII or Latin-1 host, a tab), which either failed each response or was dropped by browsers;
+- a key `csp` does not know now stops the boot.
 
 To add `frame-ancestors`, `object-src` and `base-uri`, add `csp.directives`. To trial a stricter policy, add `csp.reportOnly`; to enforce it, move it to `csp.policy`.

@@ -64,6 +64,8 @@ export const contentSecurityPolicyReportOnlyHeader = 'Content-Security-Policy-Re
 /** Directives the four legacy lists own, whether or not the list is filled. */
 const legacyDirectiveNames = new Set(['default-src', 'script-src', 'style-src', 'img-src']);
 const legacyListNames = ['default', 'styles', 'images', 'scripts'] as const;
+const cspKeys = new Set<string>([...legacyListNames, 'directives', 'policy', 'reportOnly']);
+const reportOnlyKeys = new Set(['policy', 'reportUri']);
 
 /** The CSP 3 directives a browser understands: any other name is a typo the browser would ignore. */
 const knownDirectiveNames = new Set([
@@ -93,6 +95,7 @@ const knownDirectiveNames = new Set([
     'style-src-elem',
     'trusted-types',
     'upgrade-insecure-requests',
+    'webrtc',
     'worker-src',
 ]);
 /** Directives that take no value at all. */
@@ -125,53 +128,55 @@ const fail = (message: string): never => {
     throw new Error(`[http.csp] ${message}`);
 };
 
-// @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+// @boundary The csp config may be written in plain JavaScript (or spread from shared objects), so every
+// reader below takes its input as untyped and checks each field before use.
+type TConfigInput = unknown;
+
+const isPlainRecord = (value: TConfigInput): value is Record<string, TConfigInput> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
 
-// @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
-const readToken = (label: string, token: unknown): string => {
+const readToken = (label: string, token: TConfigInput): string => {
     if (typeof token !== 'string' || !headerTokenPattern.test(token))
         return fail(`${label} must be a non-empty source in printable ASCII with no whitespace, ";" or "," (got ${JSON.stringify(token)}).`);
     return token;
 };
 
 /**
- * A legacy list entry keeps its 2.6 meaning: helmet joined the entries with spaces, so an entry
- * holding several space-separated sources still writes the same header.
+ * A legacy list entry keeps its 2.6 meaning: helmet joined the entries with spaces, so an entry holding
+ * several space-separated sources is kept as written (each source checked) and writes the same bytes.
  */
-// @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
-const readLegacyList = (label: string, value: unknown): string[] => {
+const readLegacyList = (label: string, value: TConfigInput): string[] => {
     if (value === undefined) return [];
     if (!Array.isArray(value)) return fail(`${label} must be an array of sources.`);
 
-    return value.flatMap((entry, index) => {
+    return value.map((entry, index) => {
         if (typeof entry !== 'string') return fail(`${label}[${index}] must be a string.`);
-        return entry
-            .split(/\s+/)
-            .filter((token) => token !== '')
-            .map((token) => readToken(`${label}[${index}]`, token));
+
+        const sources = entry.split(' ').filter((source) => source !== '');
+        if (sources.length === 0)
+            return fail(`${label}[${index}] is empty: an empty entry would send an empty source list, which blocks everything.`);
+        for (const source of sources) readToken(`${label}[${index}]`, source);
+
+        return entry;
     });
 };
 
-// @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
-const readSource = (label: string, directiveName: string, source: unknown): string => {
+const readSource = (label: string, directiveName: string, source: TConfigInput): string => {
     const token = readToken(label, source);
     if (nonSourceDirectiveNames.has(directiveName)) return token;
 
     if (quotedKeywords.has(token.toLowerCase()))
-        fail(`${label} is the bare word ${JSON.stringify(token)}, which names a host: write "'${token}'" with its single quotes.`);
+        return fail(`${label} is the bare word ${JSON.stringify(token)}, which names a host: write "'${token}'" with its single quotes.`);
     const startsQuoted = token.startsWith("'");
     const endsQuoted = token.endsWith("'");
     if ((startsQuoted || endsQuoted) && !(startsQuoted && endsQuoted && token.length > 2 && !token.slice(1, -1).includes("'")))
-        fail(`${label} has unbalanced single quotes: ${JSON.stringify(token)}.`);
+        return fail(`${label} has unbalanced single quotes: ${JSON.stringify(token)}.`);
 
     return token;
 };
 
 /** Validates a directive record and returns it as ordered `[name, sources]` entries. */
-// @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
-const readDirectives = (label: string, value: unknown): TDirectiveEntries => {
+const readDirectives = (label: string, value: TConfigInput): TDirectiveEntries => {
     if (!isPlainRecord(value)) return fail(`${label} must be an object of directive name to sources.`);
 
     return Object.entries(value).map(([name, sources]) => {
@@ -189,12 +194,18 @@ const readDirectives = (label: string, value: unknown): TDirectiveEntries => {
     });
 };
 
+/** A misspelt key (`reportonly`, `directive`) would otherwise boot and send nothing. */
+const assertKnownKeys = (label: string, value: Record<string, TConfigInput>, known: ReadonlySet<string>) => {
+    const unknownKeys = Object.keys(value).filter((key) => !known.has(key));
+    if (unknownKeys.length > 0)
+        fail(`${label} has unknown keys ${unknownKeys.map((key) => JSON.stringify(key)).join(', ')}: expected ${[...known].join(', ')}.`);
+};
+
 /** Serializes directives in helmet 4.6's exact format, so legacy headers stay byte for byte. */
 const serializeDirectives = (directives: TDirectiveEntries) =>
     directives.map(([name, values]) => (values.length === 0 ? name : `${name} ${values.join(' ')}`)).join(';');
 
-// @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
-const buildLegacyDirectives = (config: Record<string, unknown>): TDirectiveEntries => {
+const buildLegacyDirectives = (config: Record<string, TConfigInput>): TDirectiveEntries => {
     if (config.scripts === undefined) fail('csp.scripts is required with the list form (an empty array is fine), or write the whole policy in csp.policy.');
     const defaults = readLegacyList('csp.default', config.default);
     const scripts = readLegacyList('csp.scripts', config.scripts);
@@ -219,9 +230,9 @@ const buildLegacyDirectives = (config: Record<string, unknown>): TDirectiveEntri
     return directives;
 };
 
-// @boundary The csp config may be written in plain JavaScript: these readers check each field before use.
-const buildReportOnlyDirectives = (value: unknown): TDirectiveEntries => {
+const buildReportOnlyDirectives = (value: TConfigInput): TDirectiveEntries => {
     if (!isPlainRecord(value)) return fail('csp.reportOnly must be an object with a policy.');
+    assertKnownKeys('csp.reportOnly', value, reportOnlyKeys);
 
     const directives = readDirectives('csp.reportOnly.policy', value.policy);
     if (directives.length === 0) fail('csp.reportOnly.policy has no directive.');
@@ -241,9 +252,9 @@ const buildReportOnlyDirectives = (value: unknown): TDirectiveEntries => {
  * Throws on any malformed config, so a broken header can never reach production.
  */
 export const buildContentSecurityPolicyHeaders = (cspConfig: TCspConfig): TContentSecurityPolicyHeaders => {
-    // @boundary Apps may write their config in plain JavaScript: every field is checked again here.
-    const config: unknown = cspConfig;
+    const config: TConfigInput = cspConfig;
     if (!isPlainRecord(config)) return fail('csp must be an object.');
+    assertKnownKeys('csp', config, cspKeys);
 
     let directives: TDirectiveEntries;
     if (config.policy !== undefined) {
