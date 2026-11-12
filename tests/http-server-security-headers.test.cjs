@@ -366,7 +366,7 @@ test('csp.policy replaces the whole policy, with nothing added by Proteum', asyn
     );
 });
 
-test('csp.reportOnly sends the second header on HTML answers only, with its report-uri', async () => {
+test('csp.reportOnly sends the second header on documents and scripts only, with its report-uri', async () => {
     const request = await startServer({
         csp: { ...legacyCsp, reportOnly: { policy: { 'default-src': ["'self'"], 'frame-src': ['challenges.example.com'] }, reportUri: '/csp-report' } },
     });
