@@ -14,7 +14,7 @@ import onHeaders from 'on-headers';
 export type TCspDirectives = Readonly<Record<string, readonly string[]>>;
 
 export type TCspReportOnly = {
-    /** A complete policy, sent as `Content-Security-Policy-Report-Only` with the enforced one. */
+    /** A complete policy, sent as `Content-Security-Policy-Report-Only` on the answers that carry the app policy. */
     policy: TCspDirectives;
     /** Appended to the report-only policy as `report-uri`. */
     reportUri?: string;
@@ -46,9 +46,9 @@ export type TCspPolicyConfig = {
 export type TCspConfig = TCspLegacyConfig | TCspPolicyConfig;
 
 export type TContentSecurityPolicyHeaders = {
-    /** The enforced `Content-Security-Policy` value for documents and scripts. */
+    /** The enforced `Content-Security-Policy` value: router answers outside `/api`, HTML under `/api`. */
     policy: string;
-    /** The `Content-Security-Policy-Report-Only` value for documents and scripts, when configured. */
+    /** The `Content-Security-Policy-Report-Only` value, on the answers that carry the app policy, when configured. */
     reportOnly?: string;
 };
 
@@ -114,9 +114,8 @@ const quotedKeywords = new Set([
 ]);
 /** Printable ASCII with no whitespace, `;` or `,`: anything else breaks the header or the directive list. */
 const headerTokenPattern = /^[\x21-\x2b\x2d-\x3a\x3c-\x7e]+$/;
-/** Documents, and the scripts a route serves (a worker runs under the policy of its own answer). */
-const policyContentTypePattern =
-    /^\s*(?:text\/html|application\/xhtml\+xml|(?:text|application)\/(?:x-)?(?:javascript|ecmascript))\s*(?:;|$)/i;
+/** HTML documents: under `/api`, the only answers that get the app policy. */
+const documentContentTypePattern = /^\s*(?:text\/html|application\/xhtml\+xml)\s*(?:;|$)/i;
 
 /*----------------------------------
 - BUILD (boot time)
@@ -268,30 +267,49 @@ export const buildContentSecurityPolicyHeaders = (cspConfig: TCspConfig): TConte
 - WRITE (request time)
 ----------------------------------*/
 
-const policyWriterInstalled = Symbol('proteum.policyWriterInstalled');
-
-type TPolicyWriterResponse = express.Response & { [policyWriterInstalled]?: true };
-
 const readContentType = (res: express.Response) => {
     const value = res.getHeader('Content-Type');
     if (Array.isArray(value)) return value[0];
     return typeof value === 'string' ? value : undefined;
 };
 
+/** Adds the report-only policy when the headers are written, if the answer still carries the app policy. */
+const writeReportOnlyWithAppPolicy = (res: express.Response, headers: TContentSecurityPolicyHeaders) => {
+    if (headers.reportOnly === undefined) return;
+    if (res.getHeader(contentSecurityPolicyHeader) !== headers.policy) return;
+    if (res.hasHeader(contentSecurityPolicyReportOnlyHeader)) return;
+
+    res.setHeader(contentSecurityPolicyReportOnlyHeader, headers.reportOnly);
+};
+
 /**
- * Decides the policy when the headers are about to be written, by the final status and Content-Type.
+ * Outside `/api`: every router answer gets the app policy, whatever its type, as in 2.6
+ * (a worker takes its policy from its own script's answer, so a route-served worker must keep it).
+ * Set at the start of the request, so a route that writes its own policy replaces it.
+ */
+export const createAppContentSecurityPolicy =
+    (headers: TContentSecurityPolicyHeaders): express.RequestHandler =>
+    (_req, res, next) => {
+        res.setHeader(contentSecurityPolicyHeader, headers.policy);
+        if (headers.reportOnly !== undefined)
+            onHeaders(res, function writeReportOnly(this: express.Response) {
+                writeReportOnlyWithAppPolicy(this, headers);
+            });
+
+        next();
+    };
+
+/**
+ * Under `/api`: decides the policy when the headers are about to be written, by the final status and Content-Type.
  * Mount it after helmet: the value helmet wrote at the start of the request is the baseline.
  * - a route wrote or removed its own policy: everything is left as it is;
  * - a 304: no policy at all, so the browser keeps the one its stored copy came with;
- * - a document or a script: the app policy, plus the report-only policy when configured;
+ * - an HTML document: the app policy, plus the report-only policy when configured;
  * - anything else: helmet's value stays.
  */
-export const createContentSecurityPolicyWriter =
+export const createApiContentSecurityPolicyWriter =
     (headers: TContentSecurityPolicyHeaders): express.RequestHandler =>
-    (_req, res: TPolicyWriterResponse, next) => {
-        if (res[policyWriterInstalled]) return next();
-        res[policyWriterInstalled] = true;
-
+    (_req, res, next) => {
         const baseline = res.getHeader(contentSecurityPolicyHeader);
 
         onHeaders(res, function writeContentSecurityPolicy(this: express.Response) {
@@ -304,11 +322,10 @@ export const createContentSecurityPolicyWriter =
             }
 
             const contentType = readContentType(this);
-            if (contentType === undefined || !policyContentTypePattern.test(contentType)) return;
+            if (contentType === undefined || !documentContentTypePattern.test(contentType)) return;
 
             this.setHeader(contentSecurityPolicyHeader, headers.policy);
-            if (headers.reportOnly !== undefined && !this.hasHeader(contentSecurityPolicyReportOnlyHeader))
-                this.setHeader(contentSecurityPolicyReportOnlyHeader, headers.reportOnly);
+            writeReportOnlyWithAppPolicy(this, headers);
         });
 
         next();

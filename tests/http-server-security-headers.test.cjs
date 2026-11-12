@@ -75,9 +75,9 @@ const fakeRouterMiddleware = (req, res) => {
         case '/api/vendor/worker.js':
             // A worker served by a route, like the agenda map's: it runs under this answer's policy.
             return res.type('text/javascript').send('self.onmessage = () => {};');
-        case '/page.xhtml':
+        case '/api/page.xhtml':
             return res.type('application/xhtml+xml').send(html('xhtml'));
-        case '/array-content-type':
+        case '/api/array-content-type':
             res.setHeader('Content-Type', ['text/html; charset=utf-8']);
             return res.end(html('array'));
         case '/api/own-policy':
@@ -227,11 +227,15 @@ test('an HTML answer outside /api keeps the 2.6.1 policy, plus the new directive
     );
 });
 
-test('a non-HTML router answer outside /api gets the fallback policy', async () => {
+test('a JavaScript answer and a plain text answer from the router outside /api carry the app policy', async () => {
     const request = await startServer();
-    const response = await request('/llms.txt');
-    assert.equal(response.headers.get('content-security-policy'), helmetDefaultPolicy);
-    assertBaseHeaders(response, '/llms.txt');
+
+    // The map's worker is such an answer: a worker takes its policy from its own script's answer.
+    for (const requestPath of ['/vendor/worker.js', '/llms.txt']) {
+        const response = await request(requestPath);
+        assert.equal(response.headers.get('content-security-policy'), legacyPolicy261, requestPath);
+        assertBaseHeaders(response, requestPath);
+    }
 });
 
 test('a route that sets its own policy keeps it, under /api and outside', async () => {
@@ -300,39 +304,52 @@ test('a 304 carries no policy, so the stored copy keeps the one its 200 came wit
         csp: { ...legacyCsp, reportOnly: { policy: { 'default-src': ["'self'"] } } },
     });
 
-    for (const requestPath of ['/page', '/api', '/api/cached', '/vendor/worker.js', '/api/v1/x']) {
+    const revalidate = async (requestPath) => {
         const first = await request(requestPath);
         const etag = first.headers.get('etag');
         assert.ok(etag, `${requestPath}: an ETag`);
 
         const revalidated = await request.revalidate(requestPath, etag);
         assert.equal(revalidated.status, 304, requestPath);
+        assertBaseHeaders(revalidated, `${requestPath} 304`);
+        return revalidated;
+    };
+
+    // Under /api the writer would otherwise leave helmet's default, which would replace a page's policy.
+    for (const requestPath of ['/api', '/api/cached', '/api/v1/x']) {
+        const revalidated = await revalidate(requestPath);
         assert.equal(revalidated.headers.get('content-security-policy'), null, requestPath);
         assert.equal(revalidated.headers.get('content-security-policy-report-only'), null, requestPath);
-        assertBaseHeaders(revalidated, `${requestPath} 304`);
+    }
+
+    // Outside /api a 304 carries the app policy, as in 2.6.1: the same value its 200 carried.
+    for (const requestPath of ['/page', '/vendor/worker.js']) {
+        const revalidated = await revalidate(requestPath);
+        assert.equal(revalidated.headers.get('content-security-policy'), legacyPolicy261, requestPath);
     }
 });
 
-test('a script served by a route carries the app policy, a static script keeps helmet\'s', async () => {
+test('a script keeps the app policy from a route outside /api, helmet\'s from a static file or under /api', async () => {
     const request = await startServer({
         csp: { ...legacyCsp, reportOnly: { policy: { 'default-src': ["'self'"] }, reportUri: '/csp-report' } },
     });
 
-    for (const requestPath of ['/vendor/worker.js', '/api/vendor/worker.js']) {
+    const routeScript = await request('/vendor/worker.js');
+    assert.match(routeScript.headers.get('content-type'), /^text\/javascript/);
+    assert.equal(routeScript.headers.get('content-security-policy'), legacyPolicy261);
+    assert.equal(routeScript.headers.get('content-security-policy-report-only'), "default-src 'self';report-uri /csp-report");
+
+    for (const requestPath of ['/api/vendor/worker.js', '/public/worker.js']) {
         const response = await request(requestPath);
-        assert.match(response.headers.get('content-type'), /^text\/javascript/);
-        assert.equal(response.headers.get('content-security-policy'), legacyPolicy261, requestPath);
-        assert.equal(response.headers.get('content-security-policy-report-only'), "default-src 'self';report-uri /csp-report", requestPath);
+        assert.equal(response.headers.get('content-security-policy'), helmetDefaultPolicy, requestPath);
+        assert.equal(response.headers.get('content-security-policy-report-only'), null, requestPath);
         assertBaseHeaders(response, requestPath);
     }
-
-    const staticScript = await request('/public/worker.js');
-    assert.equal(staticScript.headers.get('content-security-policy'), helmetDefaultPolicy);
 });
 
-test('XHTML and a Content-Type set as an array count as documents', async () => {
+test('under /api, XHTML and a Content-Type set as an array count as documents', async () => {
     const request = await startServer();
-    for (const requestPath of ['/page.xhtml', '/array-content-type']) {
+    for (const requestPath of ['/api/page.xhtml', '/api/array-content-type']) {
         const response = await request(requestPath);
         assert.equal(response.headers.get('content-security-policy'), legacyPolicy261, requestPath);
     }
@@ -366,12 +383,12 @@ test('csp.policy replaces the whole policy, with nothing added by Proteum', asyn
     );
 });
 
-test('csp.reportOnly sends the second header on documents and scripts only, with its report-uri', async () => {
+test('csp.reportOnly rides wherever the app policy goes, with its report-uri, never on the fallback', async () => {
     const request = await startServer({
         csp: { ...legacyCsp, reportOnly: { policy: { 'default-src': ["'self'"], 'frame-src': ['challenges.example.com'] }, reportUri: '/csp-report' } },
     });
 
-    for (const requestPath of ['/api', '/page', '/api/unknown']) {
+    for (const requestPath of ['/api', '/page', '/api/unknown', '/llms.txt', '/vendor/worker.js']) {
         const response = await request(requestPath);
         assert.equal(
             response.headers.get('content-security-policy-report-only'),
@@ -381,7 +398,7 @@ test('csp.reportOnly sends the second header on documents and scripts only, with
         assert.equal(response.headers.get('content-security-policy'), legacyPolicy261, requestPath);
     }
 
-    for (const requestPath of ['/api/v1/x', '/llms.txt', '/ping']) {
+    for (const requestPath of ['/api/v1/x', '/api/vendor/worker.js', '/ping', '/public/worker.js']) {
         const response = await request(requestPath);
         assert.equal(response.headers.get('content-security-policy-report-only'), null, requestPath);
     }

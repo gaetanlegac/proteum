@@ -58,7 +58,8 @@ import {
 } from './cache';
 import {
     buildContentSecurityPolicyHeaders,
-    createContentSecurityPolicyWriter,
+    createApiContentSecurityPolicyWriter,
+    createAppContentSecurityPolicy,
     type TCspConfig,
 } from './securityHeaders';
 
@@ -78,7 +79,7 @@ export type Config = {
     upload: {
         maxSize: string; // Expression package bytes
     };
-    /** See docs/http-security-headers.md: applied to HTML and script answers from the router, `/api` included. */
+    /** See docs/http-security-headers.md: on every router answer outside `/api`, and on HTML under `/api`. */
     csp: TCspConfig;
     cache?: THttpCacheConfig;
     cors?: CorsOptions;
@@ -442,9 +443,7 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         routes.disable('x-powered-by');
 
         // Built once: a malformed policy fails the boot, never a response.
-        const writeContentSecurityPolicy = createContentSecurityPolicyWriter(
-            buildContentSecurityPolicyHeaders(this.config.csp),
-        );
+        const contentSecurityPolicyHeaders = buildContentSecurityPolicyHeaders(this.config.csp);
 
         // Base headers on every answer, `/api` included (docs/http-security-headers.md).
         routes.use(helmet(this.config.helmet));
@@ -453,8 +452,8 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         - FAST PATH: API
         ----------------------------------*/
 
-        // HTML and scripts under /api (pages, their 404) get the app policy like any other page.
-        routes.use(apiOnly(writeContentSecurityPolicy));
+        // HTML under /api (pages, their 404) gets the app policy; other /api answers keep helmet's default.
+        routes.use(apiOnly(createApiContentSecurityPolicyWriter(contentSecurityPolicyHeaders)));
 
         // Keep /api requests off the heavier page middleware stack below.
         routes.use(apiOnly(hpp()));
@@ -571,8 +570,8 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
 
         if (this.config.cors !== undefined) routes.use(cors(this.config.cors));
 
-        // Mounted after the static files so they keep helmet's headers byte for byte.
-        routes.use(writeContentSecurityPolicy);
+        // Every router answer outside /api keeps the app policy, as in 2.6; static files above keep helmet's.
+        routes.use(createAppContentSecurityPolicy(contentSecurityPolicyHeaders));
 
         this.registerDevTraceRoutes(routes);
         routes.use(routeRequest);
