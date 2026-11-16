@@ -165,11 +165,7 @@ export const run = async (): Promise<void> => {
 
     if (buildError) throw buildError;
 
-    if (compiler.missingPreloadFonts.length > 0)
-        throw new Error(
-            `proteum.config.ts preloadFonts names no emitted font: ${compiler.missingPreloadFonts.join(', ')}. ` +
-                'Use the font file name without its extension, and import the font from a stylesheet.',
-        );
+    if (compiler.preloadFontErrors) throw new Error(compiler.preloadFontErrors);
 
     // Brotli 11 twins of the text files in public/, served to clients that accept `br`.
     await waitForIdentityAssets();

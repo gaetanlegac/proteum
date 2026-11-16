@@ -34,16 +34,25 @@ const files = {
     'picture.avif': Buffer.from([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]),
     'photo.1a2b3c4d.webp': Buffer.alloc(2048, 7),
     'app/favicon.ico': Buffer.from([0, 0, 1, 0]),
+    // `.br` inside a name, and an uppercase AVIF extension.
+    'vendor/jquery.browser.min.js': script,
+    'Photo.AVIF': Buffer.from([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]),
+    // A gzip file the app ships is a download of its own, never an encoding of its neighbour.
+    'downloads/data.csv': 'a,b\n'.repeat(500),
+    'downloads/data.csv.gz': zlib.gzipSync('a,b\n'.repeat(500)),
 };
 for (const [file, content] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(publicRoot, file)), { recursive: true });
     fs.writeFileSync(path.join(publicRoot, file), content);
 }
-// A dev build links the app's own public files: they are never compressed in place.
+// A link the app put in its own public folder (the production build copies it as it is): never followed,
+// and a broken one or a loop does not stop the server from starting.
 const appOwnPublic = path.join(appRoot, 'public');
 fs.mkdirSync(appOwnPublic);
 fs.writeFileSync(path.join(appOwnPublic, 'linked.js'), script);
 fs.symlinkSync(path.join(appOwnPublic, 'linked.js'), path.join(publicRoot, 'linked.js'));
+fs.symlinkSync(path.join(appRoot, 'missing-target.js'), path.join(publicRoot, 'dangling.js'));
+fs.symlinkSync(publicRoot, path.join(publicRoot, 'loop'));
 
 globalThis.APP_OUTPUT_DIR = 'bin';
 globalThis.__DEV__ = false;
@@ -114,14 +123,21 @@ afterAll(async () => {
 test('the build writes a Brotli 11 twin beside each text file that gains from it, and nothing else', () => {
     const twins = fs
         .readdirSync(publicRoot, { recursive: true })
-        .filter((file) => file.endsWith('.br'))
+        // Node's recursive listing follows the `loop` link; the build step does not.
+        .filter((file) => file.endsWith('.br') && !file.startsWith('loop/'))
         .sort();
 
-    assert.deepEqual(twins, ['client.1a2b3c4d.css.br', 'client.1a2b3c4d.js.br', 'data/catalog.json.br', 'icons/sprite.svg.br']);
-    assert.equal(report.written, 4);
+    assert.deepEqual(twins, [
+        'client.1a2b3c4d.css.br',
+        'client.1a2b3c4d.js.br',
+        'data/catalog.json.br',
+        'icons/sprite.svg.br',
+        'vendor/jquery.browser.min.js.br',
+    ]);
+    assert.equal(report.written, 5);
     assert.equal(report.skipped, 1);
     assert.ok(report.bytesAfter < report.bytesBefore);
-    // The symlinked file of the app's own public folder is left alone.
+    // The linked file of the app's own public folder is left alone.
     assert.deepEqual(fs.readdirSync(appOwnPublic), ['linked.js']);
 
     const twin = fs.readFileSync(path.join(publicRoot, 'client.1a2b3c4d.js.br'));
@@ -200,4 +216,62 @@ test('a missing file is still a no-store 404 for a client that accepts br', asyn
     const missing = await request(target, '/public/missing.js', { 'Accept-Encoding': 'br' });
     assert.equal(missing.status, 404);
     assert.equal(missing.headers['cache-control'], 'no-store');
+});
+
+test('a name holding .br gets its own twin, and a .gz file is never served as an encoding', async () => {
+    const twin = await request(target, '/public/vendor/jquery.browser.min.js', { 'Accept-Encoding': 'br' });
+    assert.equal(twin.headers['content-encoding'], 'br');
+    assert.equal(zlib.brotliDecompressSync(twin.body).toString(), script);
+
+    const csv = await request(target, '/public/downloads/data.csv', { 'Accept-Encoding': 'gzip, br' });
+    assert.notEqual(csv.headers['content-encoding'], undefined, 'compression() still compresses it on the fly');
+    const decoded = csv.headers['content-encoding'] === 'br' ? zlib.brotliDecompressSync(csv.body) : zlib.gunzipSync(csv.body);
+    assert.equal(decoded.toString(), files['downloads/data.csv']);
+});
+
+test('a client that refuses br, in any casing or with *, never gets the twin', async () => {
+    const twin = fs.readFileSync(path.join(publicRoot, 'client.1a2b3c4d.js.br'));
+    for (const acceptEncoding of ['br;q=0', 'br;Q=0', 'BR;q=0, gzip', '*, br;q=0', 'gzip', 'identity']) {
+        const response = await request(target, '/public/client.1a2b3c4d.js', { 'Accept-Encoding': acceptEncoding });
+        // (compression() may still pick br on the fly for `br;Q=0`: its own parser reads only a lowercase q.)
+        assert.equal(response.body.equals(twin), false, acceptEncoding);
+        assert.match(response.headers.vary, /Accept-Encoding/, acceptEncoding);
+    }
+    const anything = await request(target, '/public/client.1a2b3c4d.js', { 'Accept-Encoding': '*' });
+    assert.equal(anything.headers['content-encoding'], 'br');
+});
+
+test('an answer that is not the twin carries no Brotli header: other methods, a twin removed after start', async () => {
+    const post = await new Promise((resolve, reject) => {
+        const req = http.request({ ...target, path: '/public/client.1a2b3c4d.js', method: 'POST', headers: { 'Accept-Encoding': 'br' } }, (res) => {
+            res.resume();
+            res.on('end', () => resolve({ status: res.statusCode, headers: res.headers }));
+        });
+        req.on('error', reject);
+        req.end();
+    });
+    assert.equal(post.status, 404);
+    assert.equal(post.headers['content-encoding'], undefined);
+    assert.equal(post.headers['cache-control'], 'no-store');
+
+    fs.renameSync(path.join(publicRoot, 'data/catalog.json.br'), path.join(publicRoot, 'data/catalog.json.br.moved'));
+    try {
+        const response = await request(target, '/public/data/catalog.json', { 'Accept-Encoding': 'br' });
+        assert.equal(response.status, 404);
+        assert.equal(response.headers['content-encoding'], undefined);
+        assert.equal(response.headers['content-type'], undefined);
+        assert.equal(response.headers['cache-control'], 'no-store');
+    } finally {
+        fs.renameSync(path.join(publicRoot, 'data/catalog.json.br.moved'), path.join(publicRoot, 'data/catalog.json.br'));
+    }
+});
+
+test('a malformed URL answers as before the twins, and an uppercase .AVIF is image/avif', async () => {
+    const malformed = await request(target, '/public/%E0%A4%A.js', { 'Accept-Encoding': 'br' });
+    assert.notEqual(malformed.status, 200);
+    assert.equal(malformed.headers['content-encoding'], undefined);
+
+    const avif = await request(target, '/public/Photo.AVIF', { 'Accept-Encoding': 'gzip, br' });
+    assert.equal(avif.headers['content-type'], 'image/avif');
+    assert.equal(avif.headers['content-encoding'], undefined);
 });

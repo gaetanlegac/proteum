@@ -13,7 +13,7 @@
 
 Sources: `cli/compiler/client/outputNames.ts` and `cli/compiler/common/files/*.ts`. Entries, CSS and fonts carry a hash since 2.6.1.
 
-Pictures: `avif`, `bmp`, `gif`, `ico`, `jpg`, `png`, `svg` and `webp` imports are asset modules (inlined under 4 KB, else a URL). AVIF since 2.8: Express 4's type table does not know it, so the `/public` handler sets `image/avif` itself.
+Pictures: `avif`, `bmp`, `gif`, `svg` and `webp` imports are asset modules (inlined under 4 KB, else a URL); in production a `jpg` or `png` import is responsive-loader's object with its `srcSet`, and `ico` is always a file of its own. AVIF since 2.8: Express 4's type table does not know it, so the `/public` handler sets `image/avif` itself (any case of the extension).
 
 ## Source maps
 
@@ -27,9 +27,9 @@ Dev keeps `eval-cheap-module-source-map`. Source: `getClientSourceMapOptions` in
 
 ## Compression
 
-`proteum build` ends by writing a Brotli 11 twin beside every `.js`, `.css`, `.svg` and `.json` of `bin/public` (`cli/compiler/common/precompress.ts`, node's zlib), after the identity assets are written. A twin that is not smaller than its file is not written. Symlinks are skipped.
+`proteum build` ends by writing a Brotli 11 twin beside every `.js`, `.css`, `.svg` and `.json` of `bin/public` (`cli/compiler/common/precompress.ts`, node's zlib, one worker thread per core), after the identity assets are written. A twin that is not smaller than its file is not written. Links are not followed.
 
-`/public` is served by `express-static-gzip` (2.x, on Express 4's serve-static): when the request accepts `br` and a twin exists, the answer is the twin with `Content-Encoding: br`, the type of the original file, its cache policy and `Vary: Accept-Encoding`; its ETag is the twin's own. Otherwise the file is answered as before and `compression()` compresses it on the fly for gzip. The twins are listed when the server starts: a file added to `bin/public` later is served without one.
+`/public` is served by `express.static` behind `server/services/router/http/precompressed.ts`, which lists the twins when the server starts (production profile only; links not followed, unreadable folders skipped). A GET or HEAD for a file with a twin, from a client that accepts `br` (`q=0` refused in any casing, `*` accepted), is answered with the twin: `Content-Encoding: br`, the type of the original file, its cache policy, and its own ETag. Every answer for a file with a twin carries `Vary: Accept-Encoding`. Anything else goes on unchanged: `compression()` may still compress it on the fly (br at level 4, or gzip), and a twin removed after the start, a POST or a malformed URL answer as without twins. A file added to `bin/public` after the start is served without a twin; a file edited there keeps its old twin, so edit the build output only by rebuilding. Custom rather than the `express-static-gzip` package, whose lookup mishandles each of those cases and whose start-up walk stops the boot on a broken link.
 
 Nothing may name these files by hand. The server reads every entry and page asset from `client-manifest.json` (written after each client build by `cli/compiler/common/clientManifest.ts`), and the document renders the tags from it.
 
@@ -47,7 +47,7 @@ Nothing may name these files by hand. The server reads every entry and page asse
 
 Preloads:
 
-- `preloadFonts: ['figtree-latin']` in `proteum.config.ts` names fonts by their source file name without extension. The client build writes their hashed paths to `client-manifest.json` (`preloadFonts`, woff2 preferred when several formats exist) and `proteum build` fails on a name it did not emit. Every page links them with `as="font"`, their type and `crossorigin="anonymous"`.
+- `preloadFonts: ['figtree-latin']` in `proteum.config.ts` names fonts by their source file name without extension. The client build writes their hashed paths to `client-manifest.json` (`preloadFonts`, woff2 preferred, then woff, then ttf) and `proteum build` fails on a name it did not emit in one of those formats, or that two source files share. Every page links them with `as="font"`, their type and `crossorigin="anonymous"`.
 - `page.preload({ href, as, type, crossorigin, imagesrcset, imagesizes, fetchpriority, media })` (from `render` or `data`) adds the page's own, for its LCP picture mostly: pass the `srcset` and `sizes` of the `<img>`, so the browser fetches the same file.
 - Fonts first, then the page's preloads in call order; a second preload of the same `as` and `href` is dropped. Each one is mirrored in the `Link` response header (`</public/fonts/…woff2>; rel=preload; as=font; type="font/woff2"; crossorigin=anonymous`), after any `Link` the route set, so a CDN can send them as a 103 Early Hint. A preload that is not printable ASCII stays in the HTML only.
 

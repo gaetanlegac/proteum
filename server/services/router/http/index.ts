@@ -18,7 +18,6 @@ import morgan from 'morgan';
 import hpp from 'hpp'; // Protection contre la pollution des reuqtees http
 import helmet from 'helmet'; // Diverses protections
 import compression from 'compression';
-import expressStaticGzip from 'express-static-gzip';
 import fileUpload from 'express-fileupload';
 import cookieParser from 'cookie-parser';
 
@@ -52,6 +51,7 @@ import { createRuntimeProteumMcpProvider } from '@server/app/devMcp';
 
 // Middlewaees (core)
 import { isMutipart, MiddlewareFormData } from './multipart';
+import { createPublicStaticHandler } from './precompressed';
 import {
     resolveHttpCacheConfig,
     resolvePublicAssetCacheControl,
@@ -490,13 +490,11 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         routes.use('/public', cors());
         routes.use(
             '/public',
-            // serve-static (Express 4's own copy) plus the `.br` twins the production build writes
-            // (cli/compiler/common/precompress.ts): a client that accepts `br` gets the Brotli 11 twin,
-            // with `Vary: Accept-Encoding`; `compression()` above leaves an encoded answer alone.
-            expressStaticGzip(path.join(Container.path.root, APP_OUTPUT_DIR, 'public'), {
-                enableBrotli: true,
-                orderPreference: ['br'],
-                serveStatic: {
+            // express.static plus the `.br` twins the production build writes (./precompressed.ts):
+            // `compression()` above leaves an answer that already has a Content-Encoding alone.
+            createPublicStaticHandler(
+                path.join(Container.path.root, APP_OUTPUT_DIR, 'public'),
+                {
                     dotfiles: 'deny',
                     etag: publicAssetEtag,
                     lastModified: publicAssetLastModified,
@@ -504,7 +502,7 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
                         if (!publicAssetEtag) res.removeHeader('ETag');
                         if (!publicAssetLastModified) res.removeHeader('Last-Modified');
                         // Express 4's type table predates AVIF; send() keeps a type set here.
-                        if (filePath.endsWith('.avif')) res.setHeader('Content-Type', 'image/avif');
+                        if (/\.avif$/i.test(filePath)) res.setHeader('Content-Type', 'image/avif');
 
                         res.setHeader(
                             'Cache-Control',
@@ -517,7 +515,9 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
                         );
                     },
                 },
-            }),
+                // Dev builds write no twin: no walk of the linked public folders at each restart.
+                { precompressed: this.app.env.profile !== 'dev' },
+            ),
             (req, res) => {
                 // Never cacheable: during a deploy an instance of the previous build can answer for a
                 // file the new build serves, and a CDN that kept that 404 broke every page naming the

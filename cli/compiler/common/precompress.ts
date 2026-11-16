@@ -5,14 +5,11 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import zlib from 'zlib';
-import { promisify } from 'util';
+import { Worker } from 'worker_threads';
 
 /*----------------------------------
 - CONSTANTS
 ----------------------------------*/
-
-const brotliCompress = promisify(zlib.brotliCompress);
 
 /** Text files the router may answer with a `.br` twin. Pictures, fonts and videos are compressed already. */
 export const precompressedExtensions = ['.js', '.css', '.svg', '.json'];
@@ -31,15 +28,24 @@ export type TPrecompressReport = {
 - HELPERS
 ----------------------------------*/
 
-/** Every regular file under `directory`. Symlinks are left alone: in dev they point into the app's own `public/`. */
+/**
+ * Every regular file under `directory`, without recursion (a folder of icons can hold tens of thousands).
+ * Symlinks are not followed: the production build copies the app's public files, and a link in them is
+ * the app's own business.
+ */
 const listFiles = async (directory: string): Promise<string[]> => {
-    if (!(await fs.stat(directory).catch(() => undefined))?.isDirectory()) return [];
-
     const files: string[] = [];
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-        const entryPath = path.join(directory, entry.name);
-        if (entry.isDirectory()) files.push(...(await listFiles(entryPath)));
-        else if (entry.isFile()) files.push(entryPath);
+    const directories = [directory];
+
+    while (directories.length > 0) {
+        const current = directories.pop() as string;
+        const entries = await fs.readdir(current, { withFileTypes: true }).catch(() => []);
+
+        for (const entry of entries) {
+            const entryPath = path.join(current, entry.name);
+            if (entry.isDirectory()) directories.push(entryPath);
+            else if (entry.isFile()) files.push(entryPath);
+        }
     }
 
     return files;
@@ -49,53 +55,79 @@ export const shouldPrecompress = (filepath: string) =>
     precompressedExtensions.includes(path.extname(filepath).toLowerCase());
 
 /*----------------------------------
+- WORKER
+----------------------------------*/
+
+// Runs in each worker thread: Brotli 11 on its share of the files, one at a time, then reports its totals.
+const workerSource = `
+const fs = require('fs');
+const zlib = require('zlib');
+const { parentPort, workerData } = require('worker_threads');
+const report = { written: 0, skipped: 0, bytesBefore: 0, bytesAfter: 0 };
+for (const filepath of workerData.files) {
+    const content = fs.readFileSync(filepath);
+    const compressed = zlib.brotliCompressSync(content, {
+        params: {
+            [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
+            [zlib.constants.BROTLI_PARAM_QUALITY]: zlib.constants.BROTLI_MAX_QUALITY,
+            [zlib.constants.BROTLI_PARAM_SIZE_HINT]: content.length,
+        },
+    });
+    const twinPath = filepath + workerData.twinExtension;
+    if (compressed.length >= content.length) {
+        fs.rmSync(twinPath, { force: true });
+        report.skipped++;
+        continue;
+    }
+    fs.writeFileSync(twinPath, compressed);
+    report.written++;
+    report.bytesBefore += content.length;
+    report.bytesAfter += compressed.length;
+}
+parentPort.postMessage(report);
+`;
+
+const runWorker = (files: string[]) =>
+    new Promise<TPrecompressReport>((resolve, reject) => {
+        const worker = new Worker(workerSource, { eval: true, workerData: { files, twinExtension: brotliTwinExtension } });
+        worker.once('message', resolve);
+        worker.once('error', reject);
+        worker.once('exit', (code) => {
+            if (code !== 0) reject(new Error(`Brotli worker exited with code ${code}.`));
+        });
+    });
+
+/*----------------------------------
 - PRECOMPRESS
 ----------------------------------*/
 
 /**
  * Writes a Brotli 11 twin (`client.1a2b3c4d.js.br`) beside each text file of the production `public/`,
- * which `express-static-gzip` serves to clients that accept `br` (server/services/router/http/index.ts).
- * Cloudflare compresses at level 4 on the fly; level 11 saves another 13 to 22% on JS and CSS, too slow
- * to run per request. A twin that is not smaller than its file is not written.
+ * which the router serves to clients that accept `br` (server/services/router/http/precompressed.ts).
+ * Cloudflare compresses at level 4 on the fly; level 11 saves another 13 to 22% on the website's JS and
+ * CSS, too slow to run per request. A twin that is not smaller than its file is not written.
  *
- * Node's own zlib does the work: the npm candidates either see only the bundler's assets
- * (compression-webpack-plugin misses the files copied from the app's `public/` and the identity
- * assets) or are command-line tools.
+ * Node's own zlib does the work, one worker thread per core: level 11 costs about 3 ms even for a small
+ * file, and zlib's async calls share libuv's 4 threads (34 s for Product's 12,500 icons; 7 s for 12,500
+ * small SVGs with one worker per core on a 10-core machine). No npm package fits: compression-webpack-plugin sees only the bundler's assets (not the
+ * files copied from the app's `public/`), and the others are command-line tools.
  */
 export const precompressPublicAssets = async (publicDirectory: string): Promise<TPrecompressReport> => {
     const files = (await listFiles(publicDirectory)).filter(shouldPrecompress);
     const report: TPrecompressReport = { written: 0, skipped: 0, bytesBefore: 0, bytesAfter: 0 };
-    let next = 0;
+    if (files.length === 0) return report;
 
-    const work = async () => {
-        while (next < files.length) {
-            const filepath = files[next++];
-            const twinPath = filepath + brotliTwinExtension;
-            const content = await fs.readFile(filepath);
-            const compressed = await brotliCompress(content, {
-                params: {
-                    [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
-                    [zlib.constants.BROTLI_PARAM_QUALITY]: zlib.constants.BROTLI_MAX_QUALITY,
-                    [zlib.constants.BROTLI_PARAM_SIZE_HINT]: content.length,
-                },
-            });
+    // Dealt round-robin, so each worker gets a mix of large and small files.
+    const workerCount = Math.max(1, Math.min(os.availableParallelism?.() || os.cpus().length, Math.ceil(files.length / 16)));
+    const shares: string[][] = Array.from({ length: workerCount }, () => []);
+    files.forEach((file, index) => shares[index % workerCount].push(file));
 
-            if (compressed.length >= content.length) {
-                await fs.rm(twinPath, { force: true });
-                report.skipped++;
-                continue;
-            }
-
-            await fs.writeFile(twinPath, compressed);
-            report.written++;
-            report.bytesBefore += content.length;
-            report.bytesAfter += compressed.length;
-        }
-    };
-
-    // zlib runs on libuv's pool; one reader per core keeps it busy without holding every file in memory.
-    const concurrency = Math.max(1, Math.min(files.length, os.availableParallelism?.() || os.cpus().length));
-    await Promise.all(Array.from({ length: concurrency }, work));
+    for (const share of await Promise.all(shares.map(runWorker))) {
+        report.written += share.written;
+        report.skipped += share.skipped;
+        report.bytesBefore += share.bytesBefore;
+        report.bytesAfter += share.bytesAfter;
+    }
 
     return report;
 };

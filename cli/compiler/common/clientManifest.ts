@@ -14,29 +14,38 @@ export type TClientBuildManifest = {
     preloadFonts: TClientManifestPreloadFont[];
 };
 
-const fontTypes: Record<string, string> = { woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf' };
+const fontTypes: Record<string, string> = { woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf' };
 // Preferred first: a browser that takes the preload takes woff2.
-const fontExtensionsByPreference = ['woff2', 'woff', 'otf', 'ttf'];
+const fontExtensionsByPreference = ['woff2', 'woff', 'ttf'];
 // `fonts/[name].[contenthash:8][ext]`, the name the font rule gives (cli/compiler/common/files/autres.ts).
-const emittedFontPattern = /^fonts\/(.+)\.[0-9a-f]{8}\.(woff2|woff|ttf|otf)$/;
+const emittedFontPattern = /^fonts\/(.+)\.[0-9a-f]{8}\.(woff2|woff|ttf)$/;
 
 /**
- * The emitted file of each declared font, in declaration order. A name with no emitted file is
- * returned in `missing`: the production build fails on it (cli/commands/build.ts).
+ * The emitted file of each declared font, in declaration order. A name with no emitted woff2, woff or ttf
+ * is returned in `missing`; a name two source files share (`regular/latin.woff2`, `bold/latin.woff2`) in
+ * `ambiguous`. The production build fails on either (cli/commands/build.ts).
  */
 export const resolvePreloadFonts = (assetNames: string[], declared: string[] = []) => {
     const emitted = new Map<string, Map<string, string>>();
+    const clashes = new Set<string>();
     for (const assetName of assetNames) {
         const match = emittedFontPattern.exec(assetName);
         if (!match) continue;
         const byExtension = emitted.get(match[1]) || new Map<string, string>();
+        const previous = byExtension.get(match[2]);
+        if (previous !== undefined && previous !== assetName) clashes.add(match[1]);
         byExtension.set(match[2], assetName);
         emitted.set(match[1], byExtension);
     }
 
     const preloadFonts: TClientManifestPreloadFont[] = [];
     const missing: string[] = [];
+    const ambiguous: string[] = [];
     for (const name of declared) {
+        if (clashes.has(name)) {
+            ambiguous.push(name);
+            continue;
+        }
         const byExtension = emitted.get(name);
         const extension = fontExtensionsByPreference.find((candidate) => byExtension?.has(candidate));
         if (!byExtension || !extension) {
@@ -46,7 +55,7 @@ export const resolvePreloadFonts = (assetNames: string[], declared: string[] = [
         preloadFonts.push({ href: byExtension.get(extension) as string, type: fontTypes[extension] });
     }
 
-    return { preloadFonts, missing };
+    return { preloadFonts, missing, ambiguous };
 };
 
 const filterAsset = (asset: string) => !asset.endsWith('.map');
@@ -98,7 +107,7 @@ export const writeClientManifest = (stats: Stats, outputPath: string, declaredPr
         ]),
     );
 
-    const { preloadFonts, missing } = resolvePreloadFonts(
+    const { preloadFonts, missing, ambiguous } = resolvePreloadFonts(
         (statsJson.assets || []).map((asset) => asset.name),
         declaredPreloadFonts,
     );
@@ -106,5 +115,22 @@ export const writeClientManifest = (stats: Stats, outputPath: string, declaredPr
 
     fs.writeJsonSync(getClientManifestPath(outputPath), manifest, { spaces: 2 });
 
-    return { manifest, missingPreloadFonts: missing };
+    return { manifest, missingPreloadFonts: missing, ambiguousPreloadFonts: ambiguous };
+};
+
+/** The message for declared fonts the build cannot preload, `undefined` when there is none. */
+export const describePreloadFontErrors = (missing: string[], ambiguous: string[] = []) => {
+    const errors = [
+        ...(missing.length > 0
+            ? [
+                  `proteum.config.ts preloadFonts names no emitted woff2, woff or ttf font: ${missing.join(', ')}. ` +
+                      'Use the font file name without its extension, and import the font from a stylesheet.',
+              ]
+            : []),
+        ...(ambiguous.length > 0
+            ? [`proteum.config.ts preloadFonts names a font two source files share: ${ambiguous.join(', ')}. Rename one of them.`]
+            : []),
+    ];
+
+    return errors.length > 0 ? errors.join(' ') : undefined;
 };

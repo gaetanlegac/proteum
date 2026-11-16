@@ -13,7 +13,7 @@ import cli from '..';
 import createServerConfig from './server';
 import createClientConfig from './client';
 import { TCompileMode, TCompileOutputTarget } from './common';
-import { writeClientManifest } from './common/clientManifest';
+import { describePreloadFontErrors, writeClientManifest } from './common/clientManifest';
 import { logVerbose } from '../runtime/verbose';
 import { createCompileReporter, type TCompileReporter } from '../presentation/compileReporter';
 import { generateRoutingArtifacts } from './artifacts/routing';
@@ -32,8 +32,8 @@ type TRecentCompilationResult = { succeeded: boolean; hash?: string; modifiedFil
 ----------------------------------*/
 export default class Compiler {
     public compiling: { [compiler: string]: Promise<void> } = {};
-    // Declared `preloadFonts` the last client build did not emit; the production build fails on any.
-    public missingPreloadFonts: string[] = [];
+    // What is wrong with the declared `preloadFonts` in the last client build; the production build fails on it.
+    public preloadFontErrors?: string;
     private recentCompilationResults: { [compiler: string]: TRecentCompilationResult } = {};
     private recentModifiedFiles: { [compiler: string]: string[] } = {};
     private manualModifiedFiles: { [compiler: string]: Set<string> } = {};
@@ -267,17 +267,13 @@ export default class Compiler {
                     console.error(`[${name}] Failed to compile after ${time} ms`);
                 } else {
                     if (name === 'client') {
-                        const { missingPreloadFonts } = writeClientManifest(
+                        const { missingPreloadFonts, ambiguousPreloadFonts } = writeClientManifest(
                             stats,
                             app.outputPath(this.outputTarget),
                             app.setup.preloadFonts,
                         );
-                        this.missingPreloadFonts = missingPreloadFonts;
-                        if (missingPreloadFonts.length > 0)
-                            console.error(
-                                `[client] proteum.config.ts preloadFonts names no emitted font: ${missingPreloadFonts.join(', ')}. ` +
-                                    'Use the font file name without its extension, and import the font from a stylesheet.',
-                            );
+                        this.preloadFontErrors = describePreloadFontErrors(missingPreloadFonts, ambiguousPreloadFonts);
+                        if (this.preloadFontErrors) console.error(`[client] ${this.preloadFontErrors}`);
                     }
 
                     this.debug && logVerbose(stats.toString(compiler.options.stats));

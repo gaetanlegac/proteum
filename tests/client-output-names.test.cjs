@@ -140,8 +140,13 @@ test('a preload font prefers woff2, and keeps the declaration order', () => {
             { href: 'fonts/a.89abcdef.woff2', type: 'font/woff2' },
         ],
         missing: [],
+        ambiguous: [],
     });
     assert.deepEqual(resolvePreloadFonts(assets).preloadFonts, []);
+    // Two source files named alike emit two files of one name: the build cannot tell which to preload.
+    assert.deepEqual(resolvePreloadFonts(['fonts/latin.0123abcd.woff2', 'fonts/latin.89abcdef.woff2'], ['latin']).ambiguous, ['latin']);
+    // An eot-only font has nothing a browser preloads.
+    assert.deepEqual(resolvePreloadFonts(['fonts/old.0123abcd.eot'], ['old']).missing, ['old']);
 });
 
 /** Every file under `directory`, relative to it. */
