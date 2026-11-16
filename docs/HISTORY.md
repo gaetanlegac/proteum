@@ -2,7 +2,7 @@
 
 Notable framework changes, newest first. Commit messages hold the rest.
 
-## 2.8.0 (unreleased)
+## 2.8.0 (2026-11-16)
 
 Page weight and first byte for public pages. Nothing to change in apps to keep today's behavior, except where a line says so. See [client-assets.md](client-assets.md).
 
