@@ -2,7 +2,7 @@
 - DEPENDANCES
 ----------------------------------*/
 
-import fs from 'fs-extra';
+import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import zlib from 'zlib';
@@ -33,7 +33,7 @@ export type TPrecompressReport = {
 
 /** Every regular file under `directory`. Symlinks are left alone: in dev they point into the app's own `public/`. */
 const listFiles = async (directory: string): Promise<string[]> => {
-    if (!(await fs.pathExists(directory))) return [];
+    if (!(await fs.stat(directory).catch(() => undefined))?.isDirectory()) return [];
 
     const files: string[] = [];
     for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
@@ -81,7 +81,7 @@ export const precompressPublicAssets = async (publicDirectory: string): Promise<
             });
 
             if (compressed.length >= content.length) {
-                await fs.remove(twinPath);
+                await fs.rm(twinPath, { force: true });
                 report.skipped++;
                 continue;
             }
