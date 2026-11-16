@@ -14,8 +14,16 @@ import { getClientBuildManifest } from './clientManifest';
 import { buildPreloadLinkHeader, dedupePreloads, fontPreloads, preloadLinkAttributes } from './preloads';
 
 /*----------------------------------
-- TYPES
+- HELPERS
 ----------------------------------*/
+
+/**
+ * JSON written inside an inline `<script>`: `<` becomes `\u003c`, so no value (a query parameter, a
+ * product name) can close the script or open a comment, and U+2028/U+2029 are escaped for older parsers.
+ * Valid in both JSON and JavaScript, so `window.ssr` and JSON-LD read the same values.
+ */
+export const escapeInlineJson = (json: string) =>
+    json.replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 
 /*----------------------------------
 - SERVICE
@@ -25,37 +33,6 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
         public router: TRouter,
         public app = router.app,
     ) {}
-
-    public staticDocument() {
-        const routesForClient = JSON.stringify(this.router.ssrRoutes);
-        return (
-            '<!doctype html>' +
-            renderToString(
-                <html lang="en">
-                    <head>
-                        {/* Format */}
-                        <meta charSet="utf-8" />
-                        <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-                        {/* CSS */}
-                        {this.clientStyles()}
-
-                        {/* JS */}
-                        {this.clientScripts()}
-                    </head>
-                    {/* Page data after the content, as in `page()`: the entry scripts are `defer`. */}
-                    <body
-                        dangerouslySetInnerHTML={{
-                            __html: this.pageDataScript(
-                                `window.routes=${routesForClient};` +
-                                    (this.app.env.profile === 'dev' ? 'window.dev = true;' : ''),
-                            ),
-                        }}
-                    ></body>
-                </html>,
-            )
-        );
-    }
 
     public async page(html: string, page: Page<TRouter>, response: ServerResponse<TRouter>) {
         let attrsBody = { className: [...page.bodyClass].join(' ') };
@@ -71,8 +48,8 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                         <meta name="viewport" content="width=device-width, initial-scale=1" />
 
                         {/* Preloads: declared fonts, then the page's own (`page.preload`), also sent as `Link` */}
-                        {preloads.map((preload) => (
-                            <link key={`${preload.as} ${preload.href}`} {...preloadLinkAttributes(preload)} />
+                        {preloads.map((preload, index) => (
+                            <link key={index} {...preloadLinkAttributes(preload)} />
                         ))}
 
                         {/* Mobile */}
@@ -122,7 +99,7 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                         <script
                             type="application/ld+json"
                             dangerouslySetInnerHTML={{
-                                __html: JSON.stringify({ '@context': 'http://schema.org', '@graph': page.jsonld }),
+                                __html: escapeInlineJson(JSON.stringify({ '@context': 'http://schema.org', '@graph': page.jsonld })),
                             }}
                         />
                     </head>
@@ -211,8 +188,8 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
     /** `window.ssr` and `window.routes`, recorded in the trace with their size. */
     private ssrData(response: ServerResponse<TRouter>, page: Page<TRouter>) {
         const ssrData = response.forSsr(page);
-        const context = safeStringify(ssrData);
-        const routesForClient = JSON.stringify(this.router.ssrRoutes);
+        const context = escapeInlineJson(safeStringify(ssrData));
+        const routesForClient = escapeInlineJson(JSON.stringify(this.router.ssrRoutes));
         const customContextKeys = Object.keys(ssrData).filter((key) => !['request', 'page', 'user', 'domains'].includes(key));
 
         this.app.container.Trace.record(

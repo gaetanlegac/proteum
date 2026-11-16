@@ -13,6 +13,7 @@
 const { v4: uuid } = require('uuid') as { v4: () => string };
 import got from 'got';
 import type express from 'express';
+import onHeaders from 'on-headers';
 import zod, { ZodError } from 'zod';
 export { default as schema } from 'zod';
 
@@ -55,7 +56,13 @@ import ServerRequest from './request';
 import ServerResponse, { TRouterContext, TRouterContextServices } from './response';
 import Page from './response/page';
 import HTTP, { Config as HttpServiceConfig, resolveHttpCacheConfig } from './http';
-import { applyEdgeCachePolicy, buildEdgeCacheControl, setCookieNames, type TEdgeCacheDecision } from './http/cache';
+import {
+    applyEdgeCachePolicy,
+    buildEdgeCacheControl,
+    guardEdgeCacheAfterPolicy,
+    setCookieNames,
+    type TEdgeCacheDecision,
+} from './http/cache';
 import {
     isPageCacheEntryStale,
     readPreloadLinkHeader,
@@ -123,6 +130,10 @@ const LogPrefix = '[router]';
 
 // A background page render that takes longer is abandoned; the stored copy stays.
 const staticRenderTimeoutMs = 60 * 1000;
+// Background renders started by stale hits at once; the hourly sweep is not capped (an app may queue it).
+const maxConcurrentStaticRefreshes = 4;
+// After a failed background render, hits keep serving the stored copy this long before trying again.
+const staticRefreshRetryDelayMs = 5 * 60 * 1000;
 
 export type Config<
     TServices extends TRouterServicesList,
@@ -199,6 +210,8 @@ export default class ServerRouter<
     public cache: TPageCache = {};
     // Paths re-rendering in the background after a stale hit, so a burst of hits starts one render.
     private staticRefreshesInFlight = new Set<string>();
+    // Paths whose last background render failed, with the time before which no hit starts another.
+    private staticRefreshRetryAt = new Map<string, number>();
 
     private staticRoutesRefreshInterval?: NodeJS.Timeout;
 
@@ -308,6 +321,8 @@ export default class ServerRouter<
             });
 
             if (response.statusCode !== 200) {
+                // The page is gone: stop serving it. A 5xx or a timeout keeps the stored copy.
+                if (response.statusCode === 404 || response.statusCode === 410) delete this.cache[url];
                 throw new Error(`Static render returned ${response.statusCode} for ${fullUrl}`);
             }
 
@@ -327,13 +342,21 @@ export default class ServerRouter<
     /**
      * Stale while revalidate: a hit on a page older than its `refresh` is served at once, and one render
      * starts in the background. Through `this.renderStatic`, so an app that wraps it keeps control.
+     * One render per path at a time (hits and the sweep share it), at most `maxConcurrentStaticRefreshes`
+     * started by hits, and none for `staticRefreshRetryDelayMs` after one failed.
      */
-    private refreshStaticPageInBackground(url: string, entry: TPageCacheEntry) {
+    private refreshStaticPageInBackground(url: string, entry: TPageCacheEntry, { capped = true } = {}) {
         if (this.staticRefreshesInFlight.has(url)) return;
+        if (capped && this.staticRefreshesInFlight.size >= maxConcurrentStaticRefreshes) return;
+        if (capped && (this.staticRefreshRetryAt.get(url) || 0) > Date.now()) return;
 
         this.staticRefreshesInFlight.add(url);
         void this.renderStatic(url, entry.options)
+            .then(() => {
+                this.staticRefreshRetryAt.delete(url);
+            })
             .catch((error) => {
+                this.staticRefreshRetryAt.set(url, Date.now() + staticRefreshRetryDelayMs);
                 console.error('[router] Static refresh failed, the stored copy stays', url, error);
             })
             .finally(() => {
@@ -401,11 +424,7 @@ export default class ServerRouter<
 
         for (const pageUrl in this.cache) {
             const page = this.cache[pageUrl];
-            if (isPageCacheEntryStale(page)) {
-                void this.renderStatic(pageUrl, page.options).catch((error) => {
-                    console.error('[router] Static refresh failed', pageUrl, error);
-                });
-            }
+            if (isPageCacheEntryStale(page)) this.refreshStaticPageInBackground(pageUrl, page, { capped: false });
         }
     }
 
@@ -619,6 +638,11 @@ export default class ServerRouter<
                     throw new Error(`Route ${route.path}: ${(error as Error).message}`);
                 }
             }
+        for (const route of this.routes) {
+            const maxEntries = route.options.static?.maxEntries;
+            if (maxEntries !== undefined && !(Number.isInteger(maxEntries) && maxEntries > 0))
+                throw new Error(`Route ${route.path}: static.maxEntries must be a positive integer. Received ${JSON.stringify(maxEntries)}.`);
+        }
 
         // Ordonne par ordre de priorité
         this.config.debug && console.info('Loading routes ...');
@@ -792,7 +816,7 @@ export default class ServerRouter<
 
                 // The stored document's preloads, as the first render sent them.
                 if (cachedPage.link && !res.getHeader('Link')) res.setHeader('Link', cachedPage.link);
-                const edgeCache = this.applyRouteEdgeCache(res, request, this.pageRouteOf(req.path), response.statusCode);
+                const edgeCache = this.applyRouteEdgeCache(res, request, this.pageRouteOf(req.path), response);
 
                 this.app.container.Trace.record(
                     request.id,
@@ -818,7 +842,7 @@ export default class ServerRouter<
             res.status(response.statusCode);
             // Headers
             res.header(response.headers);
-            const edgeCache = this.applyRouteEdgeCache(res, request, response.route, response.statusCode);
+            const edgeCache = this.applyRouteEdgeCache(res, request, response.route, response);
             // Data
             this.app.container.Trace.record(
                 request.id,
@@ -1096,9 +1120,15 @@ export default class ServerRouter<
         // Only a 200 is stored: a page that answered 404 or 503 for this path renders again next time.
         if (response.request.path && route.options.static && response.statusCode === 200) {
             const staticUrls = route.options.static.urls.includes('*') ? [response.request.path] : route.options.static.urls;
+            // The page every visitor of the path will get: only from a GET with no query string and no
+            // signed-in user. Its query and user are written into its `window.ssr`, and the cache key is the path.
+            const request = response.request as ServerRequest<this> & { req?: { query?: object } };
+            const isSharedRender =
+                request.method === 'GET' && !request.user && Object.keys(request.req?.query || {}).length === 0;
 
             for (const staticUrl of staticUrls) {
                 if (!staticUrl) continue;
+                if (staticUrl === response.request.path && !isSharedRender) continue;
 
                 console.log('[router] Set in cache', staticUrl);
                 this.app.container.Trace.record(
@@ -1202,21 +1232,31 @@ export default class ServerRouter<
         return this.routes.find((route) => route.method === 'GET' && route.options.accept === 'html' && route.regex.test(path));
     }
 
-    /** Applies the route's `edgeCache` policy at send time; logs an answer refused because it sets a cookie. */
+    /**
+     * Applies the route's `edgeCache` policy at send time, then checks again when the headers are written;
+     * logs an answer refused because it sets a cookie.
+     */
     private applyRouteEdgeCache(
         res: express.Response,
         request: ServerRequest<this>,
         route: { options: Partial<TRouteOptions> } | undefined,
-        statusCode: number,
+        response: { statusCode: number; headers: { [name: string]: string } },
     ): TEdgeCacheDecision {
-        const decision = applyEdgeCachePolicy(res, route?.options.edgeCache, { method: request.method, statusCode });
-
-        if (decision === 'refused-cookie')
+        const logRefusal = () =>
             console.warn(
                 LogPrefix,
                 `Not cacheable at the edge: ${request.path} sets the cookie(s) ${setCookieNames(res.getHeader('Set-Cookie')).join(', ')}. ` +
-                    'The answer keeps the default HTML policy.',
+                    'The answer is sent private, no-store.',
             );
+        const decision = applyEdgeCachePolicy(res, route?.options.edgeCache, {
+            method: request.method,
+            statusCode: response.statusCode,
+            ownCacheControl: response.headers['Cache-Control'],
+            signedIn: Boolean(request.user),
+        });
+
+        if (decision === 'refused-cookie') logRefusal();
+        if (decision === 'applied') guardEdgeCacheAfterPolicy(res, onHeaders, logRefusal);
 
         return decision;
     }

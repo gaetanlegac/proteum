@@ -124,11 +124,21 @@ test('an inline page script stays in the head, before the page data, and an asyn
     assert.match(head, /<script type="text\/javascript" src="https:\/\/tags\.example\.com\/tag\.js" async><\/script>/);
 });
 
-test('the static document puts its routes after the content too', () => {
-    const document = createRenderer().staticDocument();
+test('values in the page data and the JSON-LD can neither close the script nor open a comment', async () => {
+    const hostile = '</script><script>alert(document.domain)</script><!--\u2028';
+    const page = createPage({ data: { q: hostile }, jsonld: [{ '@type': 'Thing', name: hostile }] });
+    const document = await createRenderer().page('<main></main>', page, createResponse());
 
-    assert.doesNotMatch(document.slice(0, document.indexOf('</head>')), /window\.routes/);
-    assert.match(document, /<body><script type="text\/javascript">window\.routes=\[\{"code":404,"chunk":"error_404"\}\];<\/script><\/body><\/html>$/);
+    assert.equal(document.match(/<\/script>/g).length, document.match(/<script/g).length);
+    assert.doesNotMatch(document, /<!--/);
+    assert.doesNotMatch(document, /\u2028/);
+    // The browser reads the same values back.
+    const ssrSource = document.slice(document.lastIndexOf('<script type="text/javascript">') + 31, document.lastIndexOf('</script>'));
+    const window = {};
+    new Function('window', ssrSource)(window);
+    assert.equal(window.ssr.page.data.q, hostile);
+    const jsonLd = document.match(/<script type="application\/ld\+json">(.*?)<\/script>/)[1];
+    assert.equal(JSON.parse(jsonLd)['@graph'][0].name, hostile);
 });
 
 test('Preact hydrates the body content and leaves the trailing page data script alone', () => {
@@ -175,7 +185,7 @@ test('declared fonts and the page preloads are linked in the head and mirrored i
                 fetchpriority: 'high',
             },
             // A second call for the same file is dropped.
-            { href: '/public/hero-640.avif', as: 'image' },
+            { href: '/public/hero-640.avif', as: 'image', imagesrcset: '/public/hero-640.avif 640w, /public/hero-1280.avif 1280w' },
         ],
     });
     const response = createResponse({ Link: '</other>; rel=preconnect' });
@@ -215,5 +225,7 @@ test('a preload Node would refuse in a header stays in the HTML only', () => {
 
     assert.equal(buildPreloadLinkHeader(preloads), '</public/ok.avif>; rel=preload; as=image; media="(min-width: \\"x\\")"');
     assert.deepEqual(dedupePreloads([{ href: '/a', as: 'image' }, { href: '/a', as: 'fetch' }, { href: '/a', as: 'image' }]).length, 2);
+    // Art direction: the same file for another medium is a preload of its own.
+    assert.equal(dedupePreloads([{ href: '/a', as: 'image', media: '(max-width: 600px)' }, { href: '/a', as: 'image' }]).length, 2);
     assert.deepEqual(fontPreloads(undefined), []);
 });

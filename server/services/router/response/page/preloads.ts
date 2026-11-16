@@ -18,12 +18,15 @@ type TManifestPreloadFont = { href: string; type: string };
 export const fontPreloads = (fonts: TManifestPreloadFont[] = [], publicPath = '/public/'): TPagePreload[] =>
     fonts.map((font) => ({ href: publicPath + font.href, as: 'font', type: font.type, crossorigin: 'anonymous' }));
 
-/** One preload per `as` and `href`, first one kept: fonts first, then the page's own in call order. */
+/**
+ * One preload per resource, first one kept: fonts first, then the page's own in call order. Preloads of the
+ * same file for other media or another `srcset` (art direction) are kept apart.
+ */
 export const dedupePreloads = (preloads: TPagePreload[]) => {
     const seen = new Set<string>();
 
     return preloads.filter((preload) => {
-        const key = `${preload.as} ${preload.href}`;
+        const key = [preload.as, preload.href, preload.media || '', preload.imagesrcset || ''].join(' ');
         if (seen.has(key)) return false;
         seen.add(key);
         return true;

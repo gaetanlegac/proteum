@@ -76,6 +76,7 @@ const createRouter = ({ routes = [], answer }) => {
     Object.assign(router, {
         cache: {},
         staticRefreshesInFlight: new Set(),
+        staticRefreshRetryAt: new Map(),
         routes,
         config: { http: {} },
         app: {
@@ -155,7 +156,7 @@ test('a 200 of an edgeCache route is cacheable at the edge, and nothing says oth
     assert.equal(response.headers['set-cookie'], undefined);
 });
 
-test('an answer that sets a cookie is refused at the edge, keeps the HTML default and is logged', async () => {
+test('an answer that sets a cookie is refused at the edge, sent private, no-store and logged', async () => {
     const router = createRouter({
         routes: [edgeRoute],
         answer: (request) => {
@@ -169,7 +170,7 @@ test('an answer that sets a cookie is refused at the edge, keeps the HTML defaul
     try {
         const response = await get(await serve(router), '/pricing');
 
-        assert.equal(response.headers['cache-control'], 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        assert.equal(response.headers['cache-control'], 'private, no-store');
         assert.equal(response.headers['surrogate-control'], 'no-store');
         assert.match(response.headers['set-cookie'][0], /^visitorId=v1/);
         assert.equal(warnings.length, 1);
@@ -177,6 +178,49 @@ test('an answer that sets a cookie is refused at the edge, keeps the HTML defaul
     } finally {
         console.warn = consoleWarn;
     }
+});
+
+test('a cookie written with the headers, after the policy, still turns the answer private', async () => {
+    const onHeaders = require('on-headers');
+    const router = createRouter({
+        routes: [edgeRoute],
+        answer: (request) => {
+            // As session middlewares do: the cookie is added when the headers are written.
+            onHeaders(request.res, function () {
+                this.setHeader('Set-Cookie', 'sid=s1');
+            });
+            return { statusCode: 200, route: edgeRoute, headers: { 'Content-Type': 'text/html' }, data: html('pricing') };
+        },
+    });
+    const consoleWarn = console.warn;
+    const warnings = [];
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+        const response = await get(await serve(router), '/pricing');
+
+        assert.equal(response.headers['set-cookie'][0], 'sid=s1');
+        assert.equal(response.headers['cache-control'], 'private, no-store');
+        assert.match(warnings.join('\n'), /sets the cookie\(s\) sid/);
+    } finally {
+        console.warn = consoleWarn;
+    }
+});
+
+test('an answer with its own Cache-Control, or for a signed-in visitor, keeps its policy', async () => {
+    const own = createRouter({
+        routes: [edgeRoute],
+        answer: () => ({ statusCode: 200, route: edgeRoute, headers: { 'Content-Type': 'text/html', 'Cache-Control': 'private, max-age=60' }, data: html('own') }),
+    });
+    assert.equal((await get(await serve(own), '/pricing')).headers['cache-control'], 'private, max-age=60');
+
+    const member = createRouter({
+        routes: [edgeRoute],
+        answer: (request) => {
+            request.user = { email: 'member@example.com' };
+            return { statusCode: 200, route: edgeRoute, headers: { 'Content-Type': 'text/html' }, data: html('member') };
+        },
+    });
+    assert.equal((await get(await serve(member), '/pricing')).headers['cache-control'], 'no-store, no-cache, must-revalidate, proxy-revalidate');
 });
 
 test('a 404 or 503 of an edgeCache route is never cacheable at the edge', async () => {
@@ -216,6 +260,13 @@ test('edgeCache values are seconds or durations; anything else fails the registr
     router.errors = {};
     router.config.debug = false;
     assert.throws(() => router.refreshRouteRegistration(), /Route \/bad: edgeCache\.maxAge/);
+
+    for (const maxEntries of [0, -1, 1.5]) {
+        const capped = createRouter({ routes: [pageRoute('/capped', { static: { urls: ['*'], maxEntries } })], answer: () => ({}) });
+        capped.errors = {};
+        capped.config.debug = false;
+        assert.throws(() => capped.refreshRouteRegistration(), /Route \/capped: static\.maxEntries must be a positive integer/);
+    }
 });
 
 /*----------------------------------
@@ -251,6 +302,30 @@ test('a stored page is served at once with its preloads as Link and the route ed
     assert.equal(response.headers['cache-control'], 'public, max-age=0, s-maxage=300');
 });
 
+test('a stored page answered with a cookie is refused at the edge too, not left public', async () => {
+    const router = createRouter({
+        routes: [staticRoute],
+        answer: (request) => {
+            request.res.cookie('udVisitorId', 'v1');
+            return { statusCode: 200, headers: {} };
+        },
+    });
+    pageCache.writePageCacheEntry(router.cache, '/use-cases/e', {
+        rendered: html('stored e'),
+        options: staticRoute.options.static,
+        expire: Date.now() + 60_000,
+    });
+    const consoleWarn = console.warn;
+    console.warn = () => undefined;
+    try {
+        const response = await get(await serve(router), '/use-cases/e');
+        assert.equal(response.body, html('stored e'));
+        assert.equal(response.headers['cache-control'], 'private, no-store');
+    } finally {
+        console.warn = consoleWarn;
+    }
+});
+
 test('a stale page is served at once and re-rendered once in the background, a failed render keeps it', async () => {
     const router = createRouter({ routes: [staticRoute], answer: () => ({ statusCode: 200, headers: {} }) });
     let renders = 0;
@@ -281,7 +356,12 @@ test('a stale page is served at once and re-rendered once in the background, a f
         assert.equal(router.cache['/use-cases/b'].rendered, html('stored b'));
         assert.match(errors.join('\n'), /Static refresh failed, the stored copy stays \/use-cases\/b/);
 
-        // Once settled, the next stale hit may try again.
+        // After a failure, hits keep the stored copy for a while without starting another render.
+        await get(origin, '/use-cases/b');
+        assert.equal(renders, 1);
+        assert.ok(router.staticRefreshRetryAt.get('/use-cases/b') > Date.now() + 4 * 60_000);
+        // Once the delay is over, the next stale hit tries again.
+        router.staticRefreshRetryAt.set('/use-cases/b', Date.now() - 1);
         await get(origin, '/use-cases/b');
         assert.equal(renders, 2);
     } finally {
@@ -293,8 +373,8 @@ test('a stale page is served at once and re-rendered once in the background, a f
 - PAGE CACHE: WRITES
 ----------------------------------*/
 
-const runResolvedRoute = async (router, route, response) => {
-    const request = { path: response.path, id: 'request1' };
+const runResolvedRoute = async (router, route, response, request = { method: 'GET', req: { query: {} } }) => {
+    request = { path: response.path, id: 'request1', ...request };
     const fullResponse = {
         request,
         wasProvided: true,
@@ -304,6 +384,28 @@ const runResolvedRoute = async (router, route, response) => {
     fullResponse.request = request;
     await router.resolvedRoute(route, fullResponse, Date.now());
 };
+
+test('stale hits start at most four background renders at once, and the sweep shares their in-flight set', async () => {
+    const router = createRouter({ routes: [staticRoute], answer: () => ({ statusCode: 200, headers: {} }) });
+    const pending = [];
+    router.renderStatic = (url) => new Promise((resolve) => pending.push({ url, resolve }));
+    for (let index = 0; index < 10; index++)
+        pageCache.writePageCacheEntry(router.cache, `/use-cases/s${index}`, {
+            rendered: html(`s${index}`),
+            options: { refresh: '5 minutes', urls: [`/use-cases/s${index}`] },
+            expire: Date.now() - 1,
+        });
+    const origin = await serve(router);
+
+    await Promise.all(Array.from({ length: 10 }, (_, index) => get(origin, `/use-cases/s${index}`)));
+    assert.equal(pending.length, 4);
+
+    // The hourly sweep renders every other stale page, never one already rendering.
+    router.refreshStaticPages();
+    assert.equal(pending.length, 10);
+    assert.equal(new Set(pending.map(({ url }) => url)).size, 10);
+    pending.forEach(({ resolve }) => resolve());
+});
 
 test('a rendered page is stored only when it answered 200', async () => {
     const router = createRouter({ routes: [staticRoute], answer: () => ({}) });
@@ -318,6 +420,11 @@ test('a rendered page is stored only when it answered 200', async () => {
 
         await runResolvedRoute(router, staticRoute, { path: '/use-cases/c', statusCode: 200, data: html('c') });
         assert.deepEqual(written, [{ url: '/use-cases/c', options: staticRoute.options.static, rendered: html('c') }]);
+
+        // A render every visitor would get must not carry one visitor's query string or session.
+        await runResolvedRoute(router, staticRoute, { path: '/use-cases/q', statusCode: 200, data: html('q') }, { method: 'GET', req: { query: { x: '</script>' } } });
+        await runResolvedRoute(router, staticRoute, { path: '/use-cases/u', statusCode: 200, data: html('u') }, { method: 'GET', req: { query: {} }, user: { email: 'm@example.com' } });
+        assert.equal(written.length, 1);
     } finally {
         console.log = consoleLog;
     }
@@ -342,6 +449,11 @@ test('renderStatic stores a 200 with its preloads, and keeps the stored copy whe
     status = 503;
     await assert.rejects(router.renderStatic('/use-cases/d', staticRoute.options.static), /Static render returned 503/);
     assert.equal(router.cache['/use-cases/d'], stored);
+
+    // A page that is gone stops being served.
+    status = 404;
+    await assert.rejects(router.renderStatic('/use-cases/d', staticRoute.options.static), /Static render returned 404/);
+    assert.equal(router.cache['/use-cases/d'], undefined);
 });
 
 test('a route that holds any path keeps its maxEntries least recently served pages', () => {
@@ -377,6 +489,11 @@ test('the Link header of a stored page is read back from the preloads its docume
     assert.equal(
         pageCache.readPreloadLinkHeader(html('x', '<link rel="preload" href="/a?x=1&amp;y=2" as="image" imagesizes="&quot;q&quot;"/>')),
         '</a?x=1&y=2>; rel=preload; as=image; imagesizes="\\"q\\""',
+    );
+    // A `>` inside a quoted value does not end the tag.
+    assert.equal(
+        pageCache.readPreloadLinkHeader(html('x', '<link rel="preload" href="/h.avif" as="image" imagesizes="(width >= 768px) 50vw, 100vw" fetchpriority="high"/>')),
+        '</h.avif>; rel=preload; as=image; imagesizes="(width >= 768px) 50vw, 100vw"; fetchpriority=high',
     );
     // Preloads in the body are not the document's.
     assert.equal(pageCache.readPreloadLinkHeader('<html><head></head><body><link rel="preload" href="/b" as="image"/></body></html>'), undefined);

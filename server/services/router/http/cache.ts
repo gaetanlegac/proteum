@@ -155,26 +155,78 @@ type TEdgeCacheResponse = {
 
 export type TEdgeCacheDecision = 'applied' | 'refused-cookie' | 'not-cacheable';
 
+/** What an answer gets when the CDN may not keep it because it sets a cookie. */
+export const edgeRefusedCacheControl = 'private, no-store';
+
+const hasSetCookie = (res: TEdgeCacheResponse) => {
+    const setCookie = res.getHeader('Set-Cookie');
+    return setCookie !== undefined && !(Array.isArray(setCookie) && setCookie.length === 0);
+};
+
+const refuseEdgeCache = (res: TEdgeCacheResponse) => {
+    res.setHeader('Cache-Control', edgeRefusedCacheControl);
+    res.setHeader('Surrogate-Control', 'no-store');
+};
+
 /**
  * Gives a route's answer its CDN policy, at send time, when every header is known. Only a 200 answer
- * to GET or HEAD qualifies. An answer that sets a cookie is refused: a CDN would store the cookie with
- * the page and hand one visitor's cookie to the next. It keeps the default HTML policy (`no-store`).
+ * to GET or HEAD qualifies, for a visitor who is not signed in, and only when the answer did not set its
+ * own `Cache-Control`. An answer that sets a cookie is refused (`private, no-store`): a CDN would store the
+ * cookie with the page and hand one visitor's cookie to the next.
  */
 export const applyEdgeCachePolicy = (
     res: TEdgeCacheResponse,
     config: TRouteEdgeCacheConfig | undefined,
-    { method, statusCode }: { method: string; statusCode: number },
+    {
+        method,
+        statusCode,
+        ownCacheControl,
+        signedIn = false,
+    }: { method: string; statusCode: number; ownCacheControl?: string; signedIn?: boolean },
 ): TEdgeCacheDecision => {
     if (!config || statusCode !== 200 || (method !== 'GET' && method !== 'HEAD')) return 'not-cacheable';
+    if (signedIn || ownCacheControl !== undefined) return 'not-cacheable';
 
-    const setCookie = res.getHeader('Set-Cookie');
-    if (setCookie !== undefined && !(Array.isArray(setCookie) && setCookie.length === 0)) return 'refused-cookie';
+    if (hasSetCookie(res)) {
+        refuseEdgeCache(res);
+        return 'refused-cookie';
+    }
 
     res.setHeader('Cache-Control', buildEdgeCacheControl(config));
     res.removeHeader('Surrogate-Control');
     // `Expires: 0` (set by every page render) would read as "already stale" to an HTTP/1.0 cache.
     res.removeHeader('Expires');
     return 'applied';
+};
+
+/**
+ * Keeps the refusal true after the policy is set: a cookie added later, by `res.cookie`, `setHeader` or a
+ * listener that writes it with the headers (as session libraries do, through `on-headers`), turns the
+ * answer back to `private, no-store`. `setHeader` is watched for the cookies written after this call;
+ * the headers listener catches any other way in. `onRefused` runs once.
+ */
+export const guardEdgeCacheAfterPolicy = (
+    res: TEdgeCacheResponse & { setHeader(name: string, value: any): unknown },
+    onHeaders: (res: any, listener: () => void) => void,
+    onRefused: () => void,
+) => {
+    let refused = false;
+    const refuse = () => {
+        if (refused) return;
+        refused = true;
+        refuseEdgeCache(res);
+        onRefused();
+    };
+
+    const setHeader = res.setHeader;
+    res.setHeader = function guardedSetHeader(this: unknown, name: string, value: any) {
+        const result = setHeader.call(this, name, value);
+        if (String(name).toLowerCase() === 'set-cookie' && hasSetCookie(res)) refuse();
+        return result;
+    };
+    onHeaders(res, () => {
+        if (hasSetCookie(res)) refuse();
+    });
 };
 
 /** The names of the cookies an answer sets, for the log line of a refused edge cache. */

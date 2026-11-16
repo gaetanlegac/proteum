@@ -16,7 +16,7 @@ export type TStaticRouteOptions = NonNullable<TRouteOptions['static']>;
 
 /**
  * One stored page. The store stays a plain object keyed by path (`router.cache`): apps read its keys and
- * delete entries to evict them. Key order is the LRU order, least recently served first.
+ * delete entries to evict them. Key order is the LRU order, least recently served or re-rendered first.
  */
 export type TPageCacheEntry = {
     rendered: any;
@@ -109,7 +109,8 @@ export const readPreloadLinkHeader = (html: unknown) => {
     const head = headEnd === -1 ? html : html.slice(0, headEnd);
     const preloads: TPagePreload[] = [];
 
-    for (const [tag] of head.matchAll(/<link rel="preload"[^>]*>/g)) {
+    // Attribute values may hold `>` (`imagesizes="(width >= 768px) 50vw"`): a tag ends at a `>` outside quotes.
+    for (const [tag] of head.matchAll(/<link rel="preload"(?:[^>"]|"[^"]*")*>/g)) {
         const attributes: Record<string, string> = {};
         for (const [, name, value] of tag.matchAll(/([a-z-]+)="([^"]*)"/g)) attributes[name] = decodeEntities(value);
         if (!attributes.href || !attributes.as) continue;
