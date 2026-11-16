@@ -15,6 +15,11 @@ Sources: `cli/compiler/client/outputNames.ts` and `cli/compiler/common/files/*.t
 
 Nothing may name these files by hand. The server reads every entry and page asset from `client-manifest.json` (written after each client build by `cli/compiler/common/clientManifest.ts`), and the document renders the tags from it.
 
+## What the client bundle leaves out
+
+- `preact/debug` is required only under `if (__DEV__ && window.dev)` (`client/app/index.ts`). The bundler folds `__DEV__` to `false` in production and drops the require; a test bundles that line both ways (`tests/client-preact-debug.test.cjs`).
+- The generated API client (`.proteum/common/controllers.ts`, from `cli/compiler/artifacts/controllers.ts`) writes out local controllers leaf by leaf, but gives each connected project one node, `createConnectedControllerNode(api, namespace, literal)` (`common/router/request/connectedControllers.ts`). Reading a property returns the next node; calling one posts to `/api/<accessor with slashes>` with its `connected` target, as the written leaf did. The generator writes a connected leaf out (in `literal`, which wins) only when its `httpPath` is not that path or a segment of its accessor is a key the node reserves: `then` and `toJSON` (answered `undefined`, so a node is never awaited as a promise or serialised), `arguments`, `caller`, and the names of `Function.prototype` (answered as the function, so `String(node)` never calls a controller). A node lists no keys: spreading or enumerating it gives an empty object. The root stays a plain object, so apps can spread it into the router context.
+
 ## Cache headers
 
 `/public` files are served by the router with `cache.publicAssets` (`server/services/router/http/cache.ts`):

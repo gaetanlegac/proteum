@@ -8,6 +8,7 @@ import writeIfChanged from '../writeIfChanged';
 import { createTypedControllerHelperContent } from './controllerHelper';
 import { resolveConnectedProjectContracts, writeConnectedProjectContract } from './connectedProjects';
 import { normalizeAbsolutePath } from './shared';
+import { isDerivableConnectedController } from '../../../common/router/request/connectedControllers';
 
 const reservedConnectedContextKeys = new Set(['app', 'services', 'context', 'request', 'response', 'route', 'api', 'Router']);
 
@@ -123,8 +124,15 @@ export const generateControllerArtifacts = async () => {
     const connectedControllerTypeImports: string[] = [];
     const connectedManifestControllers: TProteumManifestController[] = [];
 
+    // Connected leaves become one Proxy node per namespace; only the leaves whose path the node cannot
+    // derive stay written out, under `literal` (common/router/request/connectedControllers.ts).
+    const connectedLiteralTrees = new Map<string, Record<string, any>>();
+
     connectedProjectContracts.forEach(({ namespace, cachedContractFilepath, contract, sourceKind, sourceValue, typeImportModuleSpecifier, typingMode }) => {
         let connectedTypeName: string | null = null;
+        const literalTree: Record<string, any> = {};
+        connectedLiteralTrees.set(namespace, literalTree);
+        runtimeTree[namespace] = JSON.stringify({ connectedNamespace: namespace });
 
         if (typingMode === 'local-typed' && typeImportModuleSpecifier) {
             connectedTypeName = `ConnectedControllers_${namespace.replace(/[^A-Za-z0-9_$]+/g, '_')}`;
@@ -158,9 +166,11 @@ export const generateControllerArtifacts = async () => {
                 connectedProjectIdentifier: contract.identity.identifier,
             });
 
+            if (isDerivableConnectedController(controller.clientAccessor, controller.httpPath)) return;
+
             insertTreeLeaf(
-                runtimeTree,
-                clientAccessor,
+                literalTree,
+                controller.clientAccessor,
                 JSON.stringify({
                     connected: {
                         controllerAccessor: controller.clientAccessor,
@@ -178,8 +188,9 @@ export const generateControllerArtifacts = async () => {
         });
     });
 
-    const runtimeLeaf = (leaf: string) => {
+    const runtimeLeaf = (leaf: string, indentLevel = 1): string => {
         const meta = JSON.parse(leaf) as {
+            connectedNamespace?: string;
             connected?: {
                 controllerAccessor: string;
                 httpPath: string;
@@ -190,6 +201,17 @@ export const generateControllerArtifacts = async () => {
             inputType?: string;
             resultType: string;
         };
+
+        if (meta.connectedNamespace !== undefined) {
+            const namespace = meta.connectedNamespace;
+            const literalTree = connectedLiteralTrees.get(namespace) || {};
+            const literal =
+                Object.keys(literalTree).length > 0
+                    ? printControllerTree(literalTree, (literalLeaf) => runtimeLeaf(literalLeaf), indentLevel + 1)
+                    : 'undefined';
+
+            return `createConnectedControllerNode(api, ${JSON.stringify(namespace)}, ${literal}) as TControllers[${JSON.stringify(namespace)}]`;
+        }
 
         const connectedOptions = meta.connected
             ? `, { connected: ${JSON.stringify(meta.connected)} }`
@@ -232,7 +254,7 @@ export const generateControllerArtifacts = async () => {
 import type ApiClient from '@common/router/request/api';
 import type { TFetcher, TPostDataWithFile } from '@common/router/request/api';
 import type { TControllerActionInput, TControllerActionResult } from '@server/app/controller';
-${[...typeImports, ...connectedControllerTypeImports].join('\n') ? '\n' + [...typeImports, ...connectedControllerTypeImports].join('\n') : ''}
+${connectedProjectContracts.length > 0 ? "import { createConnectedControllerNode } from '@common/router/request/connectedControllers';\n" : ''}${[...typeImports, ...connectedControllerTypeImports].join('\n') ? '\n' + [...typeImports, ...connectedControllerTypeImports].join('\n') : ''}
 
 type TConnectedFallbackValue =
     | string
@@ -261,7 +283,7 @@ export type TControllers = ${printControllerTree(typeTree, typeLeaf)};
 export const createControllers = (
     api: Pick<ApiClient, 'createFetcher'>
 ): TControllers => (
-${printControllerTree(runtimeTree, runtimeLeaf)}
+${printControllerTree(runtimeTree, (leaf) => runtimeLeaf(leaf, 1))}
 );
 
 export default createControllers;
