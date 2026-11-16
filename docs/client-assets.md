@@ -62,6 +62,20 @@ Preloads:
 
 A CDN can rewrite these headers. Cloudflare's zone setting Browser Cache TTL, for example, raises any lower `max-age` to its value (4 hours by default) unless it is set to "Respect Existing Headers". Hashed names make that harmless for the files the HTML names; an app that wants the unversioned files never cached can set `unversioned` to `no-store`.
 
+## HTML caching
+
+Two layers, both per route, in `server/services/router/index.ts`.
+
+The page cache (`static: { urls, refresh, maxEntries }`) keeps rendered pages in the process (`router.cache`, a plain object keyed by path, query string ignored):
+
+- `urls` lists the paths rendered at boot and stored. `['*']` stores any path the route matches when it first renders, and keeps the `maxEntries` least recently served (default 100, `server/services/router/pageCache.ts`); the key order of `router.cache` is that LRU order.
+- A hit is answered from the stored copy, after the routes marked `whenStatic` ran. Once the copy is older than `refresh` (default 1 hour), the hit still answers it and starts one background render through `router.renderStatic`, which an app may wrap; the hourly sweep also re-renders expired pages. A render that answers anything but 200, throws or takes over 60 s leaves the stored copy in place.
+- Only a 200 is stored. A hit sends the `Link` header of the stored document's preloads, read back from its `<link rel="preload">` tags.
+
+The edge cache (`edgeCache: { maxAge, staleWhileRevalidate }`, seconds or a duration such as `'1 hour'`) tells a CDN it may keep the answer: a 200 to GET or HEAD, stored or freshly rendered, is sent `Cache-Control: public, max-age=0, s-maxage=<maxAge>, stale-while-revalidate=<staleWhileRevalidate>`, with no `Surrogate-Control` and no `Expires`. Browsers still revalidate each time. An answer that carries `Set-Cookie` when it is sent is refused: it keeps the default HTML policy (`no-store`) and the router logs the cookie names, because a CDN would store one visitor's cookie with the page. Any other answer (404, 503, a redirect, a route without `edgeCache`) keeps the default policy. A malformed value fails the route registration. The `response.send` trace event records the decision (`edgeCache: 'applied' | 'refused-cookie' | 'not-cacheable'`), and a stale hit shows as `cache.hit` with `cachePhase: 'stale'`.
+
+The edge does not purge itself: an app that caches HTML at the edge purges its CDN at each deploy, because a cached page names the previous build's hashed files.
+
 ## Stale builds
 
 A tab opened before a deploy runs the previous build. When it navigates to a page whose chunk the deploy removed, the chunk request fails with a `ChunkLoadError` (or a CSS chunk error). The client router then reloads the page once (`client/app/staleBuild.ts`): the new HTML names the new hashed files, so the reload runs the new build.

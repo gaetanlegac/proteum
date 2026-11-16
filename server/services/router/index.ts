@@ -12,7 +12,6 @@
 // Npm
 const { v4: uuid } = require('uuid') as { v4: () => string };
 import got from 'got';
-import hInterval from 'human-interval';
 import type express from 'express';
 import zod, { ZodError } from 'zod';
 export { default as schema } from 'zod';
@@ -56,6 +55,16 @@ import ServerRequest from './request';
 import ServerResponse, { TRouterContext, TRouterContextServices } from './response';
 import Page from './response/page';
 import HTTP, { Config as HttpServiceConfig, resolveHttpCacheConfig } from './http';
+import { applyEdgeCachePolicy, buildEdgeCacheControl, setCookieNames, type TEdgeCacheDecision } from './http/cache';
+import {
+    isPageCacheEntryStale,
+    readPreloadLinkHeader,
+    staticRefreshMs,
+    touchPageCacheEntry,
+    writePageCacheEntry,
+    type TPageCache,
+    type TPageCacheEntry,
+} from './pageCache';
 import DocumentRenderer from './response/page/document';
 import { loadGeneratedRuntimeBundle } from './generatedRuntime';
 
@@ -88,7 +97,7 @@ type TGeneratedDefinitionsSnapshot = {
     errors: { [code: number]: TErrorRoute<any> };
     controllers: { [path: string]: TRoute };
     ssrRoutes: TSsrUnresolvedRoute[];
-    cache: { [pageId: string]: { rendered: any; expire: number | undefined; options: TRouteOptions['static'] } };
+    cache: TPageCache;
 };
 
 export type TServerController<TRouter extends TServerRouter> = (context: TRouterContext<TRouter>) => any;
@@ -111,6 +120,9 @@ export type TAnyRouter = ServerRouter<
 >;
 
 const LogPrefix = '[router]';
+
+// A background page render that takes longer is abandoned; the stored copy stays.
+const staticRenderTimeoutMs = 60 * 1000;
 
 export type Config<
     TServices extends TRouterServicesList,
@@ -182,10 +194,11 @@ export default class ServerRouter<
     public controllers: { [path: string]: TRoute } = {};
     public ssrRoutes: TSsrUnresolvedRoute[] = [];
 
-    // Cache (ex: for static pages)
-    public cache: {
-        [pageId: string]: { rendered: any; expire: number | undefined; options: TRouteOptions['static'] };
-    } = {};
+    // Page cache (`static` route option), keyed by path. A plain object: apps read its keys and delete
+    // entries to evict them. Key order is the LRU order (server/services/router/pageCache.ts).
+    public cache: TPageCache = {};
+    // Paths re-rendering in the background after a stale hit, so a burst of hits starts one render.
+    private staticRefreshesInFlight = new Set<string>();
 
     private staticRoutesRefreshInterval?: NodeJS.Timeout;
 
@@ -289,6 +302,9 @@ export default class ServerRouter<
                 method: 'GET',
                 headers: { Accept: 'text/html', bypasscache: '1', 'x-proteum-static-warmup': '1' },
                 throwHttpErrors: false,
+                // A render that stalls or fails keeps the stored copy; the next stale hit or sweep tries again.
+                retry: { limit: 0 },
+                timeout: { request: staticRenderTimeoutMs },
             });
 
             if (response.statusCode !== 200) {
@@ -298,11 +314,31 @@ export default class ServerRouter<
             rendered = response.body;
         }
 
-        this.cache[url] = {
+        const entry: TPageCacheEntry = {
             rendered: rendered,
             options: options,
-            expire: typeof options === 'object' ? Date.now() + (hInterval(options.refresh) || 3600) : undefined,
+            expire: typeof options === 'object' ? Date.now() + staticRefreshMs(options) : undefined,
+            link: readPreloadLinkHeader(rendered),
         };
+        const evicted = writePageCacheEntry(this.cache, url, entry);
+        if (evicted.length > 0) console.log('[router] Page cache full for this route, evicted', evicted.join(', '));
+    }
+
+    /**
+     * Stale while revalidate: a hit on a page older than its `refresh` is served at once, and one render
+     * starts in the background. Through `this.renderStatic`, so an app that wraps it keeps control.
+     */
+    private refreshStaticPageInBackground(url: string, entry: TPageCacheEntry) {
+        if (this.staticRefreshesInFlight.has(url)) return;
+
+        this.staticRefreshesInFlight.add(url);
+        void this.renderStatic(url, entry.options)
+            .catch((error) => {
+                console.error('[router] Static refresh failed, the stored copy stays', url, error);
+            })
+            .finally(() => {
+                this.staticRefreshesInFlight.delete(url);
+            });
     }
 
     private initStaticRoutes() {
@@ -365,7 +401,7 @@ export default class ServerRouter<
 
         for (const pageUrl in this.cache) {
             const page = this.cache[pageUrl];
-            if (page.expire && page.expire < Date.now()) {
+            if (isPageCacheEntryStale(page)) {
                 void this.renderStatic(pageUrl, page.options).catch((error) => {
                     console.error('[router] Static refresh failed', pageUrl, error);
                 });
@@ -574,6 +610,16 @@ export default class ServerRouter<
     }
 
     private afterRegister() {
+        // A malformed edgeCache fails the boot (or the hot reload), never a response.
+        for (const route of this.routes)
+            if (route.options.edgeCache) {
+                try {
+                    buildEdgeCacheControl(route.options.edgeCache);
+                } catch (error) {
+                    throw new Error(`Route ${route.path}: ${(error as Error).message}`);
+                }
+            }
+
         // Ordonne par ordre de priorité
         this.config.debug && console.info('Loading routes ...');
         this.routes.sort((r1, r2) => {
@@ -649,7 +695,8 @@ export default class ServerRouter<
     public async middleware(req: express.Request, res: express.Response) {
         // Create request
         let requestId = uuid();
-        const cachedPage = req.headers['bypasscache'] ? undefined : this.cache[req.path];
+        const cachedPage = req.headers['bypasscache'] ? undefined : touchPageCacheEntry(this.cache, req.path);
+        const cachedPageIsStale = cachedPage !== undefined && isPageCacheEntryStale(cachedPage);
         this.applyHtmlCacheHeaders(res, Boolean(cachedPage));
         const headers: HttpHeaders = Object.fromEntries(
             Object.entries(req.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : value || '']),
@@ -684,9 +731,10 @@ export default class ServerRouter<
             this.app.container.Trace.record(
                 request.id,
                 'cache.hit',
-                { cacheKey: req.path, cachePhase: 'hit' },
+                { cacheKey: req.path, cachePhase: cachedPageIsStale ? 'stale' : 'hit' },
                 'summary',
             );
+            if (cachedPageIsStale) this.refreshStaticPageInBackground(req.path, cachedPage);
         }
 
         let response: ServerResponse<this>;
@@ -742,6 +790,10 @@ export default class ServerRouter<
                     return;
                 }
 
+                // The stored document's preloads, as the first render sent them.
+                if (cachedPage.link && !res.getHeader('Link')) res.setHeader('Link', cachedPage.link);
+                const edgeCache = this.applyRouteEdgeCache(res, request, this.pageRouteOf(req.path), response.statusCode);
+
                 this.app.container.Trace.record(
                     request.id,
                     'response.send',
@@ -750,6 +802,7 @@ export default class ServerRouter<
                         statusCode: response.statusCode,
                         contentType: response.headers['Content-Type'] || 'text/html',
                         headerKeys: Object.keys(response.headers),
+                        edgeCache,
                     },
                     'summary',
                 );
@@ -765,6 +818,7 @@ export default class ServerRouter<
             res.status(response.statusCode);
             // Headers
             res.header(response.headers);
+            const edgeCache = this.applyRouteEdgeCache(res, request, response.route, response.statusCode);
             // Data
             this.app.container.Trace.record(
                 request.id,
@@ -774,6 +828,7 @@ export default class ServerRouter<
                     statusCode: response.statusCode,
                     contentType: response.headers['Content-Type'] || '',
                     headerKeys: Object.keys(response.headers),
+                    edgeCache,
                 },
                 'summary',
             );
@@ -1038,7 +1093,8 @@ export default class ServerRouter<
         await response.runController(route);
         if (!response.wasProvided) return;
 
-        if (response.request.path && route.options.static) {
+        // Only a 200 is stored: a page that answered 404 or 503 for this path renders again next time.
+        if (response.request.path && route.options.static && response.statusCode === 200) {
             const staticUrls = route.options.static.urls.includes('*') ? [response.request.path] : route.options.static.urls;
 
             for (const staticUrl of staticUrls) {
@@ -1139,6 +1195,30 @@ export default class ServerRouter<
         } else await response.text(error.message);
 
         return response;
+    }
+
+    /** The page route a stored path belongs to: the first HTML route, by priority, whose path matches. */
+    private pageRouteOf(path: string) {
+        return this.routes.find((route) => route.method === 'GET' && route.options.accept === 'html' && route.regex.test(path));
+    }
+
+    /** Applies the route's `edgeCache` policy at send time; logs an answer refused because it sets a cookie. */
+    private applyRouteEdgeCache(
+        res: express.Response,
+        request: ServerRequest<this>,
+        route: { options: Partial<TRouteOptions> } | undefined,
+        statusCode: number,
+    ): TEdgeCacheDecision {
+        const decision = applyEdgeCachePolicy(res, route?.options.edgeCache, { method: request.method, statusCode });
+
+        if (decision === 'refused-cookie')
+            console.warn(
+                LogPrefix,
+                `Not cacheable at the edge: ${request.path} sets the cookie(s) ${setCookieNames(res.getHeader('Set-Cookie')).join(', ')}. ` +
+                    'The answer keeps the default HTML policy.',
+            );
+
+        return decision;
     }
 
     private applyHtmlCacheHeaders(res: express.Response, isStaticHtml: boolean) {

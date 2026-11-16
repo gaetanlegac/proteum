@@ -111,8 +111,15 @@ export type TRouteOptions = {
     redirectLogged?: string; // Redirect to this route if auth: false and user is logged
 
     // Rendering
-    static?: { refresh?: string; urls: string[] };
+    // Page cache: the router renders these paths once and serves the stored copy, re-rendering it in the
+    // background once older than `refresh` (default 1 hour). `urls: ['*']` holds any path the route
+    // matches, the `maxEntries` least recently served (default 100). Only a 200 is stored.
+    static?: { refresh?: string; urls: string[]; maxEntries?: number };
     whenStatic?: boolean; // If true, the route is only executed even if the page is cached
+    // CDN cache: a 200 of this route is sent `Cache-Control: public, max-age=0, s-maxage=<maxAge>,
+    // stale-while-revalidate=<staleWhileRevalidate>` (seconds, or a duration such as '1 hour'), unless it
+    // sets a cookie: then the router keeps the default HTML policy and logs it.
+    edgeCache?: { maxAge: number | string; staleWhileRevalidate?: number | string };
     canonicalParams?: string[]; // For SEO + unique ID for static cache
     layout?: false | string; // The nale of the layout
     // Client navigation: 'deferred' swaps the page in before its data when the router runs in deferred mode

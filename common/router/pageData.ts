@@ -16,6 +16,7 @@ export const routeOptionKeys = [
     'redirectLogged',
     'static',
     'whenStatic',
+    'edgeCache',
     'canonicalParams',
     'layout',
     'navigation',
