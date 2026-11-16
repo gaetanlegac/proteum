@@ -51,7 +51,7 @@ test('a connected leaf posts to /api/<accessor with slashes> with its connected 
             connected: { controllerAccessor: 'Domains.search.Find', httpPath: '/api/Domains/search/Find', namespace: 'Product' },
         },
     });
-    // A leaf without input is called without data, as the literal leaf passed `undefined`.
+    // Called without an argument, a leaf without input sends no data, as the written leaf did.
     assert.equal(Product.Account.api.GetUsage().data, undefined);
 });
 
@@ -66,6 +66,8 @@ test('a written leaf wins over the derived path, at any depth', () => {
     assert.equal(Product.Legacy.Other().path, '/api/Legacy/Other');
     // A guarded key the contract really uses is reachable through the literal tree.
     assert.equal(Product.then.Run().path, '/api/custom/path');
+    // That branch is the plain object written out: awaiting or serialising the namespace still never calls it.
+    assert.equal(typeof Product.then, 'object');
 });
 
 test('awaiting, resolving or serialising a node never calls a controller', async () => {
@@ -75,7 +77,6 @@ test('awaiting, resolving or serialising a node never calls a controller', async
     // A Proxy that answered `then` would be awaited as a promise and call `then(resolve, reject)`.
     assert.equal(Product.then, undefined);
     assert.equal(Product.Domains.then, undefined);
-    // Each read builds a fresh node, so the same node is kept to compare.
     const domains = Product.Domains;
     assert.equal(await domains, domains);
     assert.equal(await Promise.resolve(Product), Product);
@@ -86,8 +87,31 @@ test('awaiting, resolving or serialising a node never calls a controller', async
     assert.match(String(Product.Domains), /function|=>/);
     assert.match(`${Product.Domains.search}`, /function|=>/);
     assert.equal(typeof Product.Domains.call, 'function');
+    assert.equal(`${Product.Domains}` + Product.Domains, String(Product.Domains) + String(Product.Domains));
+    assert.equal(Product.Domains == 'x', false);
+    assert.equal(Product.hasOwnProperty('Domains'), false);
     assert.equal(Product[Symbol.toPrimitive], undefined);
     assert.equal(Product[Symbol.iterator], undefined);
+    assert.equal(api.calls.length, 0);
+});
+
+test('a node keeps its identity across reads, as the written tree did', () => {
+    const Product = createConnectedControllerNode(createRecordingApi(), 'Product');
+
+    assert.equal(Product.Domains.search.Find, Product.Domains.search.Find);
+    assert.equal(Product.Domains, Product.Domains);
+});
+
+test('a branch under a guarded key is written out, so awaiting or serialising its parent never calls it', async () => {
+    const api = createRecordingApi();
+    const Product = createConnectedControllerNode(api, 'Product', {
+        then: { Run: () => 'run' },
+        toJSON: { Read: () => 'read' },
+    });
+
+    assert.equal(await Promise.race([Promise.resolve(Product), new Promise((resolve) => setTimeout(() => resolve('pending'), 50))]), Product);
+    assert.equal(JSON.stringify({ Product }), '{}');
+    assert.equal(Product.then.Run(), 'run');
     assert.equal(api.calls.length, 0);
 });
 
@@ -113,7 +137,7 @@ test('only leaves on POST /api/<accessor with slashes>, with no reserved segment
     assert.equal(isDerivableConnectedController('Domains.search.Find', '/api/Domains/search/Find'), true);
     assert.equal(isDerivableConnectedController('Domains.search.Find', '/api/domains/search/find'), false);
     assert.equal(isDerivableConnectedController('Domains.Find', '/custom/Domains/Find'), false);
-    for (const reserved of ['then', 'toJSON', 'toString', 'call', 'name', 'constructor', 'caller'])
+    for (const reserved of ['then', 'toJSON', 'toString', 'valueOf', 'hasOwnProperty', 'call', 'name', 'constructor', 'caller', '__proto__'])
         assert.equal(isDerivableConnectedController(`Domains.${reserved}`, `/api/Domains/${reserved}`), false, reserved);
 });
 
@@ -127,11 +151,11 @@ const writeFile = (filepath, content) => {
 };
 
 /** Runs the controllers generator against a temp app with one local controller and the given connected contract. */
-const generateControllers = async (connectedControllers) => {
+const generateControllers = async (connectedControllers, { local = true } = {}) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-connected-controllers-'));
     const appRoot = path.join(root, 'app');
     const generatedRoot = path.join(appRoot, '.proteum');
-    writeFile(
+    if (local) writeFile(
         path.join(appRoot, 'server/controllers/Local.ts'),
         `import { defineAction, defineController, schema } from '@generated/server/controller';
 
@@ -213,6 +237,9 @@ const evaluateControllers = (content) => {
     return { api, controllers: module.exports.createControllers(api) };
 };
 
+/** The generated `createControllers`, what ships, without the types above it. */
+const runtimePart = (content) => content.slice(content.indexOf('export const createControllers'));
+
 const connectedLeaf = (clientAccessor, httpPath = '/api/' + clientAccessor.split('.').join('/'), hasInput = true) => ({
     className: 'C',
     importPath: '@/server/controllers/C',
@@ -236,7 +263,8 @@ test('the generator emits one Proxy node per connected namespace and keeps local
     assert.match(content, /"Save": \(data: TControllerActionInput<Controller0, "Save">\) => api\.createFetcher/);
     // Connected: one node, none of the 40 leaves spelt out, the namespace typed from the contract.
     assert.match(content, /"Product": createConnectedControllerNode\(api, "Product", undefined\) as TControllers\["Product"\]/);
-    assert.doesNotMatch(content, /Area\d+/);
+    // The leaves remain in the types only (the contract check below), none in the runtime tree.
+    assert.doesNotMatch(runtimePart(content), /Area\d+/);
     assert.match(content, /import \{ createConnectedControllerNode \} from '@common\/router\/request\/connectedControllers';/);
     assert.match(content, /export type TControllers = \{[\s\S]*"Product": ConnectedControllers_Product,/);
     // The manifest still lists every connected leaf.
@@ -264,7 +292,7 @@ test('the generator writes out a connected leaf whose path is not derivable, and
     assert.match(content, /"Product": createConnectedControllerNode\(api, "Product", \{/);
     assert.match(content, /"Read": \(\) => api\.createFetcher<.+?>\('POST', "\/api\/legacy-read", undefined, \{ connected: \{"controllerAccessor":"Legacy\.Read","httpPath":"\/api\/legacy-read","namespace":"Product"\} \}\)/);
     assert.match(content, /"then": \{\n\s+"Run": \(data: any\) =>/);
-    assert.doesNotMatch(content, /Domains/);
+    assert.doesNotMatch(runtimePart(content), /Domains/);
 
     const { controllers } = evaluateControllers(content);
     assert.equal(controllers.Product.Legacy.Read().path, '/api/legacy-read');
@@ -277,4 +305,94 @@ test('an app without connected projects keeps the generated client it had, with 
 
     assert.doesNotMatch(content, /createConnectedControllerNode/);
     assert.match(content, /export const createControllers = \(\n    api: Pick<ApiClient, 'createFetcher'>\n\): TControllers => \(\n\{\n    "Local": \{/);
+});
+
+test('an accessor that is both an action and a branch fails the generator with its name', async () => {
+    await assert.rejects(
+        generateControllers([connectedLeaf('Domains.Find'), connectedLeaf('Domains.Find.Sub')]),
+        /"Domains\.Find" is both an action and the parent of "Domains\.Find\.Sub"/,
+    );
+});
+
+/*----------------------------------
+- THE TYPES STILL CHECK THE CONTRACT
+----------------------------------*/
+
+/**
+ * Typechecks the generated client against a hand-written copy of the connected types, as the website
+ * maps `@proteum-connected/...` to its own copy. Returns the errors reported in the generated file.
+ */
+const typecheckAgainst = (content, connectedTypes) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-connected-types-'));
+    try {
+        writeFile(path.join(root, 'controllers.ts'), content);
+        // Small stand-ins for the framework modules the generated file imports, so one check takes a second,
+        // not the whole server type graph. The node itself is the real file.
+        writeFile(
+            path.join(root, 'api.ts'),
+            `export type TPostDataWithFile = { [key: string]: unknown };
+export type TFetcher<TData = unknown> = { run: () => Promise<TData> };
+export default abstract class ApiClient { abstract createFetcher<TData = unknown>(method: string, path: string, data?: TPostDataWithFile, options?: {}): TFetcher<TData>; }
+`,
+        );
+        writeFile(
+            path.join(root, 'controller.ts'),
+            'export type TControllerActionInput<T, K> = any;\nexport type TControllerActionResult<T, K> = any;\n',
+        );
+        writeFile(
+            path.join(root, 'connectedControllers.ts'),
+            fs.readFileSync(path.join(coreRoot, 'common/router/request/connectedControllers.ts'), 'utf8'),
+        );
+        writeFile(
+            path.join(root, 'connected.ts'),
+            `import type { TFetcher } from './api';\nexport type TConnectedControllers = ${connectedTypes};\n`,
+        );
+        const program = ts.createProgram([path.join(root, 'controllers.ts')], {
+            noEmit: true,
+            strict: true,
+            skipLibCheck: true,
+            target: ts.ScriptTarget.ES2020,
+            module: ts.ModuleKind.CommonJS,
+            moduleResolution: ts.ModuleResolutionKind.Node10,
+            baseUrl: root,
+            types: [],
+            paths: {
+                '@common/router/request/api': [path.join(root, 'api.ts')],
+                '@common/router/request/connectedControllers': [path.join(root, 'connectedControllers.ts')],
+                '@server/app/controller': [path.join(root, 'controller.ts')],
+                '@proteum-connected/Product': [path.join(root, 'connected.ts')],
+            },
+        });
+        return ts
+            .getPreEmitDiagnostics(program)
+            .filter((diagnostic) => diagnostic.file && diagnostic.file.fileName === path.join(root, 'controllers.ts'))
+            .map((diagnostic) => `TS${diagnostic.code}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ')}`);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+};
+
+test('the app typecheck still fails when its connected types drift from the contract', async () => {
+    const { content } = await generateControllers(
+        [connectedLeaf('Domains.Find'), connectedLeaf('Account.api.GetUsage', undefined, false)],
+        { local: false },
+    );
+    const types = (domains, account = '{ api: { GetUsage: () => TFetcher<number> } }') => `{ Domains: ${domains}; Account: ${account} }`;
+
+    // In step, including a leaf without input typed with a parameter, which the written tree accepted too.
+    assert.deepEqual(typecheckAgainst(content, types('{ Find: (data: { q: string }) => TFetcher<{ n: number }> }')), []);
+    assert.deepEqual(
+        typecheckAgainst(content, types('{ Find: (data: { q: string }) => TFetcher<{ n: number }> }', '{ api: { GetUsage: (data: {}) => TFetcher<number> } }')),
+        [],
+    );
+
+    // A leaf that takes input, typed without it.
+    assert.notDeepEqual(typecheckAgainst(content, types('{ Find: () => TFetcher<{ n: number }> }')), []);
+    // An action of the contract missing from the types.
+    assert.notDeepEqual(typecheckAgainst(content, types('{}')), []);
+    // An action the types still list after the contract removed it.
+    assert.notDeepEqual(
+        typecheckAgainst(content, types('{ Find: (data: { q: string }) => TFetcher<{ n: number }>; Removed: () => TFetcher<number> }')),
+        [],
+    );
 });

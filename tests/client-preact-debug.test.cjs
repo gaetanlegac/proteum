@@ -30,7 +30,7 @@ const bundle = async (dev) => {
             output: { path: path.join(root, 'dist'), filename: 'out.js' },
             resolve: { alias: { 'preact/debug$': path.join(root, 'debug.js') } },
             // As the client compiler defines it (cli/compiler/common/index.ts).
-            plugins: [new rspack.DefinePlugin({ __DEV__: JSON.stringify(dev) })],
+            plugins: [new rspack.DefinePlugin({ __DEV__: dev })],
         });
         await new Promise((resolve, reject) =>
             compiler.run((error, stats) => {

@@ -127,6 +127,9 @@ export const generateControllerArtifacts = async () => {
     // Connected leaves become one Proxy node per namespace; only the leaves whose path the node cannot
     // derive stay written out, under `literal` (common/router/request/connectedControllers.ts).
     const connectedLiteralTrees = new Map<string, Record<string, any>>();
+    // Every leaf of each typed namespace, as types only: checked against the namespace's connected types
+    // both ways, so the app's typecheck still fails when they drift from the contract (nothing ships).
+    const connectedContractTypeTrees = new Map<string, { typeName: string; tree: Record<string, any> }>();
 
     connectedProjectContracts.forEach(({ namespace, cachedContractFilepath, contract, sourceKind, sourceValue, typeImportModuleSpecifier, typingMode }) => {
         let connectedTypeName: string | null = null;
@@ -140,8 +143,22 @@ export const generateControllerArtifacts = async () => {
                 `import type { TConnectedControllers as ${connectedTypeName} } from ${JSON.stringify(typeImportModuleSpecifier)};`,
             );
             typeTree[namespace] = JSON.stringify({ rawType: connectedTypeName });
+            connectedContractTypeTrees.set(namespace, { typeName: connectedTypeName, tree: {} });
         } else {
             typeTree[namespace] = JSON.stringify({ runtimeOnly: true });
+        }
+
+        // An accessor that is both an action and a branch has no tree to live in (the 2.7 generator crashed on it).
+        const accessors = new Set(contract.controllers.map((controller) => controller.clientAccessor));
+        for (const accessor of accessors) {
+            const segments = accessor.split('.');
+            for (let index = 1; index < segments.length; index++) {
+                const prefix = segments.slice(0, index).join('.');
+                if (accessors.has(prefix))
+                    throw new Error(
+                        `Connected project "${namespace}": "${prefix}" is both an action and the parent of "${accessor}".`,
+                    );
+            }
         }
 
         contract.controllers.forEach((controller) => {
@@ -165,6 +182,17 @@ export const generateControllerArtifacts = async () => {
                 connectedProjectNamespace: namespace,
                 connectedProjectIdentifier: contract.identity.identifier,
             });
+
+            const contractTypeTree = connectedContractTypeTrees.get(namespace);
+            if (contractTypeTree)
+                insertTreeLeaf(
+                    contractTypeTree.tree,
+                    controller.clientAccessor,
+                    JSON.stringify({
+                        hasInput: controller.hasInput,
+                        resultType: `TConnectedControllerResult<${contractTypeTree.typeName}, ${JSON.stringify(controller.clientAccessor)}>`,
+                    }),
+                );
 
             if (isDerivableConnectedController(controller.clientAccessor, controller.httpPath)) return;
 
@@ -244,6 +272,35 @@ export const generateControllerArtifacts = async () => {
         return meta.hasInput ? `(data: ${meta.inputType || 'any'}) => ${fetcherType}` : `() => ${fetcherType}`;
     };
 
+    const contractLeaf = (leaf: string) => {
+        const meta = JSON.parse(leaf) as { hasInput: boolean; resultType: string };
+        return `${meta.hasInput ? '(data: any)' : '()'} => TFetcher<${meta.resultType}>`;
+    };
+    const connectedContractTypes =
+        connectedContractTypeTrees.size === 0
+            ? ''
+            : `
+// Types only, nothing ships. A connected namespace is one Proxy node at runtime; its contract, leaf by
+// leaf, is checked against the connected types both ways, as the written-out tree was: an action on one
+// side only, or a leaf that takes input typed \`() =>\`, fails the typecheck.
+type TConnectedContractAssignable<TValue extends TTarget, TTarget> = TValue;
+type TConnectedContractKeys<TTree> = TTree extends (...args: any[]) => any
+    ? unknown
+    : { [TKey in keyof TTree]-?: TConnectedContractKeys<TTree[TKey]> };
+${[...connectedContractTypeTrees.entries()]
+    .map(([namespace, { tree }]) => {
+        const name = namespace.replace(/[^A-Za-z0-9_$]+/g, '_');
+        const target = `TControllers[${JSON.stringify(namespace)}]`;
+        return `
+type TConnectedContract_${name} = ${printControllerTree(tree, contractLeaf)};
+export type TConnectedContractCheck_${name} = [
+    TConnectedContractAssignable<TConnectedContract_${name}, ${target}>,
+    TConnectedContractAssignable<TConnectedContractKeys<${target}>, TConnectedContractKeys<TConnectedContract_${name}>>,
+];
+`;
+    })
+    .join('')}`;
+
     const createControllersContent = `/*----------------------------------
 - GENERATED FILE
 ----------------------------------*/
@@ -279,7 +336,7 @@ type TConnectedControllerResult<TControllerTree, TAccessor extends string> =
         : TConnectedFallbackValue;
 
 export type TControllers = ${printControllerTree(typeTree, typeLeaf)};
-
+${connectedContractTypes}
 export const createControllers = (
     api: Pick<ApiClient, 'createFetcher'>
 ): TControllers => (

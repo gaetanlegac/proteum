@@ -25,8 +25,15 @@ export type TConnectedControllerLiteralTree = { [key: string]: TConnectedControl
  */
 const connectedControllerGuardedKeys = new Set(['then', 'toJSON', 'arguments', 'caller']);
 
-/** Keys a node answers as the function it is (`toString`, `call`, `name`…), so logging or coercing one never calls a controller. */
-const functionKeys = new Set(Object.getOwnPropertyNames(Function.prototype).filter((key) => !connectedControllerGuardedKeys.has(key)));
+/**
+ * Keys a node answers as the function it is (`toString`, `valueOf`, `call`, `name`, `hasOwnProperty`…), so
+ * logging, coercing or comparing one never builds a fetcher.
+ */
+const functionKeys = new Set(
+    [...Object.getOwnPropertyNames(Function.prototype), ...Object.getOwnPropertyNames(Object.prototype)].filter(
+        (key) => !connectedControllerGuardedKeys.has(key),
+    ),
+);
 
 /** A connected accessor using one of these segments is not derivable: the generator writes it in the literal tree. */
 export const connectedControllerReservedKeys = new Set([...connectedControllerGuardedKeys, ...functionKeys]);
@@ -57,25 +64,39 @@ export const createConnectedControllerNode = (
     namespace: string,
     literal?: TConnectedControllerLiteralTree,
     parts: string[] = [],
-): any =>
+): any => {
+    // One child per key, so `Product.Domains.Find === Product.Domains.Find`, as with the written tree.
+    const children = new Map<string, unknown>();
+
     // An arrow function as the target: callable, and no own key a caller could enumerate or spread.
-    new Proxy(() => undefined, {
+    return new Proxy(() => undefined, {
         get: (target, key) => {
             if (typeof key !== 'string') return undefined;
 
             const written = literal && Object.prototype.hasOwnProperty.call(literal, key) ? literal[key] : undefined;
             if (typeof written === 'function') return written;
-            if (written === undefined && connectedControllerGuardedKeys.has(key)) return undefined;
-            if (written === undefined && functionKeys.has(key)) return Reflect.get(target, key);
+            if (connectedControllerReservedKeys.has(key)) {
+                // Everything under a reserved segment is written out (isDerivableConnectedController), so its
+                // branch is served as the plain object it is: never callable, never a thenable.
+                if (written !== undefined) return written;
+                return connectedControllerGuardedKeys.has(key) ? undefined : Reflect.get(target, key);
+            }
 
-            return createConnectedControllerNode(api, namespace, written, [...parts, key]);
+            let child = children.get(key);
+            if (child === undefined) {
+                child = createConnectedControllerNode(api, namespace, written, [...parts, key]);
+                children.set(key, child);
+            }
+            return child;
         },
         apply: (_target, _self, args: unknown[]) => {
             const controllerAccessor = parts.join('.');
             const httpPath = deriveConnectedControllerHttpPath(controllerAccessor);
 
+            // The node cannot know whether the action takes input: an argument is passed on as `data`.
             return api.createFetcher('POST', httpPath, args[0] as TPostDataWithFile | undefined, {
                 connected: { controllerAccessor, httpPath, namespace },
             });
         },
     });
+};

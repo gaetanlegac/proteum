@@ -17,7 +17,7 @@ public Router = new Router(this, {
 });
 ```
 
-`preload` keeps its meanings: the router config glob list, `client/pages/preload.json` (chunks bundled with the entry) and the page option `preload?: boolean`. `prefetch` is a different, runtime list: route paths whose chunks load in the background once the first page is rendered.
+`preload` keeps its meanings: the router config glob list, `client/pages/preload.json` (chunks bundled with the entry) and the page option `preload?: boolean`. The page method `page.preload({ href, as, … })` (2.8) is unrelated: it writes a `<link rel="preload">` for a resource such as the LCP picture ([client-assets.md](client-assets.md#the-document)). `prefetch` is a different, runtime list: route paths whose chunks load in the background once the first page is rendered.
 
 ## Page Option
 
