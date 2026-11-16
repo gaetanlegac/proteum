@@ -11,6 +11,7 @@ const safeStringify = require('fast-safe-stringify'); // remplace les référenc
 import type { TServerRouter, Response as ServerResponse } from '@server/services/router';
 import type Page from '.';
 import { getClientBuildManifest } from './clientManifest';
+import { buildPreloadLinkHeader, dedupePreloads, fontPreloads, preloadLinkAttributes } from './preloads';
 
 /*----------------------------------
 - TYPES
@@ -40,17 +41,17 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                         {this.clientStyles()}
 
                         {/* JS */}
-                        <script
-                            type="text/javascript"
-                            dangerouslySetInnerHTML={{
-                                __html:
-                                    `window.routes=${routesForClient};` +
-                                    (this.app.env.profile === 'dev' ? 'window.dev = true;' : ''),
-                            }}
-                        />
                         {this.clientScripts()}
                     </head>
-                    <body></body>
+                    {/* Page data after the content, as in `page()`: the entry scripts are `defer`. */}
+                    <body
+                        dangerouslySetInnerHTML={{
+                            __html: this.pageDataScript(
+                                `window.routes=${routesForClient};` +
+                                    (this.app.env.profile === 'dev' ? 'window.dev = true;' : ''),
+                            ),
+                        }}
+                    ></body>
                 </html>,
             )
         );
@@ -58,6 +59,7 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
 
     public async page(html: string, page: Page<TRouter>, response: ServerResponse<TRouter>) {
         let attrsBody = { className: [...page.bodyClass].join(' ') };
+        const preloads = this.preloads(page, response);
 
         return (
             '<!doctype html>' +
@@ -67,6 +69,11 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                         {/* Format */}
                         <meta charSet="utf-8" />
                         <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+                        {/* Preloads: declared fonts, then the page's own (`page.preload`), also sent as `Link` */}
+                        {preloads.map((preload) => (
+                            <link key={`${preload.as} ${preload.href}`} {...preloadLinkAttributes(preload)} />
+                        ))}
 
                         {/* Mobile */}
                         <meta name="application-name" content={this.app.identity.web.title} />
@@ -109,7 +116,7 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
 
                         {this.styles(page)}
 
-                        {await this.scripts(response, page)}
+                        {this.scripts(page)}
 
                         {/* Rich Snippets: https://schema.org/docs/full.html + https://jsonld.com/ */}
                         <script
@@ -119,7 +126,14 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
                             }}
                         />
                     </head>
-                    <body {...attrsBody} dangerouslySetInnerHTML={{ __html: html }}></body>
+                    {/* The page data closes the body: the parser reaches the content without first reading
+                        `window.ssr`, often the largest part of the document. Every script that reads it is
+                        `defer` (entry and page chunks), so it runs after this one. Preact hydrates `<body>`
+                        and leaves a trailing node it did not render alone. */}
+                    <body
+                        {...attrsBody}
+                        dangerouslySetInnerHTML={{ __html: html + this.pageDataScript(this.ssrData(response, page)) }}
+                    ></body>
                 </html>,
             )
         );
@@ -176,7 +190,26 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
         );
     }
 
-    private async scripts(response: ServerResponse<TRouter>, page: Page<TRouter>) {
+    /** Fonts the app declares, then the page's own preloads, mirrored in the `Link` header of the answer. */
+    private preloads(page: Page<TRouter>, response: ServerResponse<TRouter>) {
+        const manifest = getClientBuildManifest();
+        const preloads = dedupePreloads([...fontPreloads(manifest.preloadFonts, manifest.publicPath), ...page.preloads]);
+        const linkHeader = buildPreloadLinkHeader(preloads);
+
+        if (linkHeader) {
+            const existing = response.headers['Link'];
+            response.headers['Link'] = existing ? `${existing}, ${linkHeader}` : linkHeader;
+        }
+
+        return preloads;
+    }
+
+    private pageDataScript(source: string) {
+        return renderToString(<script type="text/javascript" dangerouslySetInnerHTML={{ __html: source }} />);
+    }
+
+    /** `window.ssr` and `window.routes`, recorded in the trace with their size. */
+    private ssrData(response: ServerResponse<TRouter>, page: Page<TRouter>) {
         const ssrData = response.forSsr(page);
         const context = safeStringify(ssrData);
         const routesForClient = JSON.stringify(this.router.ssrRoutes);
@@ -203,17 +236,14 @@ export default class DocumentRenderer<TRouter extends TServerRouter> {
         );
 
         return (
-            <>
-                {/* JS */}
-                <script
-                    type="text/javascript"
-                    dangerouslySetInnerHTML={{
-                        __html:
-                            `window.ssr=${context}; window.routes=${routesForClient};` +
-                            (this.app.env.profile === 'dev' ? 'window.dev = true;' : ''),
-                    }}
-                />
+            `window.ssr=${context}; window.routes=${routesForClient};` +
+            (this.app.env.profile === 'dev' ? 'window.dev = true;' : '')
+        );
+    }
 
+    private scripts(page: Page<TRouter>) {
+        return (
+            <>
                 {this.clientScripts()}
 
                 {/* Page chunks are `defer` like the entry, unless the page asked for `async`

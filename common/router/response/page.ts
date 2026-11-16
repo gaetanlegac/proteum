@@ -126,6 +126,23 @@ export type TPageResource = { id: string; attrs?: TObjetDonnees } & (
     | { url: string; preload?: boolean }
 );
 
+/**
+ * A resource the document asks the browser for before the parser meets it: the LCP picture, mostly.
+ * Rendered as `<link rel="preload">` in `<head>` and mirrored in the `Link` response header, so a CDN
+ * can send it as an Early Hint (server/services/router/response/page/preloads.ts).
+ */
+export type TPagePreload = {
+    href: string;
+    as: 'image' | 'font' | 'style' | 'script' | 'fetch';
+    type?: string;
+    crossorigin?: 'anonymous' | 'use-credentials';
+    // Responsive pictures: the `srcset` and `sizes` of the `<img>`, so the browser picks the same file.
+    imagesrcset?: string;
+    imagesizes?: string;
+    fetchpriority?: 'high' | 'low' | 'auto';
+    media?: string;
+};
+
 type TMetasDict = { [key: string]: string | Date | undefined | null };
 
 type TMetasList = ({ $: string } & TMetasDict)[];
@@ -154,6 +171,7 @@ export default abstract class PageResponse<
     public jsonld: Thing[] = [];
     public scripts: TPageResource[] = [];
     public style: TPageResource[] = [];
+    public preloads: TPagePreload[] = [];
     public layout?: { data?: TDataProvider };
 
     // Data
@@ -169,6 +187,16 @@ export default abstract class PageResponse<
         this.chunkId = context.route.options.id;
 
         this.url = context.request.url;
+    }
+
+    /**
+     * Asks the browser for a resource before the parser meets it, from `render` or `data`:
+     * `page.preload({ href: hero.src, as: 'image', imagesrcset: hero.srcSet, imagesizes: '100vw', fetchpriority: 'high' })`.
+     * The server document links it in `<head>` and in the `Link` header; the browser router ignores it.
+     */
+    public preload(...preloads: TPagePreload[]) {
+        this.preloads.push(...preloads);
+        return this;
     }
 
     private resolveDataProviderResult() {

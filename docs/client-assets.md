@@ -38,6 +38,19 @@ Nothing may name these files by hand. The server reads every entry and page asse
 - `preact/debug` is required only under `if (__DEV__ && window.dev)` (`client/app/index.ts`). The bundler folds `__DEV__` to `false` in production and drops the require; a test bundles that line both ways (`tests/client-preact-debug.test.cjs`).
 - The generated API client (`.proteum/common/controllers.ts`, from `cli/compiler/artifacts/controllers.ts`) writes out local controllers leaf by leaf, but gives each connected project one node, `createConnectedControllerNode(api, namespace, literal)` (`common/router/request/connectedControllers.ts`). Reading a property returns the next node; calling one posts to `/api/<accessor with slashes>` with its `connected` target, as the written leaf did. The generator writes a connected leaf out (in `literal`, which wins) only when its `httpPath` is not that path or a segment of its accessor is a key the node reserves: `then` and `toJSON` (answered `undefined`, so a node is never awaited as a promise or serialised), `arguments`, `caller`, and the names of `Function.prototype` (answered as the function, so `String(node)` never calls a controller). A node lists no keys: spreading or enumerating it gives an empty object. The root stays a plain object, so apps can spread it into the router context.
 
+## The document
+
+`server/services/router/response/page/document.tsx` renders, in this order:
+
+- `<head>`: charset and viewport, then the preloads, then the icons, title, canonical, `page.head`, the stylesheets, the entry scripts and page chunks (`defer`, or `async` when a `page.scripts` entry asks), inline `page.scripts`, the JSON-LD.
+- `<body>`: the page HTML, then one inline script with `window.ssr` and `window.routes` (and `window.dev` in dev). The client hydrates `<body>`; Preact leaves that trailing script alone. A script that reads `window.ssr` must be `defer` or come after it: an inline `page.scripts` entry runs before it.
+
+Preloads:
+
+- `preloadFonts: ['figtree-latin']` in `proteum.config.ts` names fonts by their source file name without extension. The client build writes their hashed paths to `client-manifest.json` (`preloadFonts`, woff2 preferred when several formats exist) and `proteum build` fails on a name it did not emit. Every page links them with `as="font"`, their type and `crossorigin="anonymous"`.
+- `page.preload({ href, as, type, crossorigin, imagesrcset, imagesizes, fetchpriority, media })` (from `render` or `data`) adds the page's own, for its LCP picture mostly: pass the `srcset` and `sizes` of the `<img>`, so the browser fetches the same file.
+- Fonts first, then the page's preloads in call order; a second preload of the same `as` and `href` is dropped. Each one is mirrored in the `Link` response header (`</public/fonts/…woff2>; rel=preload; as=font; type="font/woff2"; crossorigin=anonymous`), after any `Link` the route set, so a CDN can send them as a 103 Early Hint. A preload that is not printable ASCII stays in the HTML only.
+
 ## Cache headers
 
 `/public` files are served by the router with `cache.publicAssets` (`server/services/router/http/cache.ts`):

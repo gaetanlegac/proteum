@@ -7,6 +7,8 @@ export type TClientBuildManifest = {
     publicPath?: string;
     entries?: Record<string, TClientManifestAssets>;
     chunks?: Record<string, TClientManifestAssets>;
+    // `preloadFonts` of proteum.config.ts, by hashed public path (cli/compiler/common/clientManifest.ts).
+    preloadFonts?: { href: string; type: string }[];
 };
 
 const manifestPath = path.join(__dirname, 'client-manifest.json');

@@ -11,6 +11,8 @@ Page weight and first byte for public pages. Nothing to change in apps to keep t
 - AVIF pictures can be imported like WebP (the asset rule and a `*.avif` module type) and `/public` serves them as `image/avif`.
 - `proteum build` writes a Brotli 11 twin (`.br`) beside every `.js`, `.css`, `.svg` and `.json` of `bin/public` that it makes smaller, and `/public` serves the twin to clients that accept `br`, with `Vary: Accept-Encoding` (the `express-static-gzip` package, on Express 4's own serve-static, so every other header stays as in 2.7). Cloudflare compresses at level 4: 13 to 22% less on the website's JS and CSS.
 - Production client source maps are no longer served: `sourceMaps` in `proteum.config.ts` defaults to `'hidden'`, which writes them to `bin/sourcemaps/` with no `sourceMappingURL` comment. `'public'` restores the 2.7 behavior, `false` writes none. Tools that read maps from `bin/public` must read `bin/sourcemaps`.
+- The page data (`window.ssr`, `window.routes`) is the last element of `<body>` instead of a script in `<head>`, so the parser reaches the content first. Entry and page chunks are `defer` and still find it; an inline `page.scripts` entry runs in `<head>` before it, so it must not read `window.ssr` at once (neither app does).
+- `page.preload({ href, as, imagesrcset, imagesizes, fetchpriority, type, crossorigin, media })` links a resource in `<head>` (the LCP picture), and `preloadFonts` in `proteum.config.ts` preloads the named fonts on every page by their hashed path from `client-manifest.json` (an unknown name fails the build). Both are mirrored in the answer's `Link` header, which Cloudflare sends as a 103 Early Hint.
 
 ## 2.7.0 (2026-11-12)
 

@@ -8,7 +8,7 @@ require('ts-node/register/transpile-only');
 const { rspack } = require('@rspack/core');
 const { getClientOutputNames, getClientSourceMapOptions } = require('../cli/compiler/client/outputNames');
 const createFileRules = require('../cli/compiler/common/files/autres');
-const { writeClientManifest } = require('../cli/compiler/common/clientManifest');
+const { resolvePreloadFonts, writeClientManifest } = require('../cli/compiler/common/clientManifest');
 const { defaultHttpCacheConfig, resolvePublicAssetCacheControl } = require('../server/services/router/http/cache');
 
 /*----------------------------------
@@ -25,7 +25,7 @@ const writeFixture = (root) => {
     write('page.css', '.page { color: #222; }\n');
 };
 
-const compile = (root, dev, { sourceMaps = false } = {}) => {
+const compile = (root, dev, { sourceMaps = false, preloadFonts = [] } = {}) => {
     const names = getClientOutputNames(dev);
     // `false` keeps the other tests' output free of maps; the source map tests pass the app setting.
     const maps = sourceMaps === false ? { devtool: false } : getClientSourceMapOptions(dev, sourceMaps);
@@ -58,7 +58,8 @@ const compile = (root, dev, { sourceMaps = false } = {}) => {
             compiler.close(() => {});
             if (error) return reject(error);
             if (stats.hasErrors()) return reject(new Error(stats.toString({ all: false, errors: true })));
-            resolve(writeClientManifest(stats, root));
+            const { manifest, missingPreloadFonts } = writeClientManifest(stats, root, preloadFonts);
+            resolve(Object.assign(manifest, { missingPreloadFonts }));
         }),
     );
 };
@@ -119,6 +120,28 @@ test('dev keeps the stable names HMR and the dev middleware rely on', async () =
     assert.deepEqual(manifest.entries.client.js, ['runtime.js', 'client.js']);
     assert.deepEqual(manifest.entries.client.css, ['client.css']);
     assert.deepEqual(manifest.chunks.pages_domains.css, ['pages_domains.css']);
+});
+
+test('a declared preload font is written to the manifest by its hashed path, an unknown one is reported', async () => {
+    const manifest = await compile(root, false, { preloadFonts: ['brand', 'missing-font'] });
+    const font = fs.readdirSync(path.join(root, 'public', 'fonts'))[0];
+
+    assert.deepEqual(manifest.preloadFonts, [{ href: `fonts/${font}`, type: 'font/woff2' }]);
+    assert.deepEqual(manifest.missingPreloadFonts, ['missing-font']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'client-manifest.json'), 'utf8')).preloadFonts, manifest.preloadFonts);
+});
+
+test('a preload font prefers woff2, and keeps the declaration order', () => {
+    const assets = ['fonts/a.0123abcd.woff', 'fonts/a.89abcdef.woff2', 'fonts/b.c.0a1b2c3d.ttf', 'client.1a2b3c4d.js'];
+
+    assert.deepEqual(resolvePreloadFonts(assets, ['b.c', 'a']), {
+        preloadFonts: [
+            { href: 'fonts/b.c.0a1b2c3d.ttf', type: 'font/ttf' },
+            { href: 'fonts/a.89abcdef.woff2', type: 'font/woff2' },
+        ],
+        missing: [],
+    });
+    assert.deepEqual(resolvePreloadFonts(assets).preloadFonts, []);
 });
 
 /** Every file under `directory`, relative to it. */

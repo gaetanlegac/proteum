@@ -41,6 +41,12 @@ export type TApplicationSetupConfig = {
      * `public` serves them beside the scripts, as before 2.8. `false` writes none.
      */
     sourceMaps?: TApplicationSourceMapsConfig;
+    /**
+     * Fonts every page preloads, by their source file name without extension (`figtree-latin` for
+     * `client/assets/fonts/figtree-latin.woff2`). The build writes their hashed URLs to `client-manifest.json`
+     * and fails when one is not emitted; the document links them and mirrors them as `Link` headers.
+     */
+    preloadFonts?: string[];
 };
 
 export type TApplicationSourceMapsConfig = 'hidden' | 'public' | false;
@@ -343,6 +349,9 @@ export const normalizeApplicationSetupConfig = (
         connect: normalizeConnectedProjectsConfig(value.connect),
         ...(value.agentInstructions === undefined ? {} : { agentInstructions: value.agentInstructions }),
         ...(value.sourceMaps === undefined ? {} : { sourceMaps: value.sourceMaps }),
+        ...(value.preloadFonts === undefined
+            ? {}
+            : { preloadFonts: readStringArray({ filepath, path: 'preloadFonts', value: value.preloadFonts }) }),
     };
 };
 

@@ -32,6 +32,8 @@ type TRecentCompilationResult = { succeeded: boolean; hash?: string; modifiedFil
 ----------------------------------*/
 export default class Compiler {
     public compiling: { [compiler: string]: Promise<void> } = {};
+    // Declared `preloadFonts` the last client build did not emit; the production build fails on any.
+    public missingPreloadFonts: string[] = [];
     private recentCompilationResults: { [compiler: string]: TRecentCompilationResult } = {};
     private recentModifiedFiles: { [compiler: string]: string[] } = {};
     private manualModifiedFiles: { [compiler: string]: Set<string> } = {};
@@ -265,7 +267,17 @@ export default class Compiler {
                     console.error(`[${name}] Failed to compile after ${time} ms`);
                 } else {
                     if (name === 'client') {
-                        writeClientManifest(stats, app.outputPath(this.outputTarget));
+                        const { missingPreloadFonts } = writeClientManifest(
+                            stats,
+                            app.outputPath(this.outputTarget),
+                            app.setup.preloadFonts,
+                        );
+                        this.missingPreloadFonts = missingPreloadFonts;
+                        if (missingPreloadFonts.length > 0)
+                            console.error(
+                                `[client] proteum.config.ts preloadFonts names no emitted font: ${missingPreloadFonts.join(', ')}. ` +
+                                    'Use the font file name without its extension, and import the font from a stylesheet.',
+                            );
                     }
 
                     this.debug && logVerbose(stats.toString(compiler.options.stats));
