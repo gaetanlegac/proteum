@@ -8,6 +8,9 @@ Page weight and first byte for public pages. Nothing to change in apps to keep t
 
 - Production pages no longer ship `preact/debug`: the client entry loads it only when `__DEV__` and `window.dev` are both true.
 - The generated API client builds one Proxy node per connected project instead of writing out every connected leaf (the website: 417 leaves, 84 KB of every page). A connected leaf is `POST /api/<accessor with slashes>`; a leaf whose path differs, or whose accessor uses a key a node reserves (`then`, `toJSON`, `toString`, `call`…), stays written out. Local controllers and the `TControllers` type are unchanged. Code that enumerates a connected node (`Object.keys(context.Product)`) now sees nothing.
+- AVIF pictures can be imported like WebP (the asset rule and a `*.avif` module type) and `/public` serves them as `image/avif`.
+- `proteum build` writes a Brotli 11 twin (`.br`) beside every `.js`, `.css`, `.svg` and `.json` of `bin/public` that it makes smaller, and `/public` serves the twin to clients that accept `br`, with `Vary: Accept-Encoding` (the `express-static-gzip` package, on Express 4's own serve-static, so every other header stays as in 2.7). Cloudflare compresses at level 4: 13 to 22% less on the website's JS and CSS.
+- Production client source maps are no longer served: `sourceMaps` in `proteum.config.ts` defaults to `'hidden'`, which writes them to `bin/sourcemaps/` with no `sourceMappingURL` comment. `'public'` restores the 2.7 behavior, `false` writes none. Tools that read maps from `bin/public` must read `bin/sourcemaps`.
 
 ## 2.7.0 (2026-11-12)
 

@@ -8,7 +8,16 @@ import fs from 'fs-extra';
 import type { App } from '../../app';
 import { logVerbose } from '../../runtime/verbose';
 
-export default async (app: App, outputDir: string, enabled: boolean = true) => {
+// The client compiler starts the write without waiting for it; the production build waits here before
+// it precompresses `public/` (cli/commands/build.ts), so the twins never miss an identity file.
+let pendingIdentityAssets: Promise<void> = Promise.resolve();
+
+export const waitForIdentityAssets = () => pendingIdentityAssets;
+
+export default (app: App, outputDir: string, enabled: boolean = true) =>
+    (pendingIdentityAssets = writeIdentityAssets(app, outputDir, enabled));
+
+const writeIdentityAssets = async (app: App, outputDir: string, enabled: boolean) => {
     if (!enabled) return;
 
     const logoPath = path.join(app.paths.root, 'client', 'assets', 'identity', 'logo.svg');

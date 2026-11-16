@@ -15,7 +15,7 @@ import CssMinimizerPlugin from '../common/cssMinimizer';
 import { toRspackAliases } from '../common/rspackAliases';
 import { resolveUiSingletonAliases } from '../common/uiSingletons';
 import identityAssets from './identite';
-import { getClientOutputNames } from './outputNames';
+import { getClientOutputNames, getClientSourceMapOptions } from './outputNames';
 import cli from '../..';
 import { logVerbose } from '../../runtime/verbose';
 
@@ -129,6 +129,7 @@ export default function createCompiler(
     const hmrClientEntry = path.join(frameworkSourceRoot, 'client', 'dev', 'hmr.ts');
     // Content-hashed in production, entries included: see outputNames.ts.
     const outputNames = getClientOutputNames(dev);
+    const sourceMaps = getClientSourceMapOptions(dev, app.setup.sourceMaps);
 
     const commonConfig = createCommonConfig(app, 'client', mode, outputTarget);
 
@@ -191,6 +192,7 @@ export default function createCompiler(
             cssFilename: outputNames.css,
             cssChunkFilename: outputNames.css,
             chunkFilename: outputNames.chunk,
+            ...(sourceMaps.sourceMapFilename ? { sourceMapFilename: sourceMaps.sourceMapFilename } : {}),
         },
 
         resolve: {
@@ -300,8 +302,8 @@ export default function createCompiler(
             ...createClientBundleAnalysisPlugins(app, outputTarget),
         ],
 
-        // Use the cheapest practical client source maps in dev for faster rebuilds.
-        devtool: dev ? 'eval-cheap-module-source-map' : 'source-map',
+        // Dev: the cheapest practical maps. Production: hidden, outside `public/`, by default (outputNames.ts).
+        devtool: sourceMaps.devtool as Configuration['devtool'],
         /*devServer: {
             hot: true,
         },*/

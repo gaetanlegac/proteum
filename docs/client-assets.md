@@ -13,6 +13,24 @@
 
 Sources: `cli/compiler/client/outputNames.ts` and `cli/compiler/common/files/*.ts`. Entries, CSS and fonts carry a hash since 2.6.1.
 
+Pictures: `avif`, `bmp`, `gif`, `ico`, `jpg`, `png`, `svg` and `webp` imports are asset modules (inlined under 4 KB, else a URL). AVIF since 2.8: Express 4's type table does not know it, so the `/public` handler sets `image/avif` itself.
+
+## Source maps
+
+| `sourceMaps` in `proteum.config.ts` | Production client maps |
+| --- | --- |
+| `'hidden'` (default) | `bin/sourcemaps/<file>.map`, no `sourceMappingURL` comment: kept for error reports and profiling tools, never served |
+| `'public'` | `bin/public/<file>.map` with the comment, as before 2.8 |
+| `false` | none |
+
+Dev keeps `eval-cheap-module-source-map`. Source: `getClientSourceMapOptions` in `cli/compiler/client/outputNames.ts`. The server bundle keeps its own maps in `bin/`, outside `public/`.
+
+## Compression
+
+`proteum build` ends by writing a Brotli 11 twin beside every `.js`, `.css`, `.svg` and `.json` of `bin/public` (`cli/compiler/common/precompress.ts`, node's zlib), after the identity assets are written. A twin that is not smaller than its file is not written. Symlinks are skipped.
+
+`/public` is served by `express-static-gzip` (2.x, on Express 4's serve-static): when the request accepts `br` and a twin exists, the answer is the twin with `Content-Encoding: br`, the type of the original file, its cache policy and `Vary: Accept-Encoding`; its ETag is the twin's own. Otherwise the file is answered as before and `compression()` compresses it on the fly for gzip. The twins are listed when the server starts: a file added to `bin/public` later is served without one.
+
 Nothing may name these files by hand. The server reads every entry and page asset from `client-manifest.json` (written after each client build by `cli/compiler/common/clientManifest.ts`), and the document renders the tags from it.
 
 ## What the client bundle leaves out

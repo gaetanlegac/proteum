@@ -5,7 +5,8 @@ import type App from '../../../app';
 module.exports = (app: App, dev: boolean, client: boolean): RuleSetRule[] => {
     return [
         {
-            test: /\.(bmp|gif|png|jpe?g|ico|svg|webp)$/i,
+            // AVIF since 2.8: imported like WebP, served as `image/avif` (server/services/router/http/index.ts).
+            test: /\.(avif|bmp|gif|png|jpe?g|ico|svg|webp)$/i,
             type: 'asset',
             parser: {
                 dataUrlCondition: {

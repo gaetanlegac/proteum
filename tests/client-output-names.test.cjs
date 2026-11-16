@@ -6,7 +6,7 @@ const path = require('node:path');
 require('ts-node/register/transpile-only');
 
 const { rspack } = require('@rspack/core');
-const { getClientOutputNames } = require('../cli/compiler/client/outputNames');
+const { getClientOutputNames, getClientSourceMapOptions } = require('../cli/compiler/client/outputNames');
 const createFileRules = require('../cli/compiler/common/files/autres');
 const { writeClientManifest } = require('../cli/compiler/common/clientManifest');
 const { defaultHttpCacheConfig, resolvePublicAssetCacheControl } = require('../server/services/router/http/cache');
@@ -25,15 +25,23 @@ const writeFixture = (root) => {
     write('page.css', '.page { color: #222; }\n');
 };
 
-const compile = (root, dev) => {
+const compile = (root, dev, { sourceMaps = false } = {}) => {
     const names = getClientOutputNames(dev);
+    // `false` keeps the other tests' output free of maps; the source map tests pass the app setting.
+    const maps = sourceMaps === false ? { devtool: false } : getClientSourceMapOptions(dev, sourceMaps);
     const compiler = rspack({
         mode: dev ? 'development' : 'production',
         context: root,
         target: 'web',
-        devtool: false,
+        devtool: maps.devtool,
         entry: { client: './index.js' },
-        output: { path: path.join(root, 'public'), publicPath: '/public/', filename: names.entry, chunkFilename: names.chunk },
+        output: {
+            path: path.join(root, 'public'),
+            publicPath: '/public/',
+            filename: names.entry,
+            chunkFilename: names.chunk,
+            ...(maps.sourceMapFilename ? { sourceMapFilename: maps.sourceMapFilename } : {}),
+        },
         module: {
             rules: [
                 { test: /\.css$/, use: [rspack.CssExtractRspackPlugin.loader, require.resolve('css-loader')], type: 'javascript/auto' },
@@ -111,4 +119,37 @@ test('dev keeps the stable names HMR and the dev middleware rely on', async () =
     assert.deepEqual(manifest.entries.client.js, ['runtime.js', 'client.js']);
     assert.deepEqual(manifest.entries.client.css, ['client.css']);
     assert.deepEqual(manifest.chunks.pages_domains.css, ['pages_domains.css']);
+});
+
+/** Every file under `directory`, relative to it. */
+const listFiles = (directory) =>
+    fs.existsSync(directory)
+        ? fs.readdirSync(directory, { recursive: true }).filter((file) => fs.statSync(path.join(directory, file)).isFile())
+        : [];
+
+test('production source maps are hidden by default: written outside public/, named by no script', async () => {
+    fs.rmSync(path.join(root, 'public'), { recursive: true, force: true });
+    fs.rmSync(path.join(root, 'sourcemaps'), { recursive: true, force: true });
+    const manifest = await compile(root, false, { sourceMaps: 'hidden' });
+
+    assert.deepEqual(listFiles(path.join(root, 'public')).filter((file) => file.endsWith('.map')), []);
+    for (const script of [...manifest.entries.client.js, ...manifest.chunks.pages_domains.js]) {
+        assert.doesNotMatch(fs.readFileSync(path.join(root, 'public', script), 'utf8'), /sourceMappingURL/, script);
+        assert.equal(fs.existsSync(path.join(root, 'sourcemaps', `${script}.map`)), true, `${script}.map kept for error reports`);
+    }
+});
+
+test('sourceMaps public serves the maps beside the scripts, as before 2.8; false writes none', async () => {
+    fs.rmSync(path.join(root, 'public'), { recursive: true, force: true });
+    fs.rmSync(path.join(root, 'sourcemaps'), { recursive: true, force: true });
+    const manifest = await compile(root, false, { sourceMaps: 'public' });
+    const client = manifest.entries.client.js.find((script) => script.startsWith('client.'));
+
+    assert.equal(fs.existsSync(path.join(root, 'public', `${client}.map`)), true);
+    assert.match(fs.readFileSync(path.join(root, 'public', client), 'utf8'), /sourceMappingURL=client\.[a-f0-9]{8}\.js\.map/);
+    // The manifest never lists a map as an asset to load.
+    assert.equal(manifest.entries.client.assets.some((asset) => asset.endsWith('.map')), false);
+
+    assert.deepEqual(getClientSourceMapOptions(false, false), { devtool: false });
+    assert.deepEqual(getClientSourceMapOptions(true, 'hidden'), { devtool: 'eval-cheap-module-source-map' });
 });

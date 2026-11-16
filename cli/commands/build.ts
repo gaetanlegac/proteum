@@ -2,6 +2,7 @@
 - DEPENDANCES
 ----------------------------------*/
 
+import path from 'path';
 import { UsageError } from 'clipanion';
 
 // Core
@@ -20,6 +21,8 @@ import {
     hasBundleAnalysisServerOverrides,
     waitForClientBundleAnalysisArtifacts,
 } from '../compiler/common/bundleAnalysis';
+import { precompressPublicAssets } from '../compiler/common/precompress';
+import { waitForIdentityAssets } from '../compiler/client/identite';
 import { refreshGeneratedTypings, runAppTypecheck } from '../utils/check';
 import { renderRows } from '../presentation/layout';
 import { renderStep, renderSuccess, renderTitle } from '../presentation/ink';
@@ -161,6 +164,20 @@ export const run = async (): Promise<void> => {
     }
 
     if (buildError) throw buildError;
+
+    // Brotli 11 twins of the text files in public/, served to clients that accept `br`.
+    await waitForIdentityAssets();
+    const precompressed = await precompressPublicAssets(path.join(app.outputPath('bin'), 'public'));
+    console.info(
+        renderRows([
+            {
+                label: 'brotli',
+                value: `${precompressed.written} files, ${Math.round(precompressed.bytesBefore / 1024)} KB to ${Math.round(
+                    precompressed.bytesAfter / 1024,
+                )} KB`,
+            },
+        ]),
+    );
 
     if (analysisMode === 'server') {
         const { statsPath } = getClientBundleAnalysisReportPaths(app, 'bin');

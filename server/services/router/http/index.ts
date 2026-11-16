@@ -18,6 +18,7 @@ import morgan from 'morgan';
 import hpp from 'hpp'; // Protection contre la pollution des reuqtees http
 import helmet from 'helmet'; // Diverses protections
 import compression from 'compression';
+import expressStaticGzip from 'express-static-gzip';
 import fileUpload from 'express-fileupload';
 import cookieParser from 'cookie-parser';
 
@@ -489,23 +490,32 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
         routes.use('/public', cors());
         routes.use(
             '/public',
-            express.static(path.join(Container.path.root, APP_OUTPUT_DIR, 'public'), {
-                dotfiles: 'deny',
-                etag: publicAssetEtag,
-                lastModified: publicAssetLastModified,
-                setHeaders: (res, filePath) => {
-                    if (!publicAssetEtag) res.removeHeader('ETag');
-                    if (!publicAssetLastModified) res.removeHeader('Last-Modified');
+            // serve-static (Express 4's own copy) plus the `.br` twins the production build writes
+            // (cli/compiler/common/precompress.ts): a client that accepts `br` gets the Brotli 11 twin,
+            // with `Vary: Accept-Encoding`; `compression()` above leaves an encoded answer alone.
+            expressStaticGzip(path.join(Container.path.root, APP_OUTPUT_DIR, 'public'), {
+                enableBrotli: true,
+                orderPreference: ['br'],
+                serveStatic: {
+                    dotfiles: 'deny',
+                    etag: publicAssetEtag,
+                    lastModified: publicAssetLastModified,
+                    setHeaders: (res, filePath) => {
+                        if (!publicAssetEtag) res.removeHeader('ETag');
+                        if (!publicAssetLastModified) res.removeHeader('Last-Modified');
+                        // Express 4's type table predates AVIF; send() keeps a type set here.
+                        if (filePath.endsWith('.avif')) res.setHeader('Content-Type', 'image/avif');
 
-                    res.setHeader(
-                        'Cache-Control',
-                        resolvePublicAssetCacheControl({
-                            res,
-                            filePath,
-                            profile: this.app.env.profile,
-                            cache: publicAssetCache,
-                        }),
-                    );
+                        res.setHeader(
+                            'Cache-Control',
+                            resolvePublicAssetCacheControl({
+                                res,
+                                filePath,
+                                profile: this.app.env.profile,
+                                cache: publicAssetCache,
+                            }),
+                        );
+                    },
                 },
             }),
             (req, res) => {

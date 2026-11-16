@@ -26,3 +26,30 @@ export const getClientOutputNames = (dev: boolean): TClientOutputNames =>
     dev
         ? { entry: '[name].js', chunk: '[name].js', css: '[name].css' }
         : { entry: '[name].[contenthash:8].js', chunk: '[id].[contenthash:8].js', css: '[name].[contenthash:8].css' };
+
+/*----------------------------------
+- SOURCE MAPS
+----------------------------------*/
+
+export type TClientSourceMapsSetting = 'hidden' | 'public' | false;
+
+/** Where production maps go with `sourceMaps: 'hidden'`, relative to the build output (`bin/`). */
+export const hiddenSourceMapsDirectory = 'sourcemaps';
+
+/*
+ * Production used to write `client.<hash>.js.map` into `public/` with a `sourceMappingURL` comment, so
+ * anyone could download the full client source. `hidden` (the default) keeps the maps for error reports
+ * in `bin/sourcemaps/` and leaves the comment out; nothing under `/public` names or serves them.
+ * `sourceMapFilename` is relative to `output.path` (`bin/public`), hence the `../`.
+ */
+export const getClientSourceMapOptions = (
+    dev: boolean,
+    setting: TClientSourceMapsSetting = 'hidden',
+): { devtool: false | string; sourceMapFilename?: string } => {
+    // The cheapest practical maps in dev, for fast rebuilds.
+    if (dev) return { devtool: 'eval-cheap-module-source-map' };
+    if (setting === false) return { devtool: false };
+    if (setting === 'public') return { devtool: 'source-map' };
+
+    return { devtool: 'hidden-source-map', sourceMapFilename: `../${hiddenSourceMapsDirectory}/[file].map` };
+};

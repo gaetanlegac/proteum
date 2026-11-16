@@ -35,7 +35,15 @@ export type TApplicationSetupConfig = {
      * Proteum then never writes AGENTS.md, CLAUDE.md or the routed instruction copies.
      */
     agentInstructions?: boolean;
+    /**
+     * Client source maps of production builds. `hidden` (the default) writes them to `bin/sourcemaps/`,
+     * outside `public/`, with no `sourceMappingURL` comment: kept for error reports, never served.
+     * `public` serves them beside the scripts, as before 2.8. `false` writes none.
+     */
+    sourceMaps?: TApplicationSourceMapsConfig;
 };
+
+export type TApplicationSourceMapsConfig = 'hidden' | 'public' | false;
 
 export type TVerificationCheckScope = 'targeted' | 'area' | 'full' | 'static';
 
@@ -326,10 +334,15 @@ export const normalizeApplicationSetupConfig = (
         throw new Error(`Invalid setup config in ${filepath}. "agentInstructions" must be a boolean.`);
     }
 
+    if (value.sourceMaps !== undefined && value.sourceMaps !== 'hidden' && value.sourceMaps !== 'public' && value.sourceMaps !== false) {
+        throw new Error(`Invalid setup config in ${filepath}. "sourceMaps" must be "hidden", "public" or false.`);
+    }
+
     return {
         transpile: normalizeTranspileConfig(value.transpile),
         connect: normalizeConnectedProjectsConfig(value.connect),
         ...(value.agentInstructions === undefined ? {} : { agentInstructions: value.agentInstructions }),
+        ...(value.sourceMaps === undefined ? {} : { sourceMaps: value.sourceMaps }),
     };
 };
 
