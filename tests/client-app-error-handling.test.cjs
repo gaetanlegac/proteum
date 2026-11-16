@@ -24,6 +24,9 @@ Module._load = function load(request, parent, isMain) {
 };
 
 const previousWindow = global.window;
+const previousDev = global.__DEV__;
+// Defined by the bundler in apps; the module reads it at import to decide on preact/debug.
+global.__DEV__ = false;
 const previousDocument = global.document;
 global.window = {
     dev: false,
@@ -97,4 +100,6 @@ afterAll(() => {
     else global.window = previousWindow;
     if (previousDocument === undefined) delete global.document;
     else global.document = previousDocument;
+    if (previousDev === undefined) delete global.__DEV__;
+    else global.__DEV__ = previousDev;
 });

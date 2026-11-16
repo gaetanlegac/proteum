@@ -5,7 +5,9 @@
 // Npm
 if (typeof window === 'undefined') throw new Error(`This file shouldn't be loaded on server side !!!!`);
 
-window.dev && require('preact/debug');
+// `__DEV__` first: the bundler folds `false && …` and drops the require, so production pages no
+// longer ship preact/debug (9 KB) for a branch that only a dev document could take.
+if (__DEV__ && window.dev) require('preact/debug');
 
 import type { Layout } from '@common/router';
 import { createDialog } from '@client/components/Dialog/Manager';
