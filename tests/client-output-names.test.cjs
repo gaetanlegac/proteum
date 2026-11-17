@@ -181,3 +181,89 @@ test('sourceMaps public serves the maps beside the scripts, as before 2.8; false
     assert.deepEqual(getClientSourceMapOptions(false, false), { devtool: false });
     assert.deepEqual(getClientSourceMapOptions(true, 'hidden'), { devtool: 'eval-cheap-module-source-map' });
 });
+
+/*----------------------------------
+- THE CLIENT COMPILER'S OWN CONFIG
+----------------------------------*/
+
+/**
+ * `cli/compiler/client/index.ts` itself, with its neighbours stubbed: what an app gets for each `sourceMaps`
+ * setting, `undefined` (the setting left out) first.
+ */
+const clientCompilerConfig = (setup) => {
+    const Module = require('node:module');
+    const modulePath = require.resolve('../cli/compiler/client/index.ts');
+    const coreRoot = path.join(__dirname, '..');
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-client-config-'));
+    const noRules = () => [];
+    const stubs = {
+        '../common': { __esModule: true, default: () => ({ plugins: [], resolve: {} }), regex: { scripts: /\.tsx?$/, style: /\.css$/ } },
+        '../common/bundleAnalysis': { createClientBundleAnalysisPlugins: () => [] },
+        '../common/cssMinimizer': { __esModule: true, default: class CssMinimizerStub {} },
+        '../common/uiSingletons': { resolveUiSingletonAliases: () => ({}) },
+        './identite': { __esModule: true, default: () => Promise.resolve() },
+        '../..': {
+            __esModule: true,
+            default: {
+                paths: {
+                    framework: { installedRoot: undefined, activeRoot: coreRoot, appNodeModulesRoot: path.join(appRoot, 'node_modules') },
+                    getFrameworkRoots: () => [],
+                    getVisiblePackageInstallRoots: () => [],
+                    resolveRequest: () => '',
+                    resolvePackageRoot: () => '',
+                },
+            },
+        },
+        '../../runtime/verbose': { logVerbose: () => undefined },
+        '../common/scripts': noRules,
+        '../common/files/style': noRules,
+        '../common/files/images': noRules,
+        '../common/files/autres': noRules,
+    };
+    const app = {
+        setup,
+        packageJson: {},
+        transpileModuleDirectories: [],
+        paths: {
+            root: appRoot,
+            client: { generated: path.join(appRoot, '.proteum/client') },
+            common: { generated: path.join(appRoot, '.proteum/common') },
+            server: { generated: path.join(appRoot, '.proteum/server') },
+        },
+        outputPath: () => path.join(appRoot, 'bin'),
+        aliases: { client: { forWebpack: () => ({ aliases: {} }) } },
+    };
+    const originalLoad = Module._load;
+    delete require.cache[modulePath];
+    Module._load = function patchedLoad(request, parent, isMain) {
+        if (parent?.filename === modulePath && request in stubs) return stubs[request];
+        return originalLoad.call(this, request, parent, isMain);
+    };
+    try {
+        const { default: createCompiler } = require(modulePath);
+        return createCompiler(app, 'prod');
+    } finally {
+        Module._load = originalLoad;
+        delete require.cache[modulePath];
+        fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+};
+
+test('the production client config hides source maps when the app sets nothing', () => {
+    const config = clientCompilerConfig({});
+
+    assert.equal(config.devtool, 'hidden-source-map');
+    assert.equal(config.output.sourceMapFilename, '../sourcemaps/[file].map');
+    // The helper's own default, with no setting given.
+    assert.deepEqual(getClientSourceMapOptions(false), { devtool: 'hidden-source-map', sourceMapFilename: '../sourcemaps/[file].map' });
+});
+
+test('the production client config follows sourceMaps public and false', () => {
+    const publicConfig = clientCompilerConfig({ sourceMaps: 'public' });
+    assert.equal(publicConfig.devtool, 'source-map');
+    assert.equal(publicConfig.output.sourceMapFilename, undefined);
+
+    const none = clientCompilerConfig({ sourceMaps: false });
+    assert.equal(none.devtool, false);
+    assert.equal(none.output.sourceMapFilename, undefined);
+});

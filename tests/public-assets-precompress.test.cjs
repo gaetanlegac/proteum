@@ -16,7 +16,7 @@ process.env.TS_NODE_PROJECT = path.join(coreRoot, 'cli', 'tsconfig.json');
 process.env.TS_NODE_TRANSPILE_ONLY = '1';
 require('ts-node/register/transpile-only');
 
-const { precompressPublicAssets } = require('../cli/compiler/common/precompress.ts');
+const { finishProductionBuild, precompressPublicAssets } = require('../cli/compiler/common/precompress.ts');
 
 // A fake app root holding the built public files, as `proteum build` leaves them.
 const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-precompress-'));
@@ -274,4 +274,55 @@ test('a malformed URL answers as before the twins, and an uppercase .AVIF is ima
     const avif = await request(target, '/public/Photo.AVIF', { 'Accept-Encoding': 'gzip, br' });
     assert.equal(avif.headers['content-type'], 'image/avif');
     assert.equal(avif.headers['content-encoding'], undefined);
+});
+
+/*----------------------------------
+- THE END OF `proteum build`
+----------------------------------*/
+
+test('the end of a production build writes the twins of bin/public, after the identity assets', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-finish-build-'));
+    try {
+        const output = path.join(root, 'bin');
+        fs.mkdirSync(path.join(output, 'public', 'app'), { recursive: true });
+        fs.writeFileSync(path.join(output, 'public', 'client.1a2b3c4d.js'), script);
+        // The identity assets are written while the bundler runs; the twins wait for them.
+        let identityWritten = false;
+        const waitForIdentityAssets = async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            fs.writeFileSync(path.join(output, 'public', 'app', 'manifest.json'), JSON.stringify({ name: 'x'.repeat(2000) }));
+            identityWritten = true;
+        };
+
+        const report = await finishProductionBuild({ outputPath: output, waitForIdentityAssets });
+
+        assert.equal(identityWritten, true);
+        assert.equal(report.written, 2);
+        assert.equal(zlib.brotliDecompressSync(fs.readFileSync(path.join(output, 'public', 'client.1a2b3c4d.js.br'))).toString(), script);
+        assert.equal(fs.existsSync(path.join(output, 'public', 'app', 'manifest.json.br')), true);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('the end of a production build fails on a declared font it could not preload, before compressing', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proteum-finish-build-'));
+    try {
+        fs.mkdirSync(path.join(root, 'public'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'public', 'client.1a2b3c4d.js'), script);
+
+        await assert.rejects(
+            finishProductionBuild({ outputPath: root, preloadFontErrors: 'proteum.config.ts preloadFonts names no emitted font: brand.', waitForIdentityAssets: async () => undefined }),
+            /preloadFonts names no emitted font: brand/,
+        );
+        assert.equal(fs.existsSync(path.join(root, 'public', 'client.1a2b3c4d.js.br')), false);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('proteum build ends with that step on its own output', () => {
+    // The command is a script of side effects (clipanion, the app singleton): its source is what can be read.
+    const source = fs.readFileSync(path.join(coreRoot, 'cli/commands/build.ts'), 'utf8');
+    assert.match(source, /await finishProductionBuild\(\{\s*outputPath: app\.outputPath\('bin'\),\s*preloadFontErrors: compiler\.preloadFontErrors,\s*waitForIdentityAssets,\s*\}\)/);
 });

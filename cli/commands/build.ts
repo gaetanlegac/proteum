@@ -2,7 +2,6 @@
 - DEPENDANCES
 ----------------------------------*/
 
-import path from 'path';
 import { UsageError } from 'clipanion';
 
 // Core
@@ -21,7 +20,7 @@ import {
     hasBundleAnalysisServerOverrides,
     waitForClientBundleAnalysisArtifacts,
 } from '../compiler/common/bundleAnalysis';
-import { precompressPublicAssets } from '../compiler/common/precompress';
+import { finishProductionBuild } from '../compiler/common/precompress';
 import { waitForIdentityAssets } from '../compiler/client/identite';
 import { refreshGeneratedTypings, runAppTypecheck } from '../utils/check';
 import { renderRows } from '../presentation/layout';
@@ -165,11 +164,12 @@ export const run = async (): Promise<void> => {
 
     if (buildError) throw buildError;
 
-    if (compiler.preloadFontErrors) throw new Error(compiler.preloadFontErrors);
-
-    // Brotli 11 twins of the text files in public/, served to clients that accept `br`.
-    await waitForIdentityAssets();
-    const precompressed = await precompressPublicAssets(path.join(app.outputPath('bin'), 'public'));
+    // Declared fonts checked, then the Brotli 11 twins of the text files in public/, served to clients that accept `br`.
+    const precompressed = await finishProductionBuild({
+        outputPath: app.outputPath('bin'),
+        preloadFontErrors: compiler.preloadFontErrors,
+        waitForIdentityAssets,
+    });
     console.info(
         renderRows([
             {

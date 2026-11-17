@@ -131,3 +131,26 @@ export const precompressPublicAssets = async (publicDirectory: string): Promise<
 
     return report;
 };
+
+/*----------------------------------
+- END OF A PRODUCTION BUILD
+----------------------------------*/
+
+/**
+ * What `proteum build` does once the bundles are written: fail on a declared font it could not preload, wait
+ * for the identity assets, then write the Brotli twins of `<output>/public`.
+ */
+export const finishProductionBuild = async ({
+    outputPath,
+    preloadFontErrors,
+    waitForIdentityAssets,
+}: {
+    outputPath: string;
+    preloadFontErrors?: string;
+    waitForIdentityAssets: () => Promise<void>;
+}) => {
+    if (preloadFontErrors) throw new Error(preloadFontErrors);
+
+    await waitForIdentityAssets();
+    return await precompressPublicAssets(path.join(outputPath, 'public'));
+};
