@@ -49,9 +49,11 @@ Module._load = function patchedLoad(request, parent, isMain) {
 
 let HttpServer;
 let buildContentSecurityPolicyHeaders;
+let applyEdgeCachePolicy;
 try {
     ({ default: HttpServer } = require('../server/services/router/http/index.ts'));
     ({ buildContentSecurityPolicyHeaders } = require('../server/services/router/http/securityHeaders.ts'));
+    ({ applyEdgeCachePolicy } = require('../server/services/router/http/cache.ts'));
 } finally {
     Module._load = originalLoad;
 }
@@ -135,6 +137,18 @@ const createFakeRouterMiddleware = () => {
                 res.status(200);
                 res.header({ 'Content-Type': 'text/html; charset=utf-8' });
                 return res.send(cached);
+            }
+            case '/edge-cached':
+            case '/edge-cached-late-cookie': {
+                // As the router does for a route with `edgeCache`: the policy applied at send time. A listener
+                // registered earlier writes its cookie as the headers leave, through the prototype's setHeader
+                // (as the `cookies` package does), out of sight of anything wrapped on the response itself.
+                if (req.path === '/edge-cached-late-cookie')
+                    require('on-headers')(res, function () {
+                        http.OutgoingMessage.prototype.setHeader.call(this, 'Set-Cookie', 'session=member-1');
+                    });
+                applyEdgeCachePolicy(res, { maxAge: 600 }, { method: req.method, statusCode: 200 });
+                return res.send(html(req.path));
             }
             case '/api/throws':
             case '/throws':
@@ -665,5 +679,30 @@ test('the legacy serializer matches helmet 4.6 for every legacy list combination
 
     for (const csp of combos) {
         assert.equal(buildContentSecurityPolicyHeaders(csp).policy, legacyPolicyOf(csp), JSON.stringify(csp));
+    }
+});
+
+/*----------------------------------
+- EDGE CACHE GUARD
+----------------------------------*/
+
+test('the HTTP server turns an edge-cached answer private when a cookie leaves with its headers', async () => {
+    const request = await startServer();
+    const consoleWarn = console.warn;
+    const warnings = [];
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+        const late = await request('/edge-cached-late-cookie');
+        assert.equal(late.headers.get('set-cookie'), 'session=member-1');
+        assert.equal(late.headers.get('cache-control'), 'private, no-store');
+        assert.equal(late.headers.get('surrogate-control'), 'no-store');
+        assert.match(warnings.join('\n'), /Not cacheable at the edge: \/edge-cached-late-cookie sets a cookie as its headers are written/);
+
+        // Without the cookie, the policy leaves as applied.
+        const clean = await request('/edge-cached');
+        assert.equal(clean.headers.get('set-cookie'), null);
+        assert.equal(clean.headers.get('cache-control'), 'public, max-age=0, s-maxage=600');
+    } finally {
+        console.warn = consoleWarn;
     }
 });

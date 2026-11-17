@@ -560,6 +560,8 @@ test('a render carrying anything of its own request is never stored', () =>
         // A host or protocol that is not the app's own (it goes into the canonical).
         await send(origin, '/use-cases/host', { headers: { Host: 'evil.example' } });
         await send(origin, '/use-cases/forwarded-host', { headers: { 'X-Forwarded-Host': 'evil.example' } });
+        // A forged Host behind an X-Forwarded-Host that names the app: the raw Host still goes into the canonical.
+        await send(origin, '/use-cases/host-behind-forward', { headers: { Host: 'evil.example', 'X-Forwarded-Host': own } });
         await send(origin, '/use-cases/proto', { headers: { 'X-Forwarded-Proto': 'https' } });
         // A signed-in visitor.
         await send(origin, '/use-cases/member', { headers: { 'x-test-signed-in': '1' } });
@@ -583,7 +585,8 @@ test('bypasscache renders past the stored copy only on a loopback connection', (
         const origin = await serve(router, { before: [remote] });
 
         const fromOutside = await send(origin, '/legal', {
-            headers: { bypasscache: '1', 'x-test-remote': '1', 'Content-Type': 'application/json' },
+            // X-Forwarded-For says loopback: only the socket counts.
+            headers: { bypasscache: '1', 'x-test-remote': '1', 'X-Forwarded-For': '127.0.0.1', 'Content-Type': 'application/json' },
             body: JSON.stringify({ injected: 'by-bypasscache' }),
         });
         assert.equal(fromOutside.body, html('stored legal'));
