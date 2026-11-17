@@ -38,10 +38,12 @@ Module._load = function patchedLoad(request, parent, isMain) {
 let ServerRouter;
 let pageCache;
 let edgeCache;
+let sharedRender;
 try {
     ({ default: ServerRouter } = require('../server/services/router/index.ts'));
     pageCache = require('../server/services/router/pageCache.ts');
     edgeCache = require('../server/services/router/http/cache.ts');
+    sharedRender = require('../server/services/router/sharedRender.ts');
 } finally {
     Module._load = originalLoad;
 }
@@ -106,18 +108,46 @@ const createRouter = ({ routes = [], answer }) => {
 };
 
 const servers = [];
-const listen = (handler) =>
+const listen = (handler, { before = [] } = {}) =>
     new Promise((resolve) => {
         const app = express();
-        // As in the HTTP server: cookies are parsed before the router.
+        // As the HTTP server sets it (server/services/router/http/index.ts): one proxy hop is trusted.
+        app.set('trust proxy', 1);
+        // As in the HTTP server: the edge cache guard first, cookies and bodies parsed before the router.
+        app.use(edgeCache.edgeCacheHeaderGuard);
+        for (const middleware of before) app.use(middleware);
         app.use(require('cookie-parser')());
+        app.use(express.json());
+        app.use(require('express-fileupload')());
         // A router error answers 500 with its message instead of leaving the request hanging.
         app.use((req, res) => Promise.resolve(handler(req, res)).catch((error) => res.status(500).send(String(error && error.stack))));
         const server = app.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`));
         servers.push(server);
     });
 
-const serve = (router) => listen((req, res) => router.middleware(req, res));
+/** Serves the router as the HTTP server does; the router's own host is the test server's. */
+const serve = async (router, options) => {
+    const origin = await listen((req, res) => router.middleware(req, res), options);
+    router.config.currentDomain = origin;
+    router.http = { config: { port: Number(new URL(origin).port) } };
+    return origin;
+};
+
+/** Any method, headers and body, on its own connection (so a socket address set by a test stays with one request). */
+const send = (origin, requestPath, { method = 'GET', headers = {}, body } = {}) =>
+    new Promise((resolve, reject) => {
+        const { hostname, port } = new URL(origin);
+        // The raw path, so a bare `?` stays; the length, as Node sends no body on a GET without it.
+        const lengthHeader = body === undefined ? {} : { 'Content-Length': Buffer.byteLength(body) };
+        const options = { hostname, port, path: requestPath, method, agent: false, headers: { Accept: 'text/html', ...lengthHeader, ...headers } };
+        const req = http.request(options, (res) => {
+            let text = '';
+            res.on('data', (chunk) => (text += chunk));
+            res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: text }));
+        });
+        req.on('error', reject);
+        req.end(body);
+    });
 
 const get = (origin, requestPath, headers = {}) =>
     new Promise((resolve, reject) => {
@@ -180,30 +210,68 @@ test('an answer that sets a cookie is refused at the edge, sent private, no-stor
     }
 });
 
-test('a cookie written with the headers, after the policy, still turns the answer private', async () => {
-    const onHeaders = require('on-headers');
+/** Runs a request against an edge-cached route whose cookie arrives the way `before` writes it. */
+const edgeAnswerWithLateCookie = async (before) => {
     const router = createRouter({
         routes: [edgeRoute],
-        answer: (request) => {
-            // As session middlewares do: the cookie is added when the headers are written.
-            onHeaders(request.res, function () {
-                this.setHeader('Set-Cookie', 'sid=s1');
-            });
-            return { statusCode: 200, route: edgeRoute, headers: { 'Content-Type': 'text/html' }, data: html('pricing') };
-        },
+        answer: () => ({ statusCode: 200, route: edgeRoute, headers: { 'Content-Type': 'text/html' }, data: html('pricing') }),
     });
     const consoleWarn = console.warn;
     const warnings = [];
     console.warn = (...args) => warnings.push(args.join(' '));
     try {
-        const response = await get(await serve(router), '/pricing');
-
-        assert.equal(response.headers['set-cookie'][0], 'sid=s1');
-        assert.equal(response.headers['cache-control'], 'private, no-store');
-        assert.match(warnings.join('\n'), /sets the cookie\(s\) sid/);
+        const response = await send(await serve(router, { before: [before] }), '/pricing');
+        return { response, warnings };
     } finally {
         console.warn = consoleWarn;
     }
+};
+
+test('a cookie a headers listener writes through the prototype setHeader still turns the answer private', async () => {
+    const onHeaders = require('on-headers');
+    // As the `cookies` package does: a listener registered before the router, writing through the prototype.
+    const { response, warnings } = await edgeAnswerWithLateCookie((req, res, next) => {
+        onHeaders(res, function () {
+            http.OutgoingMessage.prototype.setHeader.call(this, 'Set-Cookie', 'session=member-1');
+        });
+        next();
+    });
+
+    assert.equal(response.headers['set-cookie'][0], 'session=member-1');
+    assert.equal(response.headers['cache-control'], 'private, no-store');
+    assert.equal(response.headers['surrogate-control'], 'no-store');
+    assert.match(warnings.join('\n'), /Not cacheable at the edge: \/pricing sets a cookie as its headers are written/);
+});
+
+test('a cookie written through a setHeader reference taken earlier, or given to writeHead, still turns the answer private', async () => {
+    const onHeaders = require('on-headers');
+    const captured = await edgeAnswerWithLateCookie((req, res, next) => {
+        const setHeader = res.setHeader;
+        onHeaders(res, function () {
+            setHeader.call(this, 'Set-Cookie', 'sid=s1');
+        });
+        next();
+    });
+    assert.equal(captured.response.headers['set-cookie'][0], 'sid=s1');
+    assert.equal(captured.response.headers['cache-control'], 'private, no-store');
+
+    const viaWriteHead = await edgeAnswerWithLateCookie((req, res, next) => {
+        // A layer that hands its cookie to writeHead itself, outside setHeader.
+        const writeHead = res.writeHead;
+        res.writeHead = function (statusCode, ...rest) {
+            return writeHead.call(this, statusCode, { 'Set-Cookie': 'late=1', 'Cache-Control': 'public, max-age=600' });
+        };
+        next();
+    });
+    assert.equal(viaWriteHead.response.headers['set-cookie'][0], 'late=1');
+    assert.equal(viaWriteHead.response.headers['cache-control'], 'private, no-store');
+});
+
+test('without a cookie, the guard leaves the edge policy as it is', async () => {
+    const { response, warnings } = await edgeAnswerWithLateCookie((req, res, next) => next());
+
+    assert.equal(response.headers['cache-control'], 'public, max-age=0, s-maxage=600, stale-while-revalidate=86400');
+    assert.deepEqual(warnings, []);
 });
 
 test('an answer with its own Cache-Control, or for a signed-in visitor, keeps its policy', async () => {
@@ -212,6 +280,21 @@ test('an answer with its own Cache-Control, or for a signed-in visitor, keeps it
         answer: () => ({ statusCode: 200, route: edgeRoute, headers: { 'Content-Type': 'text/html', 'Cache-Control': 'private, max-age=60' }, data: html('own') }),
     });
     assert.equal((await get(await serve(own), '/pricing')).headers['cache-control'], 'private, max-age=60');
+
+    // In lower case, or set on the Express response by the controller: still the answer's own.
+    const lowerCase = createRouter({
+        routes: [edgeRoute],
+        answer: () => ({ statusCode: 200, route: edgeRoute, headers: { 'Content-Type': 'text/html', 'cache-control': 'no-store' }, data: html('own') }),
+    });
+    assert.equal((await get(await serve(lowerCase), '/pricing')).headers['cache-control'], 'no-store');
+    const onResponse = createRouter({
+        routes: [edgeRoute],
+        answer: (request) => {
+            request.res.setHeader('Cache-Control', 'private, max-age=30');
+            return { statusCode: 200, route: edgeRoute, headers: { 'Content-Type': 'text/html' }, data: html('own') };
+        },
+    });
+    assert.equal((await get(await serve(onResponse), '/pricing')).headers['cache-control'], 'private, max-age=30');
 
     const member = createRouter({
         routes: [edgeRoute],
@@ -407,37 +490,127 @@ test('stale hits start at most four background renders at once, and the sweep sh
     pending.forEach(({ resolve }) => resolve());
 });
 
-test('a rendered page is stored only when it answered 200', async () => {
-    const router = createRouter({ routes: [staticRoute], answer: () => ({}) });
-    const written = [];
-    router.renderStatic = async (url, options, rendered) => written.push({ url, options, rendered });
+/**
+ * A router whose route stores like a page: the middleware builds the real ServerRequest, then the router's
+ * own write rule (`resolvedRoute`) decides. `writes` records what it would store.
+ */
+const createStoringRouter = (route, { status = 200 } = {}) => {
+    const writes = [];
+    const router = createRouter({
+        routes: [route],
+        answer: async (request, isStatic) => {
+            if (request.headers['x-test-signed-in']) request.user = { email: 'member@example.com' };
+            const response = {
+                request,
+                statusCode: status,
+                headers: { 'Content-Type': 'text/html' },
+                data: html(`page ${request.path}${isStatic ? ' (static)' : ''}`),
+                wasProvided: true,
+                route,
+                runController: async () => undefined,
+            };
+            if (!isStatic) await router.resolvedRoute(route, response, Date.now());
+            return response;
+        },
+    });
+    router.renderStatic = async (url, options, rendered) => writes.push({ url, rendered });
+    return { router, writes };
+};
+
+const quietly = async (run) => {
     const consoleLog = console.log;
     console.log = () => undefined;
     try {
-        await runResolvedRoute(router, staticRoute, { path: '/use-cases/missing', statusCode: 404, data: html('not found') });
-        await runResolvedRoute(router, staticRoute, { path: '/use-cases/down', statusCode: 503, data: html('down') });
-        assert.deepEqual(written, []);
-
-        await runResolvedRoute(router, staticRoute, { path: '/use-cases/c', statusCode: 200, data: html('c') });
-        assert.deepEqual(written, [{ url: '/use-cases/c', options: staticRoute.options.static, rendered: html('c') }]);
-
-        // A render every visitor would get must not carry one visitor's query string or session.
-        await runResolvedRoute(router, staticRoute, { path: '/use-cases/q', statusCode: 200, data: html('q') }, { method: 'GET', req: { query: { x: '</script>' } } });
-        await runResolvedRoute(router, staticRoute, { path: '/use-cases/u', statusCode: 200, data: html('u') }, { method: 'GET', req: { query: {} }, user: { email: 'm@example.com' } });
-        assert.equal(written.length, 1);
+        return await run();
     } finally {
         console.log = consoleLog;
     }
-});
+};
 
-test('renderStatic stores a 200 with its preloads, and keeps the stored copy when the render fails', async () => {
+test('a rendered page is stored only when it answered 200, and only from a GET', () =>
+    quietly(async () => {
+        for (const status of [404, 503]) {
+            const { router, writes } = createStoringRouter(staticRoute, { status });
+            await send(await serve(router), '/use-cases/missing');
+            assert.deepEqual(writes, [], String(status));
+        }
+
+        const { router, writes } = createStoringRouter(staticRoute);
+        const origin = await serve(router);
+        await send(origin, '/use-cases/c');
+        assert.deepEqual(writes.map(({ url }) => url), ['/use-cases/c']);
+
+        // Any other method, even one the route answers.
+        router.routes[0] = { ...staticRoute, method: '*' };
+        await send(origin, '/use-cases/post', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        assert.deepEqual(writes.map(({ url }) => url), ['/use-cases/c']);
+    }));
+
+test('a render carrying anything of its own request is never stored', () =>
+    quietly(async () => {
+        const { router, writes } = createStoringRouter(staticRoute);
+        const origin = await serve(router);
+        const own = new URL(origin).host;
+
+        // A JSON body on a GET (it lands in window.ssr.request.data).
+        await send(origin, '/use-cases/body', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ returnTo: 'https://evil.example/' }) });
+        // (A file cannot reach a GET's page data: express-fileupload parses only POST, PUT and PATCH.)
+        // Any query string, `?=x` and a bare `?` included.
+        for (const query of ['?a=1', '?=INJECTED', '?']) await send(origin, `/use-cases/query${encodeURIComponent(query)}${query}`);
+        // A host or protocol that is not the app's own (it goes into the canonical).
+        await send(origin, '/use-cases/host', { headers: { Host: 'evil.example' } });
+        await send(origin, '/use-cases/forwarded-host', { headers: { 'X-Forwarded-Host': 'evil.example' } });
+        await send(origin, '/use-cases/proto', { headers: { 'X-Forwarded-Proto': 'https' } });
+        // A signed-in visitor.
+        await send(origin, '/use-cases/member', { headers: { 'x-test-signed-in': '1' } });
+        assert.deepEqual(writes, []);
+
+        // The same path, clean, on the app's own host: stored.
+        await send(origin, '/use-cases/body', { headers: { Host: own } });
+        assert.deepEqual(writes.map(({ url }) => url), ['/use-cases/body']);
+    }));
+
+test('bypasscache renders past the stored copy only on a loopback connection', () =>
+    quietly(async () => {
+        const listed = pageRoute('/legal', { static: { refresh: '1 day', urls: ['/legal'] } });
+        const { router, writes } = createStoringRouter(listed);
+        pageCache.writePageCacheEntry(router.cache, '/legal', { rendered: html('stored legal'), options: listed.options.static, expire: Date.now() + 60_000 });
+        // The address a proxy or another machine connects from.
+        const remote = (req, res, next) => {
+            if (req.headers['x-test-remote']) Object.defineProperty(req.socket, 'remoteAddress', { value: '203.0.113.9', configurable: true });
+            next();
+        };
+        const origin = await serve(router, { before: [remote] });
+
+        const fromOutside = await send(origin, '/legal', {
+            headers: { bypasscache: '1', 'x-test-remote': '1', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ injected: 'by-bypasscache' }),
+        });
+        assert.equal(fromOutside.body, html('stored legal'));
+        assert.deepEqual(writes, []);
+
+        const fromLoopback = await send(origin, '/legal', { headers: { bypasscache: '1' } });
+        assert.equal(fromLoopback.body, html('page /legal'));
+        assert.deepEqual(writes.map(({ url }) => url), ['/legal']);
+
+        assert.equal(sharedRender.isLoopbackAddress('::ffff:127.0.0.1'), true);
+        assert.equal(sharedRender.isLoopbackAddress('::1'), true);
+        assert.equal(sharedRender.isLoopbackAddress('10.0.0.1'), false);
+        assert.equal(sharedRender.isLoopbackAddress(undefined), false);
+    }));
+
+test('renderStatic renders over loopback as the public host, stores a 200, keeps the copy on a failure', async () => {
     let status = 200;
+    const seen = [];
     const origin = await listen((req, res) => {
-        assert.equal(req.headers.bypasscache, '1');
+        seen.push({ path: req.path, host: req.headers.host, forwardedHost: req.headers['x-forwarded-host'], proto: req.headers['x-forwarded-proto'], bypass: req.headers.bypasscache, remote: req.socket.remoteAddress });
+        if (status === 302) return res.redirect(302, '/sign-in');
+        if (req.path === '/sign-in') return res.send(html('SIGN-IN PAGE'));
         res.status(status).send(html(`render ${status}`, preloadHead));
     });
     const router = createRouter({ routes: [staticRoute], answer: () => ({}) });
-    router.url = (url) => origin + url;
+    router.config.currentDomain = 'https://example.com';
+    router.http = { config: { port: Number(new URL(origin).port) } };
 
     await router.renderStatic('/use-cases/d', staticRoute.options.static);
     const stored = router.cache['/use-cases/d'];
@@ -445,16 +618,37 @@ test('renderStatic stores a 200 with its preloads, and keeps the stored copy whe
     assert.equal(stored.link, preloadLink);
     // `refresh: '5 minutes'`
     assert.ok(Math.abs(stored.expire - (Date.now() + 5 * 60_000)) < 2_000);
+    assert.deepEqual(seen[0], { path: '/use-cases/d', host: 'example.com', forwardedHost: 'example.com', proto: 'https', bypass: '1', remote: '127.0.0.1' });
 
     status = 503;
     await assert.rejects(router.renderStatic('/use-cases/d', staticRoute.options.static), /Static render returned 503/);
     assert.equal(router.cache['/use-cases/d'], stored);
+
+    // A redirect is not followed: its target is not stored under this path, and the copy stays.
+    status = 302;
+    await assert.rejects(router.renderStatic('/use-cases/d', staticRoute.options.static), /Static render returned 302/);
+    assert.equal(router.cache['/use-cases/d'], stored);
+    assert.deepEqual(seen.map(({ path }) => path), ['/use-cases/d', '/use-cases/d', '/use-cases/d']);
 
     // A page that is gone stops being served.
     status = 404;
     await assert.rejects(router.renderStatic('/use-cases/d', staticRoute.options.static), /Static render returned 404/);
     assert.equal(router.cache['/use-cases/d'], undefined);
 });
+
+test('a hit makes its page the most recently served: with a cap of 2, serving A then storing C evicts B', () =>
+    quietly(async () => {
+        const capped = pageRoute('/capped/:name', { static: { refresh: '1 hour', urls: ['*'], maxEntries: 2 } });
+        const router = createRouter({ routes: [capped], answer: () => ({ statusCode: 200, headers: {} }) });
+        const write = (url) => pageCache.writePageCacheEntry(router.cache, url, { rendered: html(url), options: capped.options.static, expire: Date.now() + 60_000 });
+        write('/capped/a');
+        write('/capped/b');
+        const origin = await serve(router);
+
+        assert.equal((await send(origin, '/capped/a')).body, html('/capped/a'));
+        assert.deepEqual(write('/capped/c'), ['/capped/b']);
+        assert.deepEqual(Object.keys(router.cache), ['/capped/a', '/capped/c']);
+    }));
 
 test('a route that holds any path keeps its maxEntries least recently served pages', () => {
     const options = { urls: ['*'], maxEntries: 2 };

@@ -13,7 +13,6 @@
 const { v4: uuid } = require('uuid') as { v4: () => string };
 import got from 'got';
 import type express from 'express';
-import onHeaders from 'on-headers';
 import zod, { ZodError } from 'zod';
 export { default as schema } from 'zod';
 
@@ -59,7 +58,6 @@ import HTTP, { Config as HttpServiceConfig, resolveHttpCacheConfig } from './htt
 import {
     applyEdgeCachePolicy,
     buildEdgeCacheControl,
-    guardEdgeCacheAfterPolicy,
     setCookieNames,
     type TEdgeCacheDecision,
 } from './http/cache';
@@ -72,6 +70,7 @@ import {
     type TPageCache,
     type TPageCacheEntry,
 } from './pageCache';
+import { acceptsCacheBypass, buildStaticSelfRenderRequest, isSharedPageRender } from './sharedRender';
 import DocumentRenderer from './response/page/document';
 import { loadGeneratedRuntimeBundle } from './generatedRuntime';
 
@@ -310,20 +309,29 @@ export default class ServerRouter<
         if (url === '*' || !url) throw new Error(`Unable to cache a dynamic or empty URL.`);
 
         if (rendered === undefined) {
-            const fullUrl = this.url(url, {}, true);
-            const response = await got(fullUrl, {
+            // Over loopback with the public host and protocol (./sharedRender.ts): a CDN copy or another
+            // instance's answer is never stored as fresh, and `bypasscache` is honoured from loopback only.
+            const selfRender = buildStaticSelfRenderRequest({
+                port: this.http.config.port,
+                currentDomain: this.config.currentDomain,
+                path: url,
+            });
+            const response = await got(selfRender.url, {
                 method: 'GET',
-                headers: { Accept: 'text/html', bypasscache: '1', 'x-proteum-static-warmup': '1' },
+                headers: selfRender.headers,
                 throwHttpErrors: false,
+                // A redirect is not the page: storing its target under this path would serve, say, the
+                // sign-in page for a page behind it.
+                followRedirect: false,
                 // A render that stalls or fails keeps the stored copy; the next stale hit or sweep tries again.
                 retry: { limit: 0 },
                 timeout: { request: staticRenderTimeoutMs },
             });
 
             if (response.statusCode !== 200) {
-                // The page is gone: stop serving it. A 5xx or a timeout keeps the stored copy.
+                // The page is gone: stop serving it. A 5xx, a redirect or a timeout keeps the stored copy.
                 if (response.statusCode === 404 || response.statusCode === 410) delete this.cache[url];
-                throw new Error(`Static render returned ${response.statusCode} for ${fullUrl}`);
+                throw new Error(`Static render returned ${response.statusCode} for ${url}`);
             }
 
             rendered = response.body;
@@ -719,7 +727,8 @@ export default class ServerRouter<
     public async middleware(req: express.Request, res: express.Response) {
         // Create request
         let requestId = uuid();
-        const cachedPage = req.headers['bypasscache'] ? undefined : touchPageCacheEntry(this.cache, req.path);
+        // `bypasscache` renders instead of answering the stored copy, for the router's own loopback renders only.
+        const cachedPage = acceptsCacheBypass(req) ? undefined : touchPageCacheEntry(this.cache, req.path);
         const cachedPageIsStale = cachedPage !== undefined && isPageCacheEntryStale(cachedPage);
         this.applyHtmlCacheHeaders(res, Boolean(cachedPage));
         const headers: HttpHeaders = Object.fromEntries(
@@ -1120,11 +1129,11 @@ export default class ServerRouter<
         // Only a 200 is stored: a page that answered 404 or 503 for this path renders again next time.
         if (response.request.path && route.options.static && response.statusCode === 200) {
             const staticUrls = route.options.static.urls.includes('*') ? [response.request.path] : route.options.static.urls;
-            // The page every visitor of the path will get: only from a GET with no query string and no
-            // signed-in user. Its query and user are written into its `window.ssr`, and the cache key is the path.
-            const request = response.request as ServerRequest<this> & { req?: { query?: object } };
+            // The page every visitor of the path will get: only a render with nothing of its own (./sharedRender.ts).
+            const request = response.request as ServerRequest<this> & { req?: express.Request };
             const isSharedRender =
-                request.method === 'GET' && !request.user && Object.keys(request.req?.query || {}).length === 0;
+                request.req !== undefined &&
+                isSharedPageRender(request.req, { signedIn: Boolean(request.user), currentDomain: this.config.currentDomain });
 
             for (const staticUrl of staticUrls) {
                 if (!staticUrl) continue;
@@ -1248,15 +1257,26 @@ export default class ServerRouter<
                 `Not cacheable at the edge: ${request.path} sets the cookie(s) ${setCookieNames(res.getHeader('Set-Cookie')).join(', ')}. ` +
                     'The answer is sent private, no-store.',
             );
+        // A Cache-Control the answer set itself, in any case, in its headers or on the Express response: the
+        // router's own default is the value `applyHtmlCacheHeaders` wrote at the start of the request.
+        const ownHeader = Object.keys(response.headers).find((name) => name.toLowerCase() === 'cache-control');
+        const current = res.getHeader('Cache-Control');
+        const ownCacheControl =
+            ownHeader !== undefined
+                ? String(response.headers[ownHeader])
+                : current !== undefined && String(current) !== this.htmlCacheControlOf(res)
+                  ? String(current)
+                  : undefined;
         const decision = applyEdgeCachePolicy(res, route?.options.edgeCache, {
             method: request.method,
             statusCode: response.statusCode,
-            ownCacheControl: response.headers['Cache-Control'],
+            ownCacheControl,
             signedIn: Boolean(request.user),
         });
 
+        // An answer that sets a cookie later, as its headers are written, is caught by the HTTP server's
+        // innermost guard (`installEdgeCacheHeaderGuard`).
         if (decision === 'refused-cookie') logRefusal();
-        if (decision === 'applied') guardEdgeCacheAfterPolicy(res, onHeaders, logRefusal);
 
         return decision;
     }
@@ -1272,5 +1292,13 @@ export default class ServerRouter<
         }
 
         res.setHeader('Cache-Control', htmlCache.cacheControl);
+        htmlCacheControls.set(res, htmlCache.cacheControl);
+    }
+
+    private htmlCacheControlOf(res: express.Response) {
+        return htmlCacheControls.get(res);
     }
 }
+
+// The Cache-Control the router itself gave each answer, to tell it from one the answer set.
+const htmlCacheControls = new WeakMap<express.Response, string>();

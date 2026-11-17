@@ -53,6 +53,7 @@ import { createRuntimeProteumMcpProvider } from '@server/app/devMcp';
 import { isMutipart, MiddlewareFormData } from './multipart';
 import { createPublicStaticHandler } from './precompressed';
 import {
+    edgeCacheHeaderGuard,
     resolveHttpCacheConfig,
     resolvePublicAssetCacheControl,
     type THttpCacheConfig,
@@ -445,6 +446,10 @@ export default class HttpServer<TRouter extends TServerRouter = TServerRouter> {
 
         // Built once: a malformed policy fails the boot, never a response.
         const contentSecurityPolicyHeaders = buildContentSecurityPolicyHeaders(this.config.csp);
+
+        // First of all: its `writeHead` wrapper is the innermost, so it sees every cookie an answer carries
+        // when an edge policy was applied (./cache.ts, installEdgeCacheHeaderGuard).
+        routes.use(edgeCacheHeaderGuard as express.RequestHandler);
 
         // Base headers on every answer, `/api` included (docs/http-security-headers.md).
         routes.use(helmet(this.config.helmet));

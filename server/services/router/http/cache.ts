@@ -196,37 +196,63 @@ export const applyEdgeCachePolicy = (
     res.removeHeader('Surrogate-Control');
     // `Expires: 0` (set by every page render) would read as "already stale" to an HTTP/1.0 cache.
     res.removeHeader('Expires');
+    (res as TGuardedResponse)[edgeCacheAppliedMark] = true;
     return 'applied';
 };
 
-/**
- * Keeps the refusal true after the policy is set: a cookie added later, by `res.cookie`, `setHeader` or a
- * listener that writes it with the headers (as session libraries do, through `on-headers`), turns the
- * answer back to `private, no-store`. `setHeader` is watched for the cookies written after this call;
- * the headers listener catches any other way in. `onRefused` runs once.
- */
-export const guardEdgeCacheAfterPolicy = (
-    res: TEdgeCacheResponse & { setHeader(name: string, value: any): unknown },
-    onHeaders: (res: any, listener: () => void) => void,
-    onRefused: () => void,
-) => {
-    let refused = false;
-    const refuse = () => {
-        if (refused) return;
-        refused = true;
-        refuseEdgeCache(res);
-        onRefused();
-    };
+/** Marks an answer that carries an applied edge policy, for the header guard below. */
+export const edgeCacheAppliedMark = Symbol('proteum.edgeCacheApplied');
 
-    const setHeader = res.setHeader;
-    res.setHeader = function guardedSetHeader(this: unknown, name: string, value: any) {
-        const result = setHeader.call(this, name, value);
-        if (String(name).toLowerCase() === 'set-cookie' && hasSetCookie(res)) refuse();
-        return result;
+type TGuardedResponse = TEdgeCacheResponse & {
+    writeHead: (...args: any[]) => any;
+    req?: { path?: string; originalUrl?: string };
+    [edgeCacheAppliedMark]?: boolean;
+};
+
+const headersArgumentSetsCookie = (headers: unknown) => {
+    if (Array.isArray(headers))
+        return headers.some((entry, index) =>
+            Array.isArray(entry) ? String(entry[0]).toLowerCase() === 'set-cookie' : index % 2 === 0 && String(entry).toLowerCase() === 'set-cookie',
+        );
+    return headers !== null && typeof headers === 'object' && Object.keys(headers).some((name) => name.toLowerCase() === 'set-cookie');
+};
+
+/**
+ * The last check before an answer leaves: installed as the first middleware of `HttpServer.start()`, so its
+ * `writeHead` wrapper is the innermost one and runs after every headers listener (`on-headers` wraps later,
+ * outside it) and whatever way a cookie was written (`res.cookie`, `setHeader`, the prototype's `setHeader`,
+ * a reference taken earlier, or the headers given to `writeHead`). An answer with an applied edge policy
+ * that carries `Set-Cookie` is sent `private, no-store`, and logged.
+ */
+export const installEdgeCacheHeaderGuard = (res: TGuardedResponse) => {
+    const writeHead = res.writeHead;
+
+    res.writeHead = function guardedWriteHead(this: unknown, ...args: any[]) {
+        if (res[edgeCacheAppliedMark]) {
+            const headersArgument = args.find((argument, index) => index > 0 && argument !== null && typeof argument === 'object');
+            if (hasSetCookie(res) || headersArgumentSetsCookie(headersArgument)) {
+                res[edgeCacheAppliedMark] = false;
+                refuseEdgeCache(res);
+                // Headers given to writeHead win over setHeader: the refusal goes there too.
+                if (headersArgument && !Array.isArray(headersArgument))
+                    for (const name of Object.keys(headersArgument))
+                        if (['cache-control', 'surrogate-control'].includes(name.toLowerCase())) delete headersArgument[name];
+                console.warn(
+                    '[router]',
+                    `Not cacheable at the edge: ${res.req?.originalUrl || res.req?.path || ''} sets a cookie as its headers are written. ` +
+                        'The answer is sent private, no-store.',
+                );
+            }
+        }
+
+        return writeHead.apply(this, args);
     };
-    onHeaders(res, () => {
-        if (hasSetCookie(res)) refuse();
-    });
+};
+
+/** The guard as the first middleware of the HTTP server. */
+export const edgeCacheHeaderGuard = (_req: unknown, res: TGuardedResponse, next: () => void) => {
+    installEdgeCacheHeaderGuard(res);
+    next();
 };
 
 /** The names of the cookies an answer sets, for the log line of a refused edge cache. */
